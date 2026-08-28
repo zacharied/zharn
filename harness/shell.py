@@ -264,6 +264,17 @@ class Reloader(QObject):
             self.load()
         self.watcher.rewatch()
 
+    def shutdown(self):
+        """Delete the QML generation before Python tears down the stores it binds to (else every
+        binding re-evaluates against null and floods the log at exit). Stays muted afterwards."""
+        self._suppress_messages = True
+        if self.engine is not None:
+            for r in self.engine.rootObjects():
+                r.deleteLater()
+            self.engine.deleteLater()
+            self.engine = None
+            QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
     @Slot()
     def restart(self):
         from PySide6.QtGui import QGuiApplication

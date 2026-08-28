@@ -61,7 +61,9 @@ def main():
                 reloader.engine.rootObjects()[-1].grabWindow().save(shot)
             app.quit()
         QTimer.singleShot(int(os.environ["HARNESS_EXIT_AFTER_MS"]), finish)
-    sys.exit(app.exec())
+    rc = app.exec()
+    reloader.shutdown()
+    sys.exit(rc)
 
 
 if __name__ == "__main__":
