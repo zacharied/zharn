@@ -27,6 +27,7 @@ Rectangle {
         Repeater {
             model: strip.dock ? strip.dock.panels : []
             delegate: Rectangle {
+                objectName: "stripButton_" + modelData
                 readonly property bool isActive: strip.dock.active === modelData && strip.dock.mode === "docked"
                 width: strip.vertical ? 30 : label.implicitWidth + 18
                 height: strip.vertical ? label.implicitWidth + 18 : 30

@@ -58,6 +58,7 @@ Rectangle {
                             color: current ? app.theme.text : app.theme.textMuted
                         }
                         Text {
+                            objectName: "tabClose_" + modelData.kind + "_" + modelData.key
                             text: "×"; anchors.right: parent.right; anchors.rightMargin: 10; anchors.verticalCenter: parent.verticalCenter
                             color: closeHover.hovered ? app.theme.text : app.theme.textMuted; font.pixelSize: 15
                             HoverHandler { id: closeHover }
@@ -113,8 +114,9 @@ Rectangle {
                 anchors { right: parent.right; verticalCenter: parent.verticalCenter; rightMargin: 6 }
                 spacing: 2
                 Repeater {
-                    model: [{ t: "◧", o: "horizontal", tip: "Split right" }, { t: "⬒", o: "vertical", tip: "Split down" }]
+                    model: [{ t: "◧", o: "horizontal", tip: "Split right", name: "splitRight" }, { t: "⬒", o: "vertical", tip: "Split down", name: "splitDown" }]
                     delegate: Label {
+                        objectName: modelData.name + "_" + group.groupId
                         text: modelData.t; padding: 4; color: sh.hovered ? app.theme.text : app.theme.textMuted
                         HoverHandler { id: sh }
                         TapHandler { onTapped: app.layout.splitGroup(group.groupId, modelData.o) }

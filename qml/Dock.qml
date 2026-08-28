@@ -21,6 +21,7 @@ Rectangle {
                 Repeater {  // quick switch between panels living on this side
                     model: dockItem.dock.panels.length > 1 ? dockItem.dock.panels : []
                     delegate: Label {
+                        objectName: "dockPanel_" + modelData
                         text: app.content.iconFor(modelData)
                         color: modelData === dockItem.dock.active ? app.theme.text : app.theme.textMuted
                         padding: 4
@@ -28,6 +29,7 @@ Rectangle {
                     }
                 }
                 Label {
+                    objectName: "dockHide_" + dockItem.side
                     text: "—"; color: app.theme.textMuted; padding: 4
                     TapHandler { onTapped: app.layout.setDockMode(dockItem.side, "strip") }
                     ToolTip.visible: hh.hovered; ToolTip.text: "Hide"; HoverHandler { id: hh }

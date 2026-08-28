@@ -13,6 +13,7 @@ from PySide6.QtCore import QObject, Property, Signal, Slot
 
 from harness import config as cfg
 from harness.agents import ClaudeCodeProcess, StreamInterpreter, TranscriptModel
+from harness.notify import intent
 from harness.qmodels import DictListModel
 
 THREAD_ROLES = ["id", "title", "taskKey", "status", "presetName", "parentId", "costUsd", "turns", "createdAt"]
@@ -76,6 +77,9 @@ class Thread(QObject):
     @Property(QObject, constant=True)
     def transcriptModel(self): return self.transcript
 
+    @property
+    def notifier(self): return getattr(self._store, "notifier", None)
+
     def last_assistant_text(self) -> str:
         for row in reversed(self.transcript.rows()):
             if row["role"] == "assistant" and row["kind"] == "text" and row["text"].strip():
@@ -133,6 +137,7 @@ class Thread(QObject):
         self.send(prompt)
 
     @Slot(str)
+    @intent
     def send(self, text: str):
         text = (text or "").strip()
         if not text:
@@ -148,6 +153,7 @@ class Thread(QObject):
         self._proc.send_user(text)
 
     @Slot()
+    @intent
     def stop(self):
         if self._proc and self._proc.running():
             self._proc.stop()
@@ -204,6 +210,7 @@ class Thread(QObject):
 class ThreadStore(QObject):
     threadsChanged = Signal()
     threadSettled = Signal(str)
+    notifier = None
 
     def __init__(self, root: Path, data_dir: Path, presets, parent=None):
         super().__init__(parent)
@@ -244,6 +251,7 @@ class ThreadStore(QObject):
     @Slot(str, str, str, result=str)
     @Slot(str, str, str, str, result=str)
     @Slot(str, str, str, str, str, result=str)
+    @intent
     def spawn(self, task_key: str, preset_name: str, prompt: str, parent_id: str = "", title: str = "") -> str:
         preset = self.presets.get(preset_name)
         if not preset:
@@ -267,12 +275,14 @@ class ThreadStore(QObject):
         return self._threads.get(thread_id)
 
     @Slot(str, str)
+    @intent
     def send(self, thread_id: str, text: str):
         t = self._threads.get(thread_id)
         if t:
             t.send(text)
 
     @Slot(str)
+    @intent
     def stop(self, thread_id: str):
         t = self._threads.get(thread_id)
         if t:

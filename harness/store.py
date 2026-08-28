@@ -8,6 +8,7 @@ from pathlib import Path
 from PySide6.QtCore import Property, QObject, Signal, Slot
 
 from harness import layout as layout_mod
+from harness.notify import Notifier, intent
 
 
 class Session:
@@ -30,6 +31,7 @@ class Session:
 
 class LayoutStore(QObject):
     layoutChanged = Signal()
+    notifier = None
 
     def __init__(self, session: Session):
         super().__init__()
@@ -53,21 +55,25 @@ class LayoutStore(QObject):
     # -- intents (QML → Python). Names mirror harness.layout.Layout.
     @Slot(str, str, str)
     @Slot(str, str, str, str)
+    @intent
     def openContent(self, kind, key, title, group_id=""):
         self._layout.open(kind, key or None, title or None, group_id or None)
         self._commit()
 
     @Slot(str, int)
+    @intent
     def activateTab(self, group_id, index):
         self._layout.activate(group_id, index)
         self._commit()
 
     @Slot(str, int)
+    @intent
     def closeTab(self, group_id, index):
         self._layout.close(group_id, index)
         self._commit()
 
     @Slot(str, str)
+    @intent
     def splitGroup(self, group_id, orientation):
         g = self._layout.find(group_id)[0]
         active = g["tabs"][g["active"]] if g["tabs"] else None
@@ -75,41 +81,55 @@ class LayoutStore(QObject):
         self._commit()
 
     @Slot(str, int, str, int)
+    @intent
     def moveTab(self, from_group, index, to_group, to_index):
         self._layout.move(from_group, index, to_group, None if to_index < 0 else to_index)
         self._commit()
 
     @Slot(str, int, str, str)
+    @intent
     def moveTabToEdge(self, from_group, index, target_group, edge):
         self._layout.move_to_edge(from_group, index, target_group, edge)
         self._commit()
 
     @Slot(str, "QVariantList")
+    @intent
     def setRatios(self, split_id, ratios):
         self._layout.set_ratios(split_id, [float(r) for r in ratios])
         self._commit()
 
     @Slot(str, str)
+    @intent
     def togglePanel(self, side, panel):
         self._layout.toggle_panel(side, panel)
         self._commit()
 
+    @Slot(str)
+    @intent
+    def showPanel(self, panel):
+        self._layout.show_panel(panel)
+        self._commit()
+
     @Slot(str, str)
+    @intent
     def setDockMode(self, side, mode):
         self._layout.set_dock_mode(side, mode)
         self._commit()
 
     @Slot(str, int)
+    @intent
     def setDockSize(self, side, size):
         self._layout.set_dock_size(side, size)
         self._commit()
 
     @Slot(str, str)
+    @intent
     def movePanel(self, panel, to_side):
         self._layout.move_panel(panel, to_side)
         self._commit()
 
     @Slot()
+    @intent
     def resetLayout(self):
         self._layout = layout_mod.Layout()
         self._commit()
@@ -119,22 +139,22 @@ class AppStore(QObject):
     """Root object QML sees as `app`."""
     themeChanged = Signal()
     hotChanged = Signal()
-    statusChanged = Signal()
 
     def __init__(self, session: Session, layout_store: LayoutStore, content, theme: dict,
-                 threads=None, presets=None, tasks=None):
+                 threads=None, presets=None, tasks=None, notifier=None):
         super().__init__()
         self._session = session
         self._layout = layout_store
         self._content = content
         self._threads, self._presets, self._tasks = threads, presets, tasks
+        self._notify = notifier or Notifier()
+        self._notify.setParent(self)
         self._ipc_path = ""
         self._theme = dict(theme)
         self._generation = 0
         self._reload_error = ""
         self._restart_required = False
         self._watch_mode = "-"
-        self._status = "ready"
 
     @Property(QObject, constant=True)
     def layout(self):
@@ -155,6 +175,10 @@ class AppStore(QObject):
     @Property(QObject, constant=True)
     def tasks(self):
         return self._tasks
+
+    @Property(QObject, constant=True)
+    def notify(self):
+        return self._notify
 
     @Property(str, constant=True)
     def ipcPath(self):
@@ -195,15 +219,6 @@ class AppStore(QObject):
         if watch_mode is not None:
             self._watch_mode = watch_mode
         self.hotChanged.emit()
-
-    @Property(str, notify=statusChanged)
-    def status(self):
-        return self._status
-
-    @Slot(str)
-    def setStatus(self, text):
-        self._status = text
-        self.statusChanged.emit()
 
     # -- window geometry persistence
     @Slot(int, int, int, int)

@@ -88,15 +88,27 @@ ApplicationWindow {
         Rectangle { width: parent.width; height: 1; color: app.theme.border }
         RowLayout {
             anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 10; spacing: 16
-            Label { text: app.status; color: app.theme.textMuted }
+            Label { objectName: "statusText"; text: app.notify.status; color: app.theme.textMuted }
+            Label {
+                objectName: "errorBanner"
+                text: app.notify.lastError ? "✗ " + app.notify.lastError.split("\n")[0] : ""
+                color: "#e5534b"; elide: Text.ElideRight; Layout.fillWidth: true
+                visible: !!app.notify.lastError
+            }
+            Label {
+                objectName: "errorDismiss"; visible: !!app.notify.lastError
+                text: "✕"; color: app.theme.textMuted; padding: 2
+                TapHandler { onTapped: app.notify.dismiss() }
+            }
             Label {
                 objectName: "reloadError"
                 text: app.reloadError ? "⚠ " + app.reloadError.split("\n")[0] : ""
                 color: "#f0a732"; elide: Text.ElideRight; Layout.fillWidth: true
                 visible: !!app.reloadError
             }
-            Item { Layout.fillWidth: !app.reloadError }
+            Item { Layout.fillWidth: !app.reloadError && !app.notify.lastError }
             Rectangle {
+                objectName: "restartBadge"
                 visible: app.restartRequired
                 color: app.theme.accent; radius: 3; height: 18; width: restartLabel.implicitWidth + 16
                 Label { id: restartLabel; anchors.centerIn: parent; text: "shape changed — restart"; color: "white"; font.pixelSize: 11 }

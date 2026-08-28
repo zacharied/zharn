@@ -39,6 +39,7 @@ def build(argv=None, force_poll=False):
     import harness.config as cfg
     from harness.content import ContentRegistry
     from harness.ipc import IpcServer, make_handler
+    from harness.notify import Notifier
     from harness.presets import PresetStore
     from harness.shell import QML_DIR, Reloader
     from harness.store import AppStore, LayoutStore, Session
@@ -57,7 +58,11 @@ def build(argv=None, force_poll=False):
     presets = PresetStore(data_dir)
     threads = ThreadStore(ROOT, data_dir, presets)
     tasks = TaskStore(data_dir, threads)
-    store = AppStore(session, layout_store, content, cfg.THEME, threads=threads, presets=presets, tasks=tasks)
+    notifier = Notifier()
+    for s in (layout_store, presets, threads, tasks):
+        s.notifier = notifier  # @intent slots report here; the status bar shows it
+    store = AppStore(session, layout_store, content, cfg.THEME, threads=threads, presets=presets, tasks=tasks,
+                     notifier=notifier)
     ipc = IpcServer(f"my-harness-{os.getpid()}", make_handler(store), parent=store)
     store._ipc_path = ipc.path
     threads.extra_env = lambda: {"HARNESS_IPC": ipc.path}

@@ -8,6 +8,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, Property, Signal, Slot
 
+from harness.notify import intent
 from harness.qmodels import DictListModel
 
 STATUSES = ["backlog", "todo", "in_progress", "in_review", "done", "canceled"]
@@ -27,6 +28,7 @@ DEMO = [
 
 class TaskStore(QObject):
     tasksChanged = Signal()
+    notifier = None
 
     def __init__(self, data_dir: Path, threads, prefix: str = "ABC", parent=None):
         super().__init__(parent)
@@ -81,6 +83,7 @@ class TaskStore(QObject):
         return [self._row(t) for t in self._tasks]
 
     @Slot(str, str, result=str)
+    @intent
     def create(self, title, description=""):
         t = {"key": f"{self._prefix}-{self._next}", "title": title, "status": "todo", "priority": "medium",
              "description": description, "createdAt": time.time()}
@@ -91,6 +94,7 @@ class TaskStore(QObject):
         return t["key"]
 
     @Slot(str, str)
+    @intent
     def setStatus(self, key, status):
         t = self._find(key)
         if t and status in STATUSES:
@@ -100,6 +104,7 @@ class TaskStore(QObject):
 
     @Slot(str, str, str, result=str)
     @Slot(str, str, str, str, result=str)
+    @intent
     def dispatch(self, key, preset_name, prompt, parent_id="") -> str:
         """bb-style: task context + report-back contract + the user's prompt → new thread."""
         t = self._find(key)

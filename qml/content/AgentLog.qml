@@ -17,6 +17,7 @@ ContentBase {
             required property string presetName
             required property string parentId
             required property double costUsd
+            objectName: "agentLogRow_" + id
             width: ListView.view.width; height: 30; radius: 4
             color: hh.hovered ? app.theme.panel : "transparent"
             RowLayout {

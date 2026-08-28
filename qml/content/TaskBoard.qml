@@ -9,10 +9,14 @@ ContentBase {
         { status: "backlog", title: "Backlog" }, { status: "todo", title: "To do" },
         { status: "in_progress", title: "In progress" }, { status: "in_review", title: "In review" }, { status: "done", title: "Done" }
     ]
+    // Columns flow: side by side when there is room, stacked when docked in a narrow panel.
     Flickable {
-        anchors.fill: parent; anchors.margins: 10; contentWidth: row.width; clip: true
-        Row {
-            id: row; spacing: 10
+        id: flick
+        anchors.fill: parent; anchors.margins: 10; clip: true
+        contentWidth: width; contentHeight: row.height
+        ScrollBar.vertical: ScrollBar {}
+        Flow {
+            id: row; width: flick.width; spacing: 10
             Repeater {
                 model: columns
                 delegate: Rectangle {
@@ -31,6 +35,7 @@ ContentBase {
                                 required property string priority
                                 required property int threadCount
                                 required property int workingCount
+                                objectName: "card_" + key
                                 visible: status === modelData.status
                                 Layout.fillWidth: true; height: visible ? card.implicitHeight + 16 : 0
                                 radius: 4; color: app.theme.bg; border.color: app.theme.border
@@ -53,6 +58,7 @@ ContentBase {
                             }
                         }
                         Label {
+                            objectName: "newTaskButton"
                             visible: modelData.status === "todo"
                             text: "+ new task"; color: app.theme.textMuted; font.pixelSize: 11
                             TapHandler { onTapped: { var k = app.tasks.create("New task", ""); app.layout.openContent("task", k, k) } }

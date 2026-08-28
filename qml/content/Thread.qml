@@ -10,7 +10,14 @@ ContentBase {
     readonly property bool busy: thread ? (thread.status === "working" || thread.status === "starting") : false
     readonly property var statusColor: ({ starting: "#f0a732", working: "#3574f0", idle: "#5fb865", failed: "#e5534b", stopped: "#868a91" })
 
+    Label {
+        objectName: "threadMissing"; visible: !view.thread
+        anchors.centerIn: parent; width: parent.width - 40; wrapMode: Text.Wrap; horizontalAlignment: Text.AlignHCenter
+        text: "Thread " + tabKey + " not found — it may have been removed, or the tab is stale."; color: app.theme.textMuted
+    }
+
     ColumnLayout {
+        visible: !!view.thread
         anchors.fill: parent; spacing: 0
 
         // ---- header
@@ -20,13 +27,13 @@ ContentBase {
                 anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 12; spacing: 10
                 Rectangle { width: 9; height: 9; radius: 5; color: view.thread ? view.statusColor[view.thread.status] || "gray" : "gray"
                             SequentialAnimation on opacity { running: view.busy; loops: Animation.Infinite; NumberAnimation { to: 0.2; duration: 600 } NumberAnimation { to: 1; duration: 600 } } }
-                Label { text: view.thread ? view.thread.title : "(unknown thread " + tabKey + ")"; color: app.theme.text; font.bold: true; elide: Text.ElideRight; Layout.fillWidth: true }
-                Label { text: view.thread ? view.thread.status : ""; color: app.theme.textMuted; font.pixelSize: 11 }
-                Label { text: view.thread && view.thread.taskKey ? view.thread.taskKey : ""; color: app.theme.accent; font.pixelSize: 11
+                Label { objectName: "threadTitle"; text: view.thread ? view.thread.title : ""; color: app.theme.text; font.bold: true; elide: Text.ElideRight; Layout.fillWidth: true }
+                Label { objectName: "threadStatus"; text: view.thread ? view.thread.status : ""; color: app.theme.textMuted; font.pixelSize: 11 }
+                Label { objectName: "threadTaskLink"; text: view.thread && view.thread.taskKey ? view.thread.taskKey : ""; color: app.theme.accent; font.pixelSize: 11
                         TapHandler { onTapped: app.layout.openContent("task", view.thread.taskKey, view.thread.taskKey) } }
                 Label { text: view.thread ? view.thread.model : ""; color: app.theme.textMuted; font.pixelSize: 11 }
                 Label { text: view.thread ? "$" + view.thread.costUsd.toFixed(3) : ""; color: app.theme.textMuted; font.pixelSize: 11 }
-                Label { visible: view.busy; text: "■ stop"; color: app.theme.textMuted; TapHandler { onTapped: view.thread.stop() } }
+                Label { objectName: "stopButton"; visible: view.busy; text: "■ stop"; color: app.theme.textMuted; TapHandler { onTapped: view.thread.stop() } }
             }
             Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: app.theme.border }
         }
@@ -121,9 +128,9 @@ ContentBase {
                         Keys.onPressed: (e) => { if ((e.key === Qt.Key_Return || e.key === Qt.Key_Enter) && (e.modifiers & Qt.ControlModifier)) { send(); e.accepted = true } }
                         function send() { if (text.trim().length && view.thread) { view.thread.send(text); text = "" } }
                     }
-                    Button { text: "Send"; enabled: !!view.thread && prompt.text.trim().length > 0; onClicked: prompt.send() }
+                    Button { objectName: "sendButton"; text: "Send"; enabled: !!view.thread && prompt.text.trim().length > 0; onClicked: prompt.send() }
                 }
-                Label { visible: !!(view.thread && view.thread.lastError); text: view.thread ? view.thread.lastError : ""; color: "#e5534b"; font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideRight }
+                Label { objectName: "threadError"; visible: !!(view.thread && view.thread.lastError); text: view.thread ? view.thread.lastError : ""; color: "#e5534b"; font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideRight }
             }
         }
     }
