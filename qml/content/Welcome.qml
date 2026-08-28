@@ -8,12 +8,15 @@ ContentBase {
         anchors.fill: parent; anchors.margins: 14; spacing: 8
         Label { text: "Welcome to my-harness" + (tabKey && tabKey !== "welcome" ? " · " + tabKey : ""); color: app.theme.text; font.pixelSize: 16; font.bold: true }
         Label { text: "Native Qt. Your fork is your config. Edit qml/ or harness/ and watch it reload."; color: app.theme.textMuted; wrapMode: Text.Wrap; Layout.fillWidth: true }
+        Label { text: "Every conversation belongs to a task. Open the board, pick or create a task, and dispatch an agent from its tab."; color: app.theme.textMuted; wrapMode: Text.Wrap; Layout.fillWidth: true }
         Row { spacing: 8
-            Button { text: "Open a thread"; onClicked: app.layout.openContent("thread", "thr_demo1", "claude: fix tests") }
-            Button { text: "Open task ABC-12"; onClicked: app.layout.openContent("task", "ABC-12", "ABC-12 Hot reload") }
-            Button { text: "Open a document"; onClicked: app.layout.openContent("document", "harness/layout.py", "layout.py") }
-            Button { text: "Reset layout"; onClicked: app.layout.resetLayout() }
+            Button { objectName: "welcomeOpenBoard"; text: "Task board"; onClicked: app.layout.showPanel("tasks") }
+            Button { objectName: "welcomeNewTask"; text: "New task"
+                     onClicked: { var k = app.tasks.create("New task", ""); if (k) app.layout.openContent("task", k, k) } }
+            Button { objectName: "welcomeAgentLog"; text: "Agent log"; onClicked: app.layout.showPanel("agent_log") }
+            Button { objectName: "welcomeReset"; text: "Reset layout"; onClicked: app.layout.resetLayout() }
         }
+        Label { text: "Agents can drive this app too: $HARNESS_CLI thread spawn --preset claude-fast --prompt \"...\" --wait"; color: app.theme.textMuted; font.family: app.theme.monoFamily; font.pixelSize: 11; wrapMode: Text.Wrap; Layout.fillWidth: true }
         Item { Layout.fillHeight: true }
     }
 }

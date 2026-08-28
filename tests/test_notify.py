@@ -81,3 +81,23 @@ def test_intent_body_is_hot_swappable(tmp_path, monkeypatch):
     assert not changed
     assert inst.value() == 2
     sys.modules.pop("intentmod", None)
+
+
+class Outer(QObject):
+    def __init__(self, notifier):
+        super().__init__()
+        self.notifier = notifier
+        self.inner = Store(notifier)
+
+    @Slot(str, result=str)
+    @intent
+    def act(self, what):
+        return self.inner.act(what)
+
+
+def test_nested_intents_report_an_error_only_once():
+    n = Notifier()
+    with pytest.raises(ValueError):
+        Outer(n).act("bad")
+    assert n.lastError == "act: no good"
+    assert len(n.history()) == 1

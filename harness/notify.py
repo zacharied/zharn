@@ -62,7 +62,11 @@ def intent(fn):
             return body(self, *args, **kwargs)
         except Exception as e:
             notifier = getattr(self, "notifier", None)
-            if notifier is not None:
+            if notifier is not None and not getattr(e, "_harness_reported", False):
                 notifier.error(f"{name}: {e}")
+                try:
+                    e._harness_reported = True  # nested intents: report once, at the innermost
+                except AttributeError:
+                    pass
             raise
     return wrapper
