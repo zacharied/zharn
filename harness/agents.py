@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 import shlex
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -123,18 +124,34 @@ class ClaudeCodeProcess(QObject):
         if system_prompt:
             args += ["--append-system-prompt", system_prompt]
         args += list(extra_args)
-        self.program, self.args = cmd[0], args
+        # Resolve on PATH ourselves: QProcess on Windows only finds .exe, not .cmd shims, and a
+        # program that fails to start never emits finished() — the thread would hang in "starting".
+        self.program, self.args = shutil.which(cmd[0]) or cmd[0], args
         self._buf = b""
+        self._done = False
         self.proc.readyReadStandardOutput.connect(self._read_stdout)
         self.proc.readyReadStandardError.connect(lambda: self.stderrText.emit(bytes(self.proc.readAllStandardError()).decode(errors="replace")))
         self.proc.finished.connect(self._on_finished)
+        self.proc.errorOccurred.connect(self._on_error)
         self.proc.started.connect(self.started)
 
-    def _on_finished(self, code, status):
+    def _finish(self, code: int, status: str):
+        if self._done:
+            return
+        self._done = True
         try:
-            self.finished.emit(code, status.name)
+            self.finished.emit(code, status)
         except RuntimeError:  # we are being torn down
             pass
+
+    def _on_finished(self, code, status):
+        self._finish(code, status.name)
+
+    def _on_error(self, error):
+        if error == QProcess.ProcessError.FailedToStart:
+            self.stderrText.emit(f"failed to start {self.program!r}: {self.proc.errorString()} "
+                                 f"(is the CLI installed and on PATH? see CLAUDE_CMD / HARNESS_CLAUDE_CMD)")
+            self._finish(-1, "FailedToStart")
 
     def start(self):
         self.proc.start(self.program, self.args)
