@@ -43,6 +43,7 @@ class Watcher(QObject):
         self._poll = QTimer(interval=poll_ms)
         self._poll.timeout.connect(self._poll_tick)
         self._mtimes = {}
+        self._known_files = {p for p in self.paths() if not os.path.isdir(p)}
         self.rewatch()
         if self.mode == "poll":
             self._poll.start()
@@ -88,6 +89,13 @@ class Watcher(QObject):
                 self._on_change(p)
 
     def _on_change(self, path):
+        if os.path.isdir(path):
+            # directory mtime changes for any child (e.g. __pycache__, editor temp files):
+            # only meaningful if the set of watched source files actually changed
+            current = {p for p in self.paths() if not os.path.isdir(p)}
+            if current == self._known_files:
+                return
+            self._known_files = current
         self._pending.add(path)
         self._debounce.start()
 

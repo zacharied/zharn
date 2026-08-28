@@ -9,6 +9,8 @@ import socket
 import sys
 import time
 
+sys.dont_write_bytecode = True  # never dirty the watched tree (would trigger a reload)
+
 
 def request(cmd: str, args: dict) -> dict:
     path = os.environ.get("HARNESS_IPC")
