@@ -3,7 +3,8 @@ name = "my-harness"
 version = "0.0.1"
 description = "A native, self-modifying coding-agent harness (Qt / PySide6 + QML). Your fork is your config."
 requires-python = ">=3.10"
-license = { text = "GPL-3.0-or-later" }
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
 dependencies = ["PySide6-Essentials>=6.11"]
 
 [project.optional-dependencies]
@@ -11,6 +12,15 @@ dev = ["pytest>=8"]
 
 [project.scripts]
 harness = "harness.__main__:main"
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+# Only the Python package is installable; qml/ and everything else stay in the checkout
+# (run from source — use `pip install -e .`).
+packages = ["harness"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

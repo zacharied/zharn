@@ -9,9 +9,18 @@ your fork is your config.
 ## Run
 
 ```sh
-pip install -e .            # PySide6-Essentials 6.11+, Python 3.10+
+python -m venv .venv && . .venv/bin/activate      # Windows: .venv\Scripts\activate
+pip install -e .            # editable: PySide6-Essentials 6.11+, Python 3.10+
 python -m harness           # or just `harness`
 ```
+
+Always install **editable** (`-e`): the app runs from your checkout (`qml/`, `harness/config.py`,
+transcripts in `.harness/`) — that is the whole point. A plain `pip install .` would copy
+`harness/` into site-packages, away from `qml/`.
+
+Windows: works natively (PySide6 wheels, no WSL needed). For real agents the `claude` CLI must be
+on PATH for the *same* OS the harness runs on; set `CLAUDE_CMD` in `harness/config.py` if it lives
+elsewhere (e.g. `["wsl", "claude"]` to drive the WSL install from a Windows harness).
 
 Edit anything under `qml/` or `harness/` while it runs: QML re-renders as a new generation
 (state lives in Python, so tabs/docks/layout survive); Python method bodies are swapped into the
