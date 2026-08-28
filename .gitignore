@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+# your config: created from *.def.* on first run, never tracked
+harness/config.py
+qml/Theme.qml
+# runtime state
+.harness-session.json
+tests/_out/
