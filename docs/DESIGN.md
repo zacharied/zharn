@@ -134,27 +134,28 @@ drags are the expensive bits). **Fallback** if that stalls: `QMainWindow` + `PyS
 Widgets chrome around QML content and no threaded render loop. Prior art for the strip model:
 Kate's `KateMDI::Sidebar`, KDevelop's `Sublime::IdealController`.
 
-## 3b. Task-centric thread model
+## 3b. The Story model (agent-interaction model)
 
-**Superseded by [`docs/superpowers/specs/2026-08-28-task-lifecycle-design.md`](superpowers/specs/2026-08-28-task-lifecycle-design.md)** — that spec is declarative and wins over both this section and the code. Summary:
+Defined in **[`docs/AGENT-MODEL.md`](AGENT-MODEL.md)** (design) and
+**[`docs/superpowers/specs/2026-08-28-story-lifecycle-design.md`](superpowers/specs/2026-08-28-story-lifecycle-design.md)**
+(implementation). Both win over this section and over the code. In brief:
 
-* A **Task** is the smallest unit of work its *owner* describes and validates. State is
-  `(phase, ball)`: `phase ∈ backlog|todo|planning|implementing|done|canceled`,
-  `ball ∈ worker|owner`. Owner = human for board tasks, the creating thread for agent-created
-  subtasks — same matrix at every level.
-* **Nobody sets status.** Start / Reply / Proceed / Approve / Back-to-planning / Cancel (owner) and
-  `yield --question|--handoff` / `proceed` (worker) are the only actions; each writes a comment and
-  the comment stream is the audit log. A thread that exits without yielding is auto-handed-off.
-* **Comments are the only channel.** No chat input; transcripts are read-only. `AskUserQuestion`
-  is intercepted into a `question` comment with option buttons. `/call <preset>` in a comment
-  attaches another thread. Replies route to the authoring thread; top-level → primary thread.
-* **Skills** (`harness/skills/`, vendored from superpowers) are injected by phase into the system
-  prompt; the harness enforces mechanically what it can (no status verb, handoff blocked while
-  subtasks are open, check command attached to handoffs) and uses skills only for judgment.
-* Board columns = phase; cards where the human holds the ball are highlighted and sorted first.
+* Work is a **Story** (the smallest unit its **author** describes and validates); agents are its
+  **cast**. The **protagonist** is cast at Start, classifies the work, and is the only character
+  that can Proceed or hand off; it calls in **friends** (peer characters that post comments as
+  themselves), sends out **minions** (invisible helpers), or creates **sub-stories** (which it then
+  authors). Characters are cast from **roles** (the old presets).
+* State is `(phase ∈ backlog|todo|planning|implementing|done|canceled, ball ∈ cast|author)`.
+  **Nobody sets status** — Start/Reply/Proceed/Approve (author) and `yield`/`proceed` (cast) are
+  the only actions; each writes a comment, and the comment stream is the audit log.
+* **Comments are the only channel**; there is no chat box. Transcripts are read-only. Replies
+  route to their comment's author, `@Name` to a character, un-addressed comments to the protagonist.
+* The harness enforces mechanically what it can (no status verb, handoff blocked while sub-stories
+  are open, checks attached to handoffs, silence auto-yielded) and injects phase skills
+  (vendored from superpowers into `harness/skills/`) for the rest.
 
-Kept from bb: projects with prefixes, presets, attachments, mentions (`@ABC-12`), threads without
-a task landing in an auto-created "Inbox" task.
+Kept from bb: projects with prefixes, roles/presets, attachments, mentions (`@ABC-12`), and
+stories without a project landing in an auto-created "Inbox".
 
 ## 4. Fork-as-config
 
@@ -203,13 +204,13 @@ Known churn: every intent re-parses the whole tree and rebuilds all groups (fine
 
 1. ~~Skeleton, generation reloader~~ (done).
 2. ~~Layout tree + recursive QML renderer~~ (done).
-3. **Task lifecycle** per the 2026-08-28 spec: `harness/lifecycle.py` pure state machine, comment
-   store, CLI verbs (`yield`/`proceed`/`comment`/`create`/`wait`/owner verbs), auto-handoff,
-   `AskUserQuestion` interception, phase-aware system prompts. Migrate `status` → `(phase, ball)`.
+3. **Story lifecycle** per the 2026-08-28 spec: `harness/lifecycle.py` pure state machine,
+   comment store, characters/friends/minions on threads, `harness story …` verbs, auto-yield,
+   recast, `AskUserQuestion` interception, phase-aware system prompts. Migrate tasks → stories.
 4. **Skills**: vendor superpowers' discipline skills into `harness/skills/`, write
-   `using-harness` + the phase skills, `tests/skills/` runner with mechanical verb assertions.
-5. **Task tab + board rework**: comment stream with per-cell action bars, option buttons, `/call`,
-   "needs you" highlighting and count, read-only transcript tabs.
+   `being-a-character` + the phase skills, `tests/skills/` runner with `verbs_log` assertions.
+5. **Story tab + board rework**: comment stream with per-cell action bars, option buttons,
+   `@`/`/call`, cast panel, needs-you highlighting and count, read-only transcript tabs.
 6. Projects/Environments (worktree create via `git worktree`), `.env-setup` hook; what Approve
    does to the worktree (merge/PR) gets its own spec; git status + filesystem panels.
 7. `pyte`-backed terminal panel.
