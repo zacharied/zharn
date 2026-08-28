@@ -134,52 +134,27 @@ drags are the expensive bits). **Fallback** if that stalls: `QMainWindow` + `PyS
 Widgets chrome around QML content and no threaded render loop. Prior art for the strip model:
 Kate's `KateMDI::Sidebar`, KDevelop's `Sublime::IdealController`.
 
-## 3b. Task-centric thread model (supersedes "threads hang off projects")
+## 3b. Task-centric thread model
 
-Every conversation belongs to a **Task**. Tasks live on a kanban board per project. This is
-bb's Tasks plugin promoted from extension to core, with its data model copied verbatim
-(schema read from `~/.bb/plugins/tasks/data.db`, behavior from the plugin bundle):
+**Superseded by [`docs/superpowers/specs/2026-08-28-task-lifecycle-design.md`](superpowers/specs/2026-08-28-task-lifecycle-design.md)** — that spec is declarative and wins over both this section and the code. Summary:
 
-```
-Folder ─┬─ Project (prefix "ABC", next_task_number, color, linked repo)
-        │    ├─ Label (name, color)
-        │    └─ Task  ABC-12 (title, description md, status, priority, due, position, parent_task_id)
-        │         ├─ Subtask = Task with parent_task_id (one level is enough; schema allows more)
-        │         ├─ Comment (kind: user|agent|system, author, preset_name, thread_id, body md, attachments)
-        │         ├─ Attachment (task- or comment-level; is_image → rendered inline)
-        │         └─ TaskThread (thread_id, preset_name, title, live_status)
-        └─ Preset (name, provider, model, reasoning, permission_mode, service_tier,
-                   environment_kind: project-default|new-worktree, base_branch, machine, instructions)
-```
+* A **Task** is the smallest unit of work its *owner* describes and validates. State is
+  `(phase, ball)`: `phase ∈ backlog|todo|planning|implementing|done|canceled`,
+  `ball ∈ worker|owner`. Owner = human for board tasks, the creating thread for agent-created
+  subtasks — same matrix at every level.
+* **Nobody sets status.** Start / Reply / Proceed / Approve / Back-to-planning / Cancel (owner) and
+  `yield --question|--handoff` / `proceed` (worker) are the only actions; each writes a comment and
+  the comment stream is the audit log. A thread that exits without yielding is auto-handed-off.
+* **Comments are the only channel.** No chat input; transcripts are read-only. `AskUserQuestion`
+  is intercepted into a `question` comment with option buttons. `/call <preset>` in a comment
+  attaches another thread. Replies route to the authoring thread; top-level → primary thread.
+* **Skills** (`harness/skills/`, vendored from superpowers) are injected by phase into the system
+  prompt; the harness enforces mechanically what it can (no status verb, handoff blocked while
+  subtasks are open, check command attached to handoffs) and uses skills only for judgment.
+* Board columns = phase; cards where the human holds the ball are highlighted and sorted first.
 
-Enums: status `backlog|todo|in_progress|in_review|done|canceled` · priority
-`urgent|high|medium|low|none` · thread live_status `starting|working|idle|completed|failed`.
-
-Behavior to keep:
-* **Dispatch** = pick a preset → build the prompt from task + subtasks + attachments + last 5 comments
-  + a *report-back contract* ("comment milestones with `harness tasks comment`, attach artifacts,
-  set `in_review` when done, explain blockers") + preset instructions + ad-hoc instructions →
-  spawn thread with the preset's execution config (optionally in a fresh worktree) → attach.
-* **Comments are the agent-to-agent/agent-to-human channel.** `--notify` resumes the thread that
-  authored the task's latest agent reply. Every mutation (status/priority/labels/parent) writes a
-  `system` comment, so the comment stream *is* the audit log.
-* **Reconcile service** polls tracked threads and maps provider status → `live_status`; a thread
-  ending flips it to `completed`/`failed`. Board cards show live agent state without the UI polling.
-* Mentions: `@ABC-12` in any prompt resolves to the task summary (bb's mention provider).
-
-What we change:
-* **A task is the unit of the UI**, not a thread: opening a task opens a tab with its description,
-  comments, board of subtasks, and its threads as sub-tabs. The board is the home screen.
-* **Agents spawn agents inside the same task.** `harness thread spawn --task ABC-12 --preset X`
-  from within a thread creates a child thread attached to the *same* task (parent gets lifecycle
-  events as in bb; the task's comment stream gets the child's milestones). Nested delegation
-  stays visible on one card instead of a hidden thread tree.
-* **Screenshots as first-class comment attachments**: agents attach PNGs; the comment view renders
-  them inline (bb has `is_image`, we just render it).
-* Threads without a task are allowed (scratch), but land in an auto-created "Inbox" task so the
-  invariant "everything is on the board" holds.
-* Presets ship with sensible defaults in `config_def.py` (bb ships none) — e.g. `claude-fast`,
-  `claude-deep`, `codex-review` — because presets are what make one-click delegation work.
+Kept from bb: projects with prefixes, presets, attachments, mentions (`@ABC-12`), threads without
+a task landing in an auto-created "Inbox" task.
 
 ## 4. Fork-as-config
 
@@ -226,13 +201,19 @@ Earlier status: steps 1–2 done (skeleton, generation reloader, layout tree + Q
 strips/docks/splittable tab groups/tab drag-drop, 15 tests green, rendered on WSL-offscreen and Windows).
 Known churn: every intent re-parses the whole tree and rebuilds all groups (fine now; diff by node id later).
 
-1. `git init`, license, `pyproject.toml`, shell + Store skeleton with the generation reloader (promote `poc/` into `harness/`).
-2. Layout tree + recursive QML renderer: strips, docks, MCC tabs/splits, drag/drop (§3a). De-risk with a 2-day spike first.
-3. Task store (schema from §3b) + kanban board panel + task tab with comments/attachments.
-4. Presets + dispatch + `claude -p` stream-json driver → thread tab streaming inside a task; agent-spawns-agent on the same task.
-5. Projects/Environments (worktree create via `git worktree`), `.env-setup` hook; git status + filesystem panels.
-6. `pyte`-backed terminal panel.
-7. Self-hosting: open my-harness as a Project inside my-harness and have a thread edit the UI.
+1. ~~Skeleton, generation reloader~~ (done).
+2. ~~Layout tree + recursive QML renderer~~ (done).
+3. **Task lifecycle** per the 2026-08-28 spec: `harness/lifecycle.py` pure state machine, comment
+   store, CLI verbs (`yield`/`proceed`/`comment`/`create`/`wait`/owner verbs), auto-handoff,
+   `AskUserQuestion` interception, phase-aware system prompts. Migrate `status` → `(phase, ball)`.
+4. **Skills**: vendor superpowers' discipline skills into `harness/skills/`, write
+   `using-harness` + the phase skills, `tests/skills/` runner with mechanical verb assertions.
+5. **Task tab + board rework**: comment stream with per-cell action bars, option buttons, `/call`,
+   "needs you" highlighting and count, read-only transcript tabs.
+6. Projects/Environments (worktree create via `git worktree`), `.env-setup` hook; what Approve
+   does to the worktree (merge/PR) gets its own spec; git status + filesystem panels.
+7. `pyte`-backed terminal panel.
+8. Self-hosting: open my-harness as a Project inside my-harness and have a thread edit the UI.
 
 ## Sources (selected)
 
