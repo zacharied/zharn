@@ -7,12 +7,14 @@ from pathlib import Path
 from PySide6.QtCore import QObject, Property, Signal, Slot
 
 from harness import config as cfg
+from harness.notify import intent
 
 FIELDS = ("name", "provider", "model", "reasoning", "permission", "environment", "instructions")
 
 
 class PresetStore(QObject):
     presetsChanged = Signal()
+    notifier = None
 
     def __init__(self, data_dir: Path, parent=None):
         super().__init__(parent)
@@ -50,12 +52,14 @@ class PresetStore(QObject):
         return {}
 
     @Slot("QVariantMap")
+    @intent
     def save(self, preset):
-        preset = {k: preset.get(k, "") for k in FIELDS}
+        preset = {k: preset[k] for k in FIELDS if k in preset}  # omitted fields get _all() defaults
         self._user = [p for p in self._user if p["name"].lower() != preset["name"].lower()] + [preset]
         self._persist()
 
     @Slot(str)
+    @intent
     def remove(self, name):
         self._user = [p for p in self._user if p["name"].lower() != name.lower()]
         self._persist()

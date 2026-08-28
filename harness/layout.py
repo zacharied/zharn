@@ -202,6 +202,15 @@ class Layout:
             d["active"] = panel
             d["mode"] = "docked"
 
+    def show_panel(self, panel: str):
+        """Make a panel visible wherever it lives (docked + active), unlike toggle_panel."""
+        for side in SIDES:
+            d = self.data["docks"][side]
+            if panel in d["panels"]:
+                d["active"], d["mode"] = panel, "docked"
+                return side
+        raise KeyError(panel)
+
     def set_dock_mode(self, side: str, mode: str):
         self.data["docks"][side]["mode"] = mode
 
