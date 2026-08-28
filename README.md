@@ -56,8 +56,21 @@ Point `HARNESS_CLAUDE_CMD` at another CLI to substitute the provider (the tests 
 
 ```sh
 pip install -e .[dev]
-QT_QPA_PLATFORM=offscreen python -m pytest      # layout unit tests + offscreen end-to-end + hot-reload tests
+QT_QPA_PLATFORM=offscreen python -m pytest      # ~265 tests, ~30 s, no display needed
 ```
+
+Three layers, all offscreen:
+
+* `tests/test_<module>.py` — unit tests per Python module (stream interpreter, models, tasks, presets,
+  IPC, CLI, watcher, layout, notifier, process wrapper).
+* `tests/test_ui_*.py` — **drive the real QML** through `tests/ui.py`: find a control by `objectName`,
+  click it, type into it, assert the store changed. Every interactive control in `qml/` has a stable
+  `objectName` (`dispatchButton`, `card_ABC-3`, `stripButton_tasks`, `tabClose_<kind>_<key>` …) — keep
+  that up when you add one, it is how the tests (and agents editing the UI) reach it.
+* `tests/test_app.py`, `tests/test_agents.py` — end-to-end: hot reload, fake-agent conversations, IPC.
+
+Anything a QML button calls is an `@intent` (`harness/notify.py`): if it raises, the message shows in
+the status bar (`app.notify.lastError`) instead of silently doing nothing.
 
 Smoke-test a real window: `HARNESS_EXIT_AFTER_MS=3000 HARNESS_SCREENSHOT=shot.png python -m harness`;
 add `HARNESS_SMOKE_PROMPT="say pong"` to dispatch a real agent on the first task and exit when it settles.

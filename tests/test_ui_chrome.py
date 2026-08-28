@@ -35,7 +35,7 @@ def test_dock_hide_button_collapses_it_to_the_strip(ui):
 def test_dock_panel_switcher_changes_active_panel(ui):
     ui.click(ui.find("dockPanel_files"))
     assert docks(ui)["left"]["active"] == "files"
-    assert ui.find("dockContent_left").property("source").toString().endswith("Files.qml")
+    assert ui.find("dockContent_left").property("source").endswith("Files.qml")
     ui.click(ui.find("dockPanel_tasks"))
     assert docks(ui)["left"]["active"] == "tasks"
 

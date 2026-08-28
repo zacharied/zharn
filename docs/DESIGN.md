@@ -218,6 +218,7 @@ Virtual Keyboard, Timeline).
 
 ## 8. Next steps
 
+Status 2026-08-28: the UI is driven by tests (`tests/ui.py`, ~265 tests); every QML-facing slot is an `@intent` that reports failures to the status bar; the kanban wraps its columns when docked narrow.
 Status 2026-08-27: steps 1–2 and 4 done (agent driver over claude-code stream-json, presets,
 task dispatch with report-back contract, IPC + `harness.cli` for agent-spawns-agent on the same task,
 thread/task/board/agent-log tabs). Step 3 (full task store: labels, comments, attachments) is next.
