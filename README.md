@@ -14,6 +14,9 @@ pip install -e .            # editable: PySide6-Essentials 6.11+, Python 3.10+
 python -m harness           # or just `harness`
 ```
 
+Windows shortcut: double-click or run `run.bat` — it creates `.venv` and installs on first use, then
+launches the app (arguments are passed through to `python -m harness`).
+
 Always install **editable** (`-e`): the app runs from your checkout (`qml/`, `harness/config.py`,
 transcripts in `.harness/`) — that is the whole point. A plain `pip install .` would copy
 `harness/` into site-packages, away from `qml/`.
