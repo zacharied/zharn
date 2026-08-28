@@ -5,6 +5,7 @@ __pycache__/
 # your config: created from *.def.* on first run, never tracked
 harness/config.py
 qml/Theme.qml
-# runtime state
+# runtime state (threads, tasks, session)
+.harness/
 .harness-session.json
 tests/_out/

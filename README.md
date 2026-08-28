@@ -19,8 +19,29 @@ live classes. Adding a `Signal`/`Property` to a live class shows a "restart" but
 bar (one click, session persists). Errors show in the status bar; a broken root keeps the previous
 generation running.
 
-`harness/config.def.py` → copied to `harness/config.py` on first run. That copy is yours
-(gitignored). Everything else is yours too — fork it.
+`harness/config.py` is generated on first run as `from harness.config_def import *` plus your
+overrides; it is gitignored, so `git pull` never touches it and new upstream settings still flow
+through. Everything else is yours too — fork it.
+
+## Agents
+
+Threads run `claude -p --output-format stream-json --input-format stream-json` as a child process
+(one process per thread, follow-ups over stdin, `--resume` after a restart). Every thread belongs to
+a task; dispatch from a task tab with a preset (`harness/config_def.py: DEFAULT_PRESETS`).
+
+Agents get `HARNESS_THREAD_ID`, `HARNESS_TASK_KEY`, `HARNESS_IPC` and `HARNESS_CLI` and can drive
+the harness over a local socket — bb's `BB_CLI` idea:
+
+```sh
+$HARNESS_CLI thread spawn --preset claude-fast --prompt "write the tests" --wait   # sibling on the same task
+$HARNESS_CLI thread list --task ABC-12 | preset list | task status ABC-12 in_review
+```
+
+Child threads are parented to the caller; when a child settles, the parent transcript gets a note
+and, if the parent is idle, a follow-up turn with the child's outcome.
+
+Point `HARNESS_CLAUDE_CMD` at another CLI to substitute the provider (the tests use
+`tests/fake_claude.py`, which speaks the same protocol).
 
 ## Test
 
@@ -29,5 +50,6 @@ pip install -e .[dev]
 QT_QPA_PLATFORM=offscreen python -m pytest      # layout unit tests + offscreen end-to-end + hot-reload tests
 ```
 
-Smoke-test a real window: `HARNESS_EXIT_AFTER_MS=3000 HARNESS_SCREENSHOT=shot.png python -m harness`.
+Smoke-test a real window: `HARNESS_EXIT_AFTER_MS=3000 HARNESS_SCREENSHOT=shot.png python -m harness`;
+add `HARNESS_SMOKE_PROMPT="say pong"` to dispatch a real agent on the first task and exit when it settles.
 On WSL without WSLg, run it from a Windows Python (see docs/DESIGN.md §7).

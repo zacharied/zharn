@@ -22,7 +22,8 @@ from PySide6.QtQml import QQmlApplicationEngine
 ROOT = Path(__file__).resolve().parent.parent
 QML_DIR = ROOT / "qml"
 PKG_DIR = ROOT / "harness"
-RELOADABLE = ["harness.config", "harness.layout", "harness.content", "harness.store"]  # dependency order
+RELOADABLE = ["harness.config_def", "harness.config", "harness.layout", "harness.content", "harness.qmodels", "harness.agents",
+              "harness.presets", "harness.threads", "harness.tasks", "harness.ipc", "harness.store"]  # dependency order
 WATCH_EXT = {".py", ".qml", ".js", ".mjs"}
 
 
@@ -95,9 +96,27 @@ class Watcher(QObject):
         self.changed.emit(sorted(pending))
 
 
+def _swap_code(old_fn, new_fn) -> bool:
+    """Put new code into the OLD function object (identity preserved: shiboken caches Python
+    overrides of C++ virtuals by object, and bound methods/handlers may hold references)."""
+    if old_fn.__code__.co_freevars != new_fn.__code__.co_freevars:
+        return False
+    old_fn.__code__ = new_fn.__code__
+    old_fn.__defaults__ = new_fn.__defaults__
+    old_fn.__kwdefaults__ = new_fn.__kwdefaults__
+    old_fn.__doc__ = new_fn.__doc__
+    for k, v in vars(new_fn).items():  # Slot() metadata etc.
+        setattr(old_fn, k, v)
+    return True
+
+
+def _unwrap(fn):
+    return fn.__func__ if isinstance(fn, (staticmethod, classmethod)) else fn
+
+
 def _patch_classes(old_ns: dict, new_module) -> tuple[bool, list]:
-    """Copy new function code onto the OLD class objects (live instances keep pointing at them).
-    Returns (shape_changed, notes)."""
+    """Update the OLD class objects in place from the reloaded module (live instances keep
+    pointing at them). Returns (shape_changed, notes)."""
     from PySide6.QtCore import Signal as _Signal, Property as _Property
     shape_changed, notes = False, []
     for name, old_cls in old_ns.items():
@@ -112,32 +131,30 @@ def _patch_classes(old_ns: dict, new_module) -> tuple[bool, list]:
             old_val = old_cls.__dict__.get(attr)
             if isinstance(val, _Signal) or isinstance(old_val, _Signal):
                 if type(old_val) is not type(val):
-                    shape_changed = True; notes.append(f"{name}.{attr}: signal shape changed")
+                    shape_changed = True; notes.append(f"{name}.{attr}: signal added/removed")
                 continue
             if isinstance(val, _Property) or isinstance(old_val, _Property):
                 if type(old_val) is not type(val):
                     shape_changed = True; notes.append(f"{name}.{attr}: property added/removed")
                     continue
-                # PySide Property objects are immutable and the metaobject calls their accessor
-                # functions directly, so swap the *code* of those functions in place.
                 for f in ("fget", "fset", "freset"):
                     old_fn, new_fn = getattr(old_val, f, None), getattr(val, f, None)
                     if old_fn is None and new_fn is None:
                         continue
-                    if old_fn is None or new_fn is None or old_fn.__code__.co_freevars != new_fn.__code__.co_freevars:
-                        shape_changed = True; notes.append(f"{name}.{attr}.{f}: accessor added/removed")
-                        continue
-                    old_fn.__code__ = new_fn.__code__
-                    old_fn.__defaults__ = new_fn.__defaults__
+                    if old_fn is None or new_fn is None or not _swap_code(old_fn, new_fn):
+                        shape_changed = True; notes.append(f"{name}.{attr}.{f}: accessor changed shape")
                 continue
-            setattr(old_cls, attr, val)  # functions, slots, staticmethods, plain data
+            if inspect.isfunction(_unwrap(val)) and inspect.isfunction(_unwrap(old_val)) and type(val) is type(old_val):
+                if not _swap_code(_unwrap(old_val), _unwrap(val)):
+                    setattr(old_cls, attr, val)
+                continue
+            setattr(old_cls, attr, val)  # new methods, plain data, changed descriptor kinds
         for attr in list(old_cls.__dict__):
             if attr not in new_cls.__dict__ and not attr.startswith("__"):
                 if isinstance(old_cls.__dict__[attr], (_Signal, _Property)):
                     shape_changed = True; notes.append(f"{name}.{attr}: removed")
                 else:
                     delattr(old_cls, attr)
-        # QML will only see PySide metaobject changes after a restart; python-side is live now
         new_module.__dict__[name] = old_cls  # module attr points at the live class again
     return shape_changed, notes
 
@@ -221,8 +238,6 @@ class Reloader(QObject):
             except ValueError:
                 continue
             mod = "harness." + ".".join(rel.with_suffix("").parts)
-            if mod == "harness.config.def":
-                continue
             changed_mods.add(mod)
         if not changed_mods:
             return True
@@ -245,7 +260,7 @@ class Reloader(QObject):
             sc, n = _patch_classes(old_ns, module)
             shape_changed |= sc
             notes += n
-        if "harness.config" in to_reload:
+        if "harness.config" in to_reload or "harness.config_def" in to_reload:
             self.app_store.set_theme(self.theme_provider())
         self.app_store.set_hot(error="", restart_required=shape_changed or self.app_store.restartRequired)
         print(f"[hot] python swapped {sorted(to_reload)} in {1000 * (time.perf_counter() - t0):.1f} ms"

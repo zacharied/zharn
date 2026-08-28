@@ -178,13 +178,13 @@ What we change:
   them inline (bb has `is_image`, we just render it).
 * Threads without a task are allowed (scratch), but land in an auto-created "Inbox" task so the
   invariant "everything is on the board" holds.
-* Presets ship with sensible defaults in `config.def.py` (bb ships none) — e.g. `claude-fast`,
+* Presets ship with sensible defaults in `config_def.py` (bb ships none) — e.g. `claude-fast`,
   `claude-deep`, `codex-review` — because presets are what make one-click delegation work.
 
 ## 4. Fork-as-config
 
-* `harness/config.def.py` is upstream's defaults; `harness/config.py` is yours (gitignored,
-  created on first run by copying the def). Same for `qml/Theme.def.qml` → `qml/Theme.qml`.
+* `harness/config_def.py` is upstream's defaults; `harness/config.py` is yours (gitignored,
+  created on first run by copying the def). Same for (same idea for any file you like).
   `git pull` never conflicts with config; deeper customizations are just edits to any file.
 * Upstream updates: xmonad's model, not dwm's — on reload failure after a pull, the previous
   generation keeps running and the error is shown in-app. No patch files.
@@ -218,7 +218,10 @@ Virtual Keyboard, Timeline).
 
 ## 8. Next steps
 
-Status 2026-08-27: steps 1–2 done (skeleton, generation reloader, layout tree + QML renderer with
+Status 2026-08-27: steps 1–2 and 4 done (agent driver over claude-code stream-json, presets,
+task dispatch with report-back contract, IPC + `harness.cli` for agent-spawns-agent on the same task,
+thread/task/board/agent-log tabs). Step 3 (full task store: labels, comments, attachments) is next.
+Earlier status: steps 1–2 done (skeleton, generation reloader, layout tree + QML renderer with
 strips/docks/splittable tab groups/tab drag-drop, 15 tests green, rendered on WSL-offscreen and Windows).
 Known churn: every intent re-parses the whole tree and rebuilds all groups (fine now; diff by node id later).
 

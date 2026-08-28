@@ -121,11 +121,14 @@ class AppStore(QObject):
     hotChanged = Signal()
     statusChanged = Signal()
 
-    def __init__(self, session: Session, layout_store: LayoutStore, content, theme: dict):
+    def __init__(self, session: Session, layout_store: LayoutStore, content, theme: dict,
+                 threads=None, presets=None, tasks=None):
         super().__init__()
         self._session = session
         self._layout = layout_store
         self._content = content
+        self._threads, self._presets, self._tasks = threads, presets, tasks
+        self._ipc_path = ""
         self._theme = dict(theme)
         self._generation = 0
         self._reload_error = ""
@@ -140,6 +143,22 @@ class AppStore(QObject):
     @Property(QObject, constant=True)
     def content(self):
         return self._content
+
+    @Property(QObject, constant=True)
+    def threads(self):
+        return self._threads
+
+    @Property(QObject, constant=True)
+    def presets(self):
+        return self._presets
+
+    @Property(QObject, constant=True)
+    def tasks(self):
+        return self._tasks
+
+    @Property(str, constant=True)
+    def ipcPath(self):
+        return self._ipc_path
 
     @Property("QVariantMap", notify=themeChanged)
     def theme(self):
