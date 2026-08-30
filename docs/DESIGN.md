@@ -1,4 +1,4 @@
-# my-harness — design notes (2026-08-27)
+# zharn — design notes (2026-08-27)
 
 A native, self-modifying coding-agent harness. Keeps bb's model, drops the web stack,
 and treats *your fork as your config* (suckless/st style). Hot reload is a hard requirement
@@ -68,6 +68,7 @@ optional parent (parent gets child lifecycle events) · **Environment** = checko
 worktree, shareable across threads, `.bb-env-setup.sh` hook · **Provider** = agent backend +
 model · **Terminal** = persistent PTY scoped to thread/env · forks (clone session at a turn) ·
 sections · hidden threads for background workers · permission modes as a ceiling from parent to child.
+(Naming: bb's *thread* is zharn's **context** — in zharn a "thread" is a chain of comments, §3b.)
 
 Also keep: context env vars (`BB_THREAD_ID`-style) injected into agent processes, a CLI the
 agent can call to spawn/message/wait on sibling threads, `--json` on everything.
@@ -141,21 +142,32 @@ Defined in **[`docs/AGENT-MODEL.md`](AGENT-MODEL.md)** (design) and
 (implementation). Both win over this section and over the code. In brief:
 
 * Work is a **Story** (the smallest unit its **author** describes and validates); agents are its
-  **cast**. The **protagonist** is cast at Start, classifies the work, and is the only character
-  that can Proceed or hand off; it calls in **friends** (peer characters that post comments as
-  themselves), sends out **minions** (invisible helpers), or creates **sub-stories** (which it then
-  authors). Characters are cast from **roles** (the old presets).
-* State is `(phase ∈ backlog|todo|planning|implementing|done|canceled, ball ∈ cast|author)`.
+  **cast**. Three load-bearing concepts, one job each: a **thread** (a root comment + replies:
+  one topic, with an author, a lead character, and a *turn*), a **character** (named participant
+  with an inbox, an attention, and one live context at a time), and a **context** (one agent
+  conversation — what bb calls a thread — owned by a character, a minion, or the human as a
+  story-less *bare context*).
+* The **protagonist** is cast at Start onto the story's **main thread** and is the only character
+  that can yield there — the ball *is* the main thread's turn. It calls in **friends** (peers on
+  their own threads), sends out **minions** (invisible helpers; forkable contexts), or creates
+  **sub-stories** (which it then authors). Characters are cast from **roles** (the old presets).
+* State is `(phase ∈ backlog|todo|planning|implementing|done|canceled, ball = main thread's turn)`.
   **Nobody sets status** — Start/Reply/Proceed/Approve (author) and `yield`/`proceed` (cast) are
-  the only actions; each writes a comment, and the comment stream is the audit log.
-* **Comments are the only channel**; there is no chat box. Transcripts are read-only. Replies
-  route to their comment's author, `@Name` to a character, un-addressed comments to the protagonist.
-* The harness enforces mechanically what it can (no status verb, handoff blocked while sub-stories
-  are open, checks attached to handoffs, silence auto-yielded) and injects phase skills
-  (vendored from superpowers into `harness/skills/`) for the rest.
+  the only actions; each writes a comment, and the threads are the audit log.
+* **Comments are the only channel** — even typing in a character's context view posts a comment.
+  Delivery is attention-based: replies in a character's attended thread arrive now (steering);
+  new threads and `@Name` pings queue in its inbox until it comes up for air (a "btw").
+* Context lifecycle: when a context runs low the harness demands a **recap** comment; **recast**
+  (manual or automatic) rebuilds the character on a fresh context from the story record + recap —
+  the story record *is* the compaction. Recast also swaps role/model mid-story.
+* The harness enforces mechanically what it can (no status verb, main handoff blocked while
+  sub-stories are open, checks attached to handoffs, per-thread auto-yield on silence, inbox
+  bookkeeping, the recap/recast ladder) and injects phase skills (vendored from superpowers into
+  `harness/skills/`) for the rest.
 
-Kept from bb: projects with prefixes, roles/presets, attachments, mentions (`@ABC-12`), and
-stories without a project landing in an auto-created "Inbox".
+Kept from bb: projects with prefixes, roles/presets, attachments, mentions (`@ABC-12`), a
+**New Context** button (bb's "new thread": a bare chat for questions, promotable into a story),
+and stories without a project landing in an auto-created "Inbox".
 
 ## 4. Fork-as-config
 
@@ -164,7 +176,8 @@ stories without a project landing in an auto-created "Inbox".
   `git pull` never conflicts with config; deeper customizations are just edits to any file.
 * Upstream updates: xmonad's model, not dwm's — on reload failure after a pull, the previous
   generation keeps running and the error is shown in-app. No patch files.
-* Because the agent runs *inside* the harness, "customize" = "ask the thread to change it."
+* Because the agent runs *inside* the harness, "customize" = "ask a character (or a bare
+  context) to change it."
   The harness should expose its own source tree as a first-class Project.
 
 ## 5. Terminal & editor (open decisions)
@@ -188,7 +201,7 @@ Virtual Keyboard, Timeline).
 * WSL (openSUSE Tumbleweed): no sudo, no `tar`; inotify is exhausted by bb's node daemon
   (524,273 / 524,288 watches) → poll. `guiApplications=false` in `.wslconfig` → no display in WSL.
 * Working envs: WSL `~/.venvs/mh-conda` (conda-forge PySide6 6.11.2), Windows
-  `C:\Users\zachd\.venvs\my-harness-win` (Python 3.10 + PySide6 6.11.2).
+  `C:\Users\zachd\.venvs\zharn-win` (Python 3.10 + PySide6 6.11.2).
 * Long-term the GUI likely runs on Windows and drives agents in WSL (bb's "machine" concept),
   or WSLg gets re-enabled. Either works with the architecture above.
 
@@ -204,17 +217,20 @@ Known churn: every intent re-parses the whole tree and rebuilds all groups (fine
 
 1. ~~Skeleton, generation reloader~~ (done).
 2. ~~Layout tree + recursive QML renderer~~ (done).
-3. **Story lifecycle** per the 2026-08-28 spec: `harness/lifecycle.py` pure state machine,
-   comment store, characters/friends/minions on threads, `harness story …` verbs, auto-yield,
-   recast, `AskUserQuestion` interception, phase-aware system prompts. Migrate tasks → stories.
+3. **Story lifecycle** per the 2026-08-28 spec (reworked 2026-08-30): `harness/lifecycle.py`
+   pure state machine with per-thread turns, thread/comment store, attention + inbox delivery,
+   characters/friends/minions, `zharn story …` verbs, per-thread auto-yield, recap/recast
+   ladder, `AskUserQuestion` interception, phase-aware system prompts. Migrate tasks → stories,
+   code `Thread` → `Context`.
 4. **Skills**: vendor superpowers' discipline skills into `harness/skills/`, write
    `being-a-character` + the phase skills, `tests/skills/` runner with `verbs_log` assertions.
-5. **Story tab + board rework**: comment stream with per-cell action bars, option buttons,
-   `@`/`/call`, cast panel, needs-you highlighting and count, read-only transcript tabs.
+5. **Story tab + board rework**: threads with per-cell action bars, option buttons, `@`/`/call`,
+   cast panel (attention, inbox, context meter, Recast), needs-you highlighting and count,
+   interactive context views, New Context + Promote to story.
 6. Projects/Environments (worktree create via `git worktree`), `.env-setup` hook; what Approve
    does to the worktree (merge/PR) gets its own spec; git status + filesystem panels.
 7. `pyte`-backed terminal panel.
-8. Self-hosting: open my-harness as a Project inside my-harness and have a thread edit the UI.
+8. Self-hosting: open zharn as a Project inside zharn and have a thread edit the UI.
 
 ## Sources (selected)
 

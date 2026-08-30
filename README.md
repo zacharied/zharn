@@ -1,4 +1,4 @@
-# my-harness
+# zharn
 
 A native (Qt / PySide6 + QML), self-modifying coding-agent harness. bb's model, no web stack,
 your fork is your config.
@@ -11,7 +11,7 @@ your fork is your config.
 ```sh
 python -m venv .venv && . .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -e .            # editable: PySide6-Essentials 6.11+, Python 3.10+
-python -m harness           # or just `harness`
+python -m harness           # or just `zharn`
 ```
 
 Windows shortcut: double-click or run `run.bat` — it creates `.venv` and installs on first use, then
@@ -36,6 +36,13 @@ overrides; it is gitignored, so `git pull` never touches it and new upstream set
 through. Everything else is yours too — fork it.
 
 ## Agents
+
+> **Mid-rework.** The thread/task model below is what currently runs; it is being reworked into
+> the **Story model** — stories with a cast of characters, comment threads with turns, attention-
+> based delivery, recap/recast — per [docs/AGENT-MODEL.md](docs/AGENT-MODEL.md) and the
+> [lifecycle spec](docs/superpowers/specs/2026-08-28-story-lifecycle-design.md). In that model the
+> agent conversations below are renamed **contexts** ("thread" becomes a chain of comments), tasks
+> become stories, and `task status` disappears (nobody sets status).
 
 Threads run `claude -p --output-format stream-json --input-format stream-json` as a child process
 (one process per thread, follow-ups over stdin, `--resume` after a restart). Every thread belongs to
