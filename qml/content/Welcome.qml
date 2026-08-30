@@ -6,7 +6,7 @@ import ".."
 ContentBase {
     ColumnLayout {
         anchors.fill: parent; anchors.margins: 14; spacing: 8
-        Label { text: "Welcome to my-harness" + (tabKey && tabKey !== "welcome" ? " · " + tabKey : ""); color: app.theme.text; font.pixelSize: 16; font.bold: true }
+        Label { text: "Welcome to zharn" + (tabKey && tabKey !== "welcome" ? " · " + tabKey : ""); color: app.theme.text; font.pixelSize: 16; font.bold: true }
         Label { text: "Native Qt. Your fork is your config. Edit qml/ or harness/ and watch it reload."; color: app.theme.textMuted; wrapMode: Text.Wrap; Layout.fillWidth: true }
         Label { text: "Every conversation belongs to a task. Open the board, pick or create a task, and dispatch an agent from its tab."; color: app.theme.textMuted; wrapMode: Text.Wrap; Layout.fillWidth: true }
         Row { spacing: 8

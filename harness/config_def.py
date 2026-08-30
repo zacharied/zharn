@@ -39,7 +39,7 @@ EFFORT_FLAGS = {lvl: ["--effort", lvl] for lvl in ("low", "medium", "high", "xhi
 
 # Appended to every agent's system prompt. {thread_id}/{task_key} are filled in.
 AGENT_SYSTEM_PROMPT = (
-    "You are running inside my-harness as thread {thread_id} on task {task_key}. "
+    "You are running inside zharn as thread {thread_id} on task {task_key}. "
     "Environment variables HARNESS_THREAD_ID, HARNESS_TASK_KEY and HARNESS_CLI are set. "
     "To delegate, spawn a sibling agent on the same task and wait for it:\n"
     "  $HARNESS_CLI thread spawn --preset <name> --prompt \"...\" --wait\n"

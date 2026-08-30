@@ -10,6 +10,7 @@ harness/config_def.py
 harness/content.py
 harness/ipc.py
 harness/layout.py
+harness/notify.py
 harness/presets.py
 harness/qmodels.py
 harness/shell.py
@@ -24,4 +25,17 @@ my_harness.egg-info/requires.txt
 my_harness.egg-info/top_level.txt
 tests/test_agents.py
 tests/test_app.py
+tests/test_cli.py
+tests/test_ipc.py
 tests/test_layout.py
+tests/test_notify.py
+tests/test_presets.py
+tests/test_process.py
+tests/test_qmodels.py
+tests/test_stream_interpreter.py
+tests/test_tasks.py
+tests/test_threads_unit.py
+tests/test_ui_chrome.py
+tests/test_ui_task.py
+tests/test_ui_thread.py
+tests/test_watcher.py

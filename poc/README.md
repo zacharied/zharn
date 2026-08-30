@@ -19,7 +19,7 @@ The QML tree is disposable; the store is not. Design everything that way.
 QT_QPA_PLATFORM=offscreen POC_SELFTEST=1 ~/.venvs/mh-conda/bin/python hotreload.py
 
 # Windows, real window (env vars must go through cmd.exe; WSL interop doesn't forward them)
-cmd.exe /c "C:\Users\zachd\.venvs\my-harness-win\Scripts\python.exe -u C:\Users\zachd\Code\my-harness\poc\hotreload.py"
+cmd.exe /c "C:\Users\zachd\.venvs\zharn-win\Scripts\python.exe -u C:\Users\zachd\Code\zharn\poc\hotreload.py"
 # ...then edit qml/Main.qml, qml/Panel.qml or backend.py and watch it reload in place.
 ```
 

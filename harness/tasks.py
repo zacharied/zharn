@@ -111,7 +111,7 @@ class TaskStore(QObject):
         if t is None:
             raise ValueError(f"unknown task {key!r}")
         full = (f"# Task {t['key']}: {t['title']}\n\n{t.get('description', '')}\n\n"
-                f"## Report-back contract\nYou are working on task {t['key']} inside my-harness. "
+                f"## Report-back contract\nYou are working on task {t['key']} inside zharn. "
                 f"Spawn helpers on the same task with `$HARNESS_CLI thread spawn --preset <name> --prompt \"...\"` "
                 f"and wait with `$HARNESS_CLI thread wait <id>`. Keep the task's status accurate.\n\n## Instructions\n{prompt}")
         tid = self._threads.spawn(key, preset_name, full, parent_id, prompt.strip().splitlines()[0][:60] if prompt.strip() else preset_name)

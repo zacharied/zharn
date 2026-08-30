@@ -1,0 +1,2 @@
+[console_scripts]
+zharn = harness.__main__:main

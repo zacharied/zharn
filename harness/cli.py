@@ -63,7 +63,7 @@ def out(value, as_json: bool):
 
 
 def main(argv=None):
-    p = argparse.ArgumentParser(prog="harness", description="Drive the running my-harness app.")
+    p = argparse.ArgumentParser(prog="zharn", description="Drive the running zharn app.")
     p.add_argument("--json", action="store_true")
     sub = p.add_subparsers(dest="noun", required=True)
 

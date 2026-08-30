@@ -7,7 +7,7 @@ ApplicationWindow {
     id: win
     objectName: "mainWindow"
     visible: true
-    title: "my-harness"
+    title: "zharn"
     color: app.theme.bg
     font.family: app.theme.fontFamily
     font.pixelSize: app.theme.fontSize

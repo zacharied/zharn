@@ -108,7 +108,7 @@ def test_qml_hot_reload_new_generation(harness):
     QTest.qWait(50)
     gen = store.generation
     try:
-        f.write_text(src.replace("Welcome to my-harness", "Welcome to my-harness (reloaded)"))
+        f.write_text(src.replace("Welcome to zharn", "Welcome to zharn (reloaded)"))
         assert wait_until(lambda: store.generation == gen + 1), f"no new generation; err={store.reloadError}"
         assert store.reloadError == ""
         win = root(reloader)

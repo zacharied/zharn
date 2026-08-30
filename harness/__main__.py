@@ -47,8 +47,8 @@ def build(argv=None, force_poll=False):
     from harness.threads import ThreadStore
 
     app = QGuiApplication.instance() or QGuiApplication(argv or sys.argv)
-    app.setApplicationName("my-harness")
-    app.setOrganizationName("my-harness")
+    app.setApplicationName("zharn")
+    app.setOrganizationName("zharn")
     QQuickStyle.setStyle("Basic")
 
     data_dir = Path(os.environ.get("HARNESS_DATA_DIR") or ROOT / ".harness")
@@ -63,7 +63,7 @@ def build(argv=None, force_poll=False):
         s.notifier = notifier  # @intent slots report here; the status bar shows it
     store = AppStore(session, layout_store, content, cfg.THEME, threads=threads, presets=presets, tasks=tasks,
                      notifier=notifier)
-    ipc = IpcServer(f"my-harness-{os.getpid()}", make_handler(store), parent=store)
+    ipc = IpcServer(f"zharn-{os.getpid()}", make_handler(store), parent=store)
     store._ipc_path = ipc.path
     threads.extra_env = lambda: {"HARNESS_IPC": ipc.path}
     reloader = Reloader(store, load_theme, force_poll=force_poll or bool(os.environ.get("HOT_POLL")),
