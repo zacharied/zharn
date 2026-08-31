@@ -1,0 +1,327 @@
+"""StoryStore against a stub context store: persistence, Start casts a protagonist, author actions deliver
+to the protagonist, cast verbs, brief and system prompt, needs-you rows."""
+import json
+
+import pytest
+from PySide6.QtCore import QObject, Signal
+
+from harness import config as cfg
+from harness.lifecycle import Rejected
+from harness.stories import StoryStore, author_name, needs_you_flavor, render_brief
+from harness.workspace import Workspace
+
+
+class StubContext:
+    def __init__(self, cid, meta):
+        self.id, self.meta, self.status, self.sent, self.stopped = cid, meta, "idle", [], False
+
+    def send(self, text):
+        self.sent.append(text)
+        self.status = "working"
+
+    def stop(self):
+        self.stopped = True
+        self.status = "stopped"
+
+
+class StubContexts(QObject):
+    contextsChanged = Signal()
+
+    def __init__(self):
+        super().__init__()
+        self.by_id = {}
+        self.created = []
+
+    def create(self, role_name, **kw):
+        cid = f"ctx_{len(self.by_id) + 1}"
+        self.by_id[cid] = StubContext(cid, {"role": role_name, **kw})
+        self.created.append((role_name, kw))
+        return cid
+
+    def get(self, cid):
+        return self.by_id.get(cid)
+
+    def contexts_for(self, key):
+        return [c for c in self.by_id.values() if c.meta.get("story_key") == key]
+
+
+class StubRoles:
+    def get(self, name):
+        return {"protagonist": {"name": "protagonist", "instructions": "Lead.", "outline_first": True},
+                "claude-fast": {"name": "claude-fast", "instructions": "", "outline_first": False}}.get(name, {})
+
+
+class Notes:
+    def __init__(self):
+        self.infos, self.errors = [], []
+
+    def info(self, t): self.infos.append(t)
+
+    def error(self, t): self.errors.append(t)
+
+
+@pytest.fixture
+def ws(tmp_path):
+    return Workspace.create(tmp_path / "ws", prefix="ZH")
+
+
+@pytest.fixture
+def contexts():
+    return StubContexts()
+
+
+@pytest.fixture
+def store(ws, contexts):
+    s = StoryStore(ws, contexts, StubRoles())
+    s.notifier = Notes()
+    return s
+
+
+def started(store, note="go"):
+    key = store.create("Title", "Desc")
+    chr_id = store.start(key, note, "protagonist")
+    return key, chr_id
+
+
+# ---------------------------------------------------------------- create / persist
+
+def test_create_assigns_workspace_keys_and_persists(store, ws):
+    assert store.create("A") == "ZH-1" and store.create("B", "d") == "ZH-2"
+    d = json.loads((ws.stories_dir / "ZH-2" / "story.json").read_text())
+    assert d["title"] == "B" and d["description"] == "d" and d["phase"] == "todo" and d["author"] == "human"
+    assert "ball" not in d and d["threads"] == [] and d["created"] > 0
+    row = store.get("zh-2")
+    assert row["key"] == "ZH-2" and row["phase"] == "todo" and row["ball"] == "" and row["needsYou"] is False
+    assert store.get("ZH-9") == {} and [r["key"] for r in store.list()] == ["ZH-1", "ZH-2"]
+
+
+def test_fresh_store_reloads_stories_comments_and_characters(ws, contexts):
+    a = StoryStore(ws, contexts, StubRoles())
+    key, chr_id = started(a)
+    a.cast_yield(chr_id, "question", "which db?", options=["pg", "sqlite"])
+    b = StoryStore(ws, contexts, StubRoles())
+    row = b.get(key)
+    assert row["phase"] == "planning" and row["ball"] == "author" and row["needsYou"] is True and row["flavor"] == "question"
+    assert [c["kind"] for c in b.comments(key)] == ["text", "question"]
+    assert b.character(chr_id)["name"] == "protagonist" and b.character(chr_id)["live_context"] == "ctx_1"
+
+
+def test_update_edits_unstarted_story_only(store):
+    key = store.create("A")
+    store.update(key, "A2", "d2")
+    assert store.get(key)["title"] == "A2" and store.get(key)["description"] == "d2"
+    store.start(key, "", "protagonist")
+    with pytest.raises(Rejected, match="started"):
+        store.update(key, "A3", "")
+
+
+def test_model_rows_track_changes(store):
+    seen = []
+    store.storiesChanged.connect(lambda: seen.append(True))
+    key = store.create("A")
+    assert store.model.rows()[-1]["key"] == key and seen
+
+
+# ---------------------------------------------------------------- Start
+
+def test_start_casts_protagonist_with_context_brief_and_env(store, contexts, ws):
+    key, chr_id = started(store, "please build it")
+    ch = store.character(chr_id)
+    assert ch["name"] == "protagonist" and ch["role"] == "protagonist" and ch["story_key"] == key
+    assert ch["attention"] == store.story(key).main_thread and ch["inbox"] == [] and ch["live_context"] == "ctx_1"
+    role_name, kw = contexts.created[0]
+    assert role_name == "protagonist" and kw["story_key"] == key and kw["owner"] == chr_id
+    assert kw["env"] == {"HARNESS_CHARACTER_ID": chr_id} and kw["title"] == f"{key} · protagonist"
+    prompt = kw["system_prompt"]
+    assert "protagonist" in prompt and key in prompt and "story yield" in prompt and "outline" in prompt.lower()
+    brief = contexts.get("ctx_1").sent[0]
+    assert brief.startswith(f"# {key}: Title") and "Desc" in brief and "please build it" in brief and "Lead." in brief
+    row = store.get(key)
+    assert row["phase"] == "planning" and row["ball"] == "cast" and row["castCount"] == 1 and row["workingCount"] == 1
+    assert store.comments(key)[0] == {**store.comments(key)[0], "kind": "text", "body": "please build it", "authorName": "you"}
+    assert json.loads((ws.local_dir / "characters.json").read_text())[chr_id]["name"] == "protagonist"
+    records = [json.loads(l) for l in (ws.stories_dir / key / "threads.jsonl").read_text().splitlines()]
+    assert [r["type"] for r in records] == ["thread", "comment"]
+
+
+def test_start_defaults_role_and_rejects_unknown(store, monkeypatch):
+    monkeypatch.setattr(cfg, "DEFAULT_ROLE", "protagonist", raising=False)
+    key = store.create("A")
+    store.start(key)
+    assert store.character(store.story(key).protagonist)["role"] == "protagonist"
+    key2 = store.create("B")
+    with pytest.raises(ValueError, match="unknown role"):
+        store.start(key2, "", "nope")
+    assert store.get(key2)["phase"] == "todo"
+
+
+def test_second_character_with_same_role_gets_suffixed_name(store):
+    k1, c1 = started(store)
+    k2, c2 = started(store)
+    assert store.character(c1)["name"] == "protagonist"
+    assert store.character(c2)["name"] == "protagonist"  # per story: no collision across stories
+
+
+# ---------------------------------------------------------------- cast verbs
+
+def test_cast_yield_moves_ball_and_notifies(store, contexts):
+    key, chr_id = started(store)
+    c = store.cast_yield(chr_id, "question", "pg or sqlite?", options=["pg", "sqlite"])
+    assert c["kind"] == "question" and c["structured"]["options"] == ["pg", "sqlite"] and c["author"] == chr_id
+    row = store.get(key)
+    assert row["ball"] == "author" and row["needsYou"] and row["flavor"] == "question"
+    assert store.notifier.infos[-1] == f"{key} needs you: question"
+
+
+def test_cast_yield_rejections_surface(store):
+    key, chr_id = started(store)
+    store.cast_yield(chr_id, "handoff", "outline")
+    with pytest.raises(Rejected, match="already waits"):
+        store.cast_yield(chr_id, "question", "again")
+    with pytest.raises(KeyError):
+        store.cast_yield("chr_nobody", "question", "x")
+
+
+def test_cast_proceed_requires_approved_outline_for_outline_first_role(store):
+    key, chr_id = started(store)
+    with pytest.raises(Rejected, match="outline"):
+        store.cast_proceed(chr_id)
+    store.cast_yield(chr_id, "handoff", "the outline")
+    store.proceed(key, "ok")
+    assert store.get(key)["phase"] == "implementing"
+
+
+def test_cast_proceed_allowed_for_plain_role(store):
+    key = store.create("A")
+    chr_id = store.start(key, "", "claude-fast")
+    c = store.cast_proceed(chr_id, "bounded change")
+    assert store.get(key)["phase"] == "implementing" and c["kind"] == "system"
+
+
+def test_cast_recap_and_comment(store):
+    key, chr_id = started(store)
+    r = store.cast_recap(chr_id, "done: x")
+    assert r["kind"] == "recap" and store.character(chr_id)["recaps"] == [r["id"]]
+    c = store.cast_comment(chr_id, "working on it")
+    assert c["kind"] == "text" and store.get(key)["ball"] == "cast"
+
+
+def test_log_verb_appends_to_character(store):
+    key, chr_id = started(store)
+    store.log_verb(chr_id, "yield", {"kind": "question"}, True)
+    store.log_verb(chr_id, "yield", {"kind": "question"}, False, "already waits")
+    log = store.character(chr_id)["verbs_log"]
+    assert [(e["verb"], e["ok"]) for e in log] == [("yield", True), ("yield", False)] and log[1]["error"] == "already waits"
+
+
+# ---------------------------------------------------------------- author actions and delivery
+
+def test_human_comment_while_waiting_is_a_reply_delivered_to_protagonist(store, contexts):
+    key, chr_id = started(store)
+    store.cast_yield(chr_id, "question", "pg or sqlite?")
+    ctx = contexts.get("ctx_1")
+    n = len(ctx.sent)
+    c = store.comment(key, "sqlite")
+    assert c["reply_to"] is not None and store.get(key)["ball"] == "cast"
+    assert ctx.sent[n].startswith("[you] reply in #thr_") and ctx.sent[n].endswith(": sqlite")
+
+
+def test_human_comment_while_cast_has_ball_is_delivered_without_moving_it(store, contexts):
+    key, chr_id = started(store)
+    ctx = contexts.get("ctx_1")
+    n = len(ctx.sent)
+    store.comment(key, "btw prefer sqlite")
+    assert store.get(key)["ball"] == "cast" and ctx.sent[n].startswith("[you] comment in #thr_")
+
+
+def test_proceed_moves_phase_and_tells_protagonist(store, contexts):
+    key, chr_id = started(store)
+    store.cast_yield(chr_id, "handoff", "outline")
+    ctx = contexts.get("ctx_1")
+    store.proceed(key, "go ahead")
+    assert store.get(key)["phase"] == "implementing" and store.get(key)["ball"] == "cast"
+    assert "outline approved" in ctx.sent[-1] and "Phase is now implementing" in ctx.sent[-1]
+
+
+def test_approve_ends_story_and_sends_nothing(store, contexts):
+    key, chr_id = started(store)
+    store.cast_yield(chr_id, "handoff", "outline")
+    store.proceed(key)
+    store.cast_yield(chr_id, "handoff", "built")
+    ctx = contexts.get("ctx_1")
+    n = len(ctx.sent)
+    store.approve(key, "nice")
+    assert store.get(key)["phase"] == "done" and store.get(key)["ball"] == "" and len(ctx.sent) == n
+
+
+def test_back_to_planning_and_reopen_resume_protagonist(store, contexts):
+    key, chr_id = started(store)
+    store.cast_yield(chr_id, "handoff", "outline")
+    store.proceed(key)
+    store.cast_yield(chr_id, "handoff", "built")
+    ctx = contexts.get("ctx_1")
+    store.backToPlanning(key, "rethink the api")
+    assert store.get(key)["phase"] == "planning" and "rethink the api" in ctx.sent[-1]
+    store.cancel(key)
+    assert ctx.stopped and store.get(key)["phase"] == "canceled"
+    ctx.stopped = False
+    store.reopen(key, "one more")
+    assert store.get(key)["phase"] == "implementing" and "one more" in ctx.sent[-1]
+
+
+def test_author_action_rejections_raise_and_report(store):
+    key, chr_id = started(store)
+    with pytest.raises(Rejected):
+        store.approve(key)
+    assert store.notifier.errors and "approve" in store.notifier.errors[-1]
+    with pytest.raises(Rejected):
+        store.proceed(key)
+
+
+def test_rows_expose_needs_you_flavor_by_phase(store):
+    key, chr_id = started(store)
+    store.cast_yield(chr_id, "handoff", "outline")
+    assert store.get(key)["flavor"] == "outline ready"
+    store.proceed(key)
+    store.cast_yield(chr_id, "handoff", "built")
+    assert store.get(key)["flavor"] == "ready for review"
+    store.approve(key)
+    assert store.get(key)["flavor"] == "" and store.get(key)["needsYou"] is False
+
+
+def test_working_count_follows_context_status(store, contexts):
+    key, chr_id = started(store)
+    assert store.get(key)["workingCount"] == 1
+    contexts.get("ctx_1").status = "idle"
+    contexts.contextsChanged.emit()
+    assert store.get(key)["workingCount"] == 0
+
+
+# ---------------------------------------------------------------- pure helpers
+
+def test_author_name():
+    chars = {"chr_1": {"name": "Reviewer"}}
+    assert author_name("human", chars) == "you" and author_name("system", chars) == "harness"
+    assert author_name("chr_1", chars) == "Reviewer" and author_name("chr_9", chars) == "chr_9"
+
+
+def test_render_brief_folds_threads_and_lists_cast(store):
+    key, chr_id = started(store, "note")
+    store.cast_yield(chr_id, "question", "q1", options=["a", "b"])
+    store.comment(key, "a")
+    text = render_brief(store.story(key), store.comments(key), {chr_id: store.character(chr_id)},
+                        {"name": "protagonist", "instructions": "Lead."}, "the call-in note")
+    assert text.startswith(f"# {key}: Title\n\nDesc\n")
+    assert "## Threads" in text and "**you** (text): note" in text and "**protagonist** (question): q1" in text
+    assert "options: a, b" in text and "**you** (text): a" in text
+    assert "## Cast" in text and "protagonist — protagonist" in text
+    assert "## Instructions\nLead." in text and text.rstrip().endswith("## Note\nthe call-in note")
+
+
+def test_needs_you_flavor():
+    from harness.lifecycle import Start, Story, Yield, step
+    s = Story(key="K", title="t", phase="todo")
+    s, c0 = step(s, Start(thread_id="t1", protagonist="c"), comment_id="c0", now=1)
+    assert needs_you_flavor(s, [c0]) == ""
+    s2, c1 = step(s, Yield("t1", "c", "question", "?"), comment_id="c1", now=2)
+    assert needs_you_flavor(s2, [c0, c1]) == "question"
