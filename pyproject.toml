@@ -5,7 +5,7 @@ description = "A native, self-modifying coding-agent harness (Qt / PySide6 + QML
 requires-python = ">=3.10"
 license = "GPL-3.0-or-later"
 license-files = ["LICENSE"]
-dependencies = ["PySide6-Essentials>=6.11"]
+dependencies = ["PySide6-Essentials>=6.11", "tomli>=2; python_version < '3.11'"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
