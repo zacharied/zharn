@@ -20,24 +20,24 @@ def docks(ui):
 
 def test_strip_button_toggles_its_dock(ui):
     assert ui.visible(ui.find("dock_left"))
-    ui.click(ui.find("stripButton_tasks"))
+    ui.click(ui.find("stripButton_board"))
     assert not ui.find("dock_left").isVisible()
-    ui.click(ui.find("stripButton_tasks"))
+    ui.click(ui.find("stripButton_board"))
     assert ui.visible(ui.find("dock_left"))
 
 
 def test_dock_hide_button_collapses_it_to_the_strip(ui):
     ui.click(ui.find("dockHide_left"))
     assert docks(ui)["left"]["mode"] == "strip"
-    ui.click(ui.find("stripButton_tasks"))
+    ui.click(ui.find("stripButton_board"))
 
 
 def test_dock_panel_switcher_changes_active_panel(ui):
     ui.click(ui.find("dockPanel_files"))
     assert docks(ui)["left"]["active"] == "files"
     assert ui.find("dockContent_left").property("source").endswith("Files.qml")
-    ui.click(ui.find("dockPanel_tasks"))
-    assert docks(ui)["left"]["active"] == "tasks"
+    ui.click(ui.find("dockPanel_board"))
+    assert docks(ui)["left"]["active"] == "board"
 
 
 def test_clicking_a_tab_activates_it(ui):
@@ -73,29 +73,29 @@ def test_split_buttons_split_the_group(ui):
     QTest.qWait(50)
 
 
-def test_welcome_new_task_creates_and_opens_one(ui):
+def test_welcome_new_story_creates_and_opens_one(ui):
     ui.store.layout.openContent("welcome", "welcome", "Welcome")
     QTest.qWait(50)
-    n = ui.store.tasks.model.count()
-    ui.click(ui.find("welcomeNewTask"))
-    assert ui.store.tasks.model.count() == n + 1
-    assert ui.has(f"tab_task_{ui.store.tasks.list()[-1]['key']}")
+    n = ui.store.stories.model.count()
+    ui.click(ui.find("welcomeNewStory"))
+    assert ui.store.stories.model.count() == n + 1
+    assert ui.has(f"tab_story_{ui.store.stories.list()[-1]['key']}")
 
 
 def test_welcome_open_board_shows_the_task_board(ui):
     ui.store.layout.resetLayout()
-    ui.store.layout.togglePanel("left", "tasks")  # collapse it first
+    ui.store.layout.togglePanel("left", "board")  # collapse it first
     QTest.qWait(50)
     ui.click(ui.find("welcomeOpenBoard"))
-    assert docks(ui)["left"] == {**docks(ui)["left"], "active": "tasks", "mode": "docked"}
+    assert docks(ui)["left"] == {**docks(ui)["left"], "active": "board", "mode": "docked"}
 
 
-def test_welcome_contexts_opens_the_bottom_panel(ui):
+def test_welcome_contexts_opens_the_right_panel(ui):
     ui.store.layout.openContent("welcome", "welcome", "Welcome")
     QTest.qWait(50)
     ui.click(ui.find("welcomeContexts"))
-    assert docks(ui)["bottom"] == {**docks(ui)["bottom"], "active": "contexts", "mode": "docked"}
-    assert ui.visible(ui.find("dock_bottom"))
+    assert docks(ui)["right"] == {**docks(ui)["right"], "active": "contexts", "mode": "docked"}
+    assert ui.visible(ui.find("dock_right"))
 
 
 def test_contexts_row_opens_the_context(ui):

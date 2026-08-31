@@ -8,18 +8,15 @@ from __future__ import annotations
 from PySide6.QtCore import QObject, Slot
 
 KINDS: dict[str, dict] = {
-    # dockable panels (can also be opened as a tab in an MCC)
-    "tasks":        {"title": "Tasks",        "qml": "content/TaskBoard.qml",   "panel": True,  "icon": "☰"},
-    "task_details": {"title": "Task Details", "qml": "content/TaskDetails.qml", "panel": True,  "icon": "i"},
-    "files":        {"title": "Files",        "qml": "content/Files.qml",       "panel": True,  "icon": "▤"},
-    "git":          {"title": "Git",          "qml": "content/Git.qml",         "panel": True,  "icon": "⎇"},
-    "terminal":     {"title": "Terminal",     "qml": "content/Terminal.qml",    "panel": True,  "icon": ">_"},
-    "contexts":     {"title": "Contexts",     "qml": "content/Contexts.qml",    "panel": True,  "icon": "≡"},
-    # documents / conversations (MCC only)
-    "welcome":      {"title": "Welcome",      "qml": "content/Welcome.qml",     "panel": False, "icon": "★"},
-    "context":      {"title": "Context",      "qml": "content/Context.qml",     "panel": False, "icon": "💬"},
-    "task":         {"title": "Task",         "qml": "content/TaskView.qml",    "panel": False, "icon": "☐"},
-    "document":     {"title": "Document",     "qml": "content/Document.qml",    "panel": False, "icon": "▢"},
+    "board":    {"title": "Board",    "qml": "content/StoryBoard.qml", "panel": True,  "icon": "☰"},
+    "contexts": {"title": "Contexts", "qml": "content/Contexts.qml",   "panel": True,  "icon": "≡"},
+    "files":    {"title": "Files",    "qml": "content/Files.qml",      "panel": True,  "icon": "▤"},
+    "git":      {"title": "Git",      "qml": "content/Git.qml",        "panel": True,  "icon": "⎇"},
+    "terminal": {"title": "Terminal", "qml": "content/Terminal.qml",   "panel": True,  "icon": ">_"},
+    "welcome":  {"title": "Welcome",  "qml": "content/Welcome.qml",    "panel": False, "icon": "★"},
+    "story":    {"title": "Story",    "qml": "content/Story.qml",      "panel": False, "icon": "☐"},
+    "context":  {"title": "Context",  "qml": "content/Context.qml",    "panel": False, "icon": "💬"},
+    "document": {"title": "Document", "qml": "content/Document.qml",   "panel": False, "icon": "▢"},
 }
 
 

@@ -42,9 +42,9 @@ def default_layout() -> dict:
     return {
         "center": tabs([tab("welcome", "welcome", "Welcome")]),
         "docks": {
-            "left": {"panels": ["tasks", "files"], "active": "tasks", "mode": "docked", "size": 280},
-            "right": {"panels": ["task_details"], "active": "task_details", "mode": "docked", "size": 320},
-            "bottom": {"panels": ["terminal", "contexts", "git"], "active": "terminal", "mode": "strip", "size": 220},
+            "left": {"panels": ["board", "files"], "active": "board", "mode": "docked", "size": 280},
+            "right": {"panels": ["contexts"], "active": "contexts", "mode": "docked", "size": 320},
+            "bottom": {"panels": ["terminal", "git"], "active": "terminal", "mode": "strip", "size": 220},
         },
         "activeGroup": None,
     }

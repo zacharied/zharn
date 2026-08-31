@@ -30,7 +30,7 @@ ContentBase {
                 Label { objectName: "contextTitle"; text: view.context ? view.context.title : ""; color: app.theme.text; font.bold: true; elide: Text.ElideRight; Layout.fillWidth: true }
                 Label { objectName: "contextStatus"; text: view.context ? view.context.status : ""; color: app.theme.textMuted; font.pixelSize: 11 }
                 Label { objectName: "contextStoryLink"; text: view.context && view.context.storyKey ? view.context.storyKey : ""; color: app.theme.accent; font.pixelSize: 11
-                        TapHandler { onTapped: app.layout.openContent("task", view.context.storyKey, view.context.storyKey) } }
+                        TapHandler { onTapped: app.layout.openContent("story", view.context.storyKey, view.context.storyKey) } }
                 Label { text: view.context ? view.context.model : ""; color: app.theme.textMuted; font.pixelSize: 11 }
                 Label { text: view.context ? "$" + view.context.costUsd.toFixed(3) : ""; color: app.theme.textMuted; font.pixelSize: 11 }
                 Label { objectName: "stopButton"; visible: view.busy; text: "■ stop"; color: app.theme.textMuted; TapHandler { onTapped: view.context.stop() } }

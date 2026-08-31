@@ -74,7 +74,7 @@ def test_lone_tab_to_own_edge_is_noop():
 
 def test_toggle_panel_and_docks():
     l = Layout()
-    l.toggle_panel("left", "tasks")   # active+docked → strip
+    l.toggle_panel("left", "board")   # active+docked → strip
     assert l.data["docks"]["left"]["mode"] == "strip"
     l.toggle_panel("left", "files")
     assert l.data["docks"]["left"] == {**l.data["docks"]["left"], "active": "files", "mode": "docked"}
@@ -170,10 +170,10 @@ def test_toggle_panel_other_panel_switches_active_keeps_docked():
 
 def test_move_panel_only_panel_leaves_side_empty_strip():
     l = Layout()
-    l.move_panel("task_details", "left")
+    l.move_panel("contexts", "left")
     right = l.data["docks"]["right"]
     assert right["panels"] == [] and right["active"] is None and right["mode"] == "strip"
-    assert l.data["docks"]["left"]["panels"][-1] == "task_details"
+    assert l.data["docks"]["left"]["panels"][-1] == "contexts"
 
 
 def test_move_panel_to_same_side_keeps_single_entry():
@@ -257,11 +257,11 @@ def test_move_to_own_edge_from_multi_tab_group_splits_in_two():
 
 def test_show_panel_docks_it_wherever_it_lives_and_keeps_it_shown():
     l = Layout()
-    l.toggle_panel("bottom", "contexts")
-    l.toggle_panel("bottom", "contexts")  # collapsed again
-    assert l.show_panel("contexts") == "bottom"
-    assert l.data["docks"]["bottom"] == {**l.data["docks"]["bottom"], "active": "contexts", "mode": "docked"}
-    assert l.show_panel("contexts") == "bottom"  # idempotent, not a toggle
+    l.toggle_panel("bottom", "git")
+    l.toggle_panel("bottom", "git")  # collapsed again
+    assert l.show_panel("git") == "bottom"
+    assert l.data["docks"]["bottom"] == {**l.data["docks"]["bottom"], "active": "git", "mode": "docked"}
+    assert l.show_panel("git") == "bottom"  # idempotent, not a toggle
     assert l.data["docks"]["bottom"]["mode"] == "docked"
     import pytest
     with pytest.raises(KeyError):

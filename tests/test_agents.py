@@ -152,7 +152,8 @@ def test_context_tab_renders_and_screenshot(harness):
     app, store, reloader = harness
     from test_app import find_all, root
     c = store.contexts.get(store.contexts.model.rows()[0]["id"])
-    store.layout.openContent("task", "ABC-1", "ABC-1")
+    key = store.stories.create("Screenshot", "")
+    store.layout.openContent("story", key, key)
     store.layout.openContent("context", c.id, c.title)
     QTest.qWait(300)
     win = root(reloader)

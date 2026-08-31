@@ -78,11 +78,11 @@ def test_intents_rerender(harness):
     layout.closeTab(new_gid, 0)
     QTest.qWait(50)
     assert len(find_all(win, r"group_g\d+")) == 1
-    layout.togglePanel("left", "tasks")   # collapse left dock to strip
+    layout.togglePanel("left", "board")   # collapse left dock to strip
     QTest.qWait(50)
     docks = find_all(win, r"dock_left")
     assert docks and not docks[0].property("visible")
-    layout.togglePanel("left", "tasks")
+    layout.togglePanel("left", "board")
     layout.togglePanel("bottom", "terminal")  # open bottom dock
     QTest.qWait(50)
     assert find_all(win, r"dock_bottom")[0].property("visible")

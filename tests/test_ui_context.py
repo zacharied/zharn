@@ -9,12 +9,13 @@ from ui import start, wait_until
 @pytest.fixture(scope="module")
 def ui():
     h = start("ui-context")
+    h.story_key = h.store.stories.create("ctx home", "")
     yield h
     h.shutdown()
 
 
 def open_context(ui, prompt="hello"):
-    cid = ui.store.contexts.spawn("claude-fast", prompt, story_key="ABC-1")
+    cid = ui.store.contexts.spawn("claude-fast", prompt, story_key=ui.story_key)
     ui.store.layout.openContent("context", cid, prompt)
     QTest.qWait(150)
     return ui.store.contexts.get(cid)
@@ -79,7 +80,7 @@ def test_unknown_context_tab_explains_itself(ui):
     assert not ui.has("sendButton") or not ui.visible(ui.find("sendButton"))
 
 
-def test_task_link_in_header_opens_the_task(ui):
+def test_story_link_in_header_opens_the_story(ui):
     open_context(ui, "link me")
     ui.click(ui.find("contextStoryLink"))
-    assert ui.has("tab_task_ABC-1")
+    assert ui.has(f"tab_story_{ui.story_key}")
