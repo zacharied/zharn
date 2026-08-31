@@ -185,10 +185,10 @@ class Harness:
 
 
 def start(name: str, claude_cmd: str = FAKE_CLAUDE, width=1400, height=900) -> Harness:
-    """A fresh app over an empty data dir, rendered offscreen."""
-    data = OUT / f"{name}-data"
-    shutil.rmtree(data, ignore_errors=True)
-    os.environ["HARNESS_DATA_DIR"] = str(data)
+    """A fresh app over an empty workspace, rendered offscreen."""
+    ws = OUT / f"{name}-ws"
+    shutil.rmtree(ws, ignore_errors=True)
+    os.environ["HARNESS_WORKSPACE"] = str(ws)
     os.environ["HARNESS_SESSION"] = str(OUT / f"{name}-session.json")
     os.environ["HARNESS_CLAUDE_CMD"] = claude_cmd
     Path(os.environ["HARNESS_SESSION"]).unlink(missing_ok=True)

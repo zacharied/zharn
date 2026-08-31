@@ -125,6 +125,8 @@ def recorder(monkeypatch):
         return r
 
     monkeypatch.setattr(cli, "request", fake_request)
+    monkeypatch.delenv("HARNESS_CHARACTER_ID", raising=False)
+    monkeypatch.delenv("HARNESS_STORY_KEY", raising=False)
     return types.SimpleNamespace(calls=calls, replies=replies)
 
 
@@ -285,3 +287,60 @@ def test_missing_subcommand_is_a_usage_error(recorder):
         cli.main(["context"])
     assert e.value.code == 2
     assert recorder.calls == []
+
+
+# ---------------------------------------------------------------- story
+
+
+def test_story_list_show_create_start(recorder, monkeypatch):
+    recorder.replies.update({"story.list": [], "story.show": {"key": "ABC-1"}, "story.create": {"key": "ABC-2"}, "story.start": {"key": "ABC-1", "character": "chr1"}})
+    cli.main(["story", "list"]); cli.main(["story", "show", "ABC-1"])
+    monkeypatch.setenv("HARNESS_STORY_KEY", "ABC-7"); cli.main(["story", "show"])
+    cli.main(["story", "create", "--title", "T", "--description", "D"])
+    cli.main(["story", "start", "ABC-1", "--note", "go", "--role", "protagonist"])
+    assert recorder.calls == [("story.list", {}), ("story.show", {"key": "ABC-1"}), ("story.show", {"key": "ABC-7"}),
+                              ("story.create", {"title": "T", "description": "D"}),
+                              ("story.start", {"key": "ABC-1", "note": "go", "role": "protagonist"})]
+
+
+def test_story_yield_uses_character_from_env(recorder, monkeypatch, capsys):
+    monkeypatch.setenv("HARNESS_CHARACTER_ID", "chr1")
+    recorder.replies["story.yield"] = {"id": "c1", "kind": "question"}
+    cli.main(["story", "yield", "--question", "--body", "which?", "--options", "a,b", "--thread", "t2"])
+    assert recorder.calls == [("story.yield", {"character": "chr1", "kind": "question", "body": "which?", "options": ["a", "b"], "thread": "t2"})]
+    cli.main(["story", "yield", "--handoff", "--body", "done"])
+    assert recorder.calls[-1][1]["kind"] == "handoff" and recorder.calls[-1][1]["options"] == []
+
+
+def test_story_yield_requires_exactly_one_kind_and_a_character(recorder, monkeypatch):
+    monkeypatch.setenv("HARNESS_CHARACTER_ID", "chr1")
+    with pytest.raises(SystemExit):
+        cli.main(["story", "yield", "--body", "x"])
+    with pytest.raises(SystemExit):
+        cli.main(["story", "yield", "--question", "--handoff", "--body", "x"])
+    monkeypatch.delenv("HARNESS_CHARACTER_ID")
+    with pytest.raises(SystemExit) as e:
+        cli.main(["story", "yield", "--question", "--body", "x"])
+    assert "HARNESS_CHARACTER_ID" in str(e.value)
+    assert recorder.calls == []
+
+
+def test_story_proceed_recap_comment_inside_a_character(recorder, monkeypatch):
+    monkeypatch.setenv("HARNESS_CHARACTER_ID", "chr1")
+    for cmd in ("story.proceed", "story.recap", "story.comment"):
+        recorder.replies[cmd] = {"id": "c"}
+    cli.main(["story", "proceed", "--note", "bounded"]); cli.main(["story", "recap", "--body", "r"]); cli.main(["story", "comment", "--body", "c"])
+    assert recorder.calls == [("story.proceed", {"character": "chr1", "note": "bounded"}), ("story.recap", {"character": "chr1", "body": "r"}),
+                              ("story.comment", {"character": "chr1", "body": "c", "thread": ""})]
+
+
+def test_story_author_verbs_outside_a_character(recorder):
+    for cmd in ("story.proceed", "story.approve", "story.back", "story.cancel", "story.reopen", "story.reply", "story.comment"):
+        recorder.replies[cmd] = {"key": "ABC-1"}
+    cli.main(["story", "proceed", "ABC-1", "--note", "ok"]); cli.main(["story", "approve", "ABC-1"]); cli.main(["story", "back", "ABC-1", "--note", "b"])
+    cli.main(["story", "cancel", "ABC-1"]); cli.main(["story", "reopen", "ABC-1", "--note", "r"])
+    cli.main(["story", "reply", "ABC-1", "--body", "yes", "--thread", "t1"]); cli.main(["story", "comment", "--story", "ABC-1", "--body", "c"])
+    assert recorder.calls == [("story.proceed", {"key": "ABC-1", "note": "ok"}), ("story.approve", {"key": "ABC-1", "note": ""}),
+                              ("story.back", {"key": "ABC-1", "note": "b"}), ("story.cancel", {"key": "ABC-1", "note": ""}),
+                              ("story.reopen", {"key": "ABC-1", "note": "r"}), ("story.comment", {"key": "ABC-1", "body": "yes", "thread": "t1"}),
+                              ("story.comment", {"key": "ABC-1", "body": "c", "thread": ""})]

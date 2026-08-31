@@ -116,6 +116,37 @@ class FakeLayout:
         self.opened.append((kind, key, title))
 
 
+class FakeStories:
+    def __init__(self):
+        self.calls, self.verbs = [], []
+        self.rows = {"ABC-1": {"key": "ABC-1", "title": "one", "phase": "todo", "ball": ""}}
+
+    def list(self): return list(self.rows.values())
+    def get(self, key): return dict(self.rows.get(key, {}))
+    def comments(self, key): return [{"id": "c1", "kind": "text", "body": "hi", "authorName": "you"}] if key in self.rows else []
+    def cast(self, key): return [{"id": "chr1", "name": "protagonist", "live_context": "t1"}] if key in self.rows else []
+    def create(self, title, description=""):
+        self.calls.append(("create", title, description)); self.rows["ABC-2"] = {"key": "ABC-2", "title": title, "phase": "todo", "ball": ""}; return "ABC-2"
+    def start(self, key, note="", role=""):
+        self.calls.append(("start", key, note, role)); self.rows[key].update(phase="planning", ball="cast"); return "chr1"
+    def comment(self, key, body, thread_id=""): self.calls.append(("comment", key, body, thread_id)); return {"id": "c9", "kind": "text"}
+    def proceed(self, key, note=""): self.calls.append(("proceed", key, note))
+    def approve(self, key, note=""): self.calls.append(("approve", key, note))
+    def backToPlanning(self, key, note=""): self.calls.append(("back", key, note))
+    def cancel(self, key, note=""): self.calls.append(("cancel", key, note))
+    def reopen(self, key, note=""): self.calls.append(("reopen", key, note))
+    def cast_yield(self, character_id, kind, body, options=(), thread_id=""):
+        self.calls.append(("cast_yield", character_id, kind, body, list(options), thread_id))
+        if body == "boom":
+            from harness.lifecycle import Rejected
+            raise Rejected("thread already waits on its author")
+        return {"id": "c5", "kind": kind}
+    def cast_proceed(self, character_id, note=""): self.calls.append(("cast_proceed", character_id, note)); return {"id": "c6", "kind": "system"}
+    def cast_recap(self, character_id, body): self.calls.append(("cast_recap", character_id, body)); return {"id": "c7", "kind": "recap"}
+    def cast_comment(self, character_id, body, thread_id=""): self.calls.append(("cast_comment", character_id, body, thread_id)); return {"id": "c8", "kind": "text"}
+    def log_verb(self, character_id, verb, args, ok, error=""): self.verbs.append((character_id, verb, dict(args), ok, error))
+
+
 class FakeAppStore:
     def __init__(self):
         self.contexts = FakeContexts(
@@ -130,6 +161,7 @@ class FakeAppStore:
         ])
         self.roles = FakeRoles("claude-fast", "claude-deep")
         self.layout = FakeLayout()
+        self.stories = FakeStories()
 
 
 @pytest.fixture
@@ -265,6 +297,46 @@ def test_layout_open_key_and_title_default_to_empty(h, store):
 def test_unknown_command_raises_valueerror(h):
     with pytest.raises(ValueError, match="unknown command 'bogus'"):
         h("bogus", {})
+
+
+def test_story_list_and_show_attach_comments_cast_and_contexts(h, store):
+    assert [s["key"] for s in h("story.list", {})] == ["ABC-1"]
+    s = h("story.show", {"key": "ABC-1"})
+    assert s["title"] == "one" and s["comments"][0]["body"] == "hi" and s["cast"][0]["name"] == "protagonist"
+    assert [c["id"] for c in s["contexts"]] == ["t1"]   # FakeContexts entries whose storyKey == "ABC-1"
+    with pytest.raises(KeyError):
+        h("story.show", {"key": "ZZZ-9"})
+
+
+def test_story_create_and_start(h, store):
+    assert h("story.create", {"title": "new", "description": "d"})["key"] == "ABC-2"
+    r = h("story.start", {"key": "ABC-1", "note": "go", "role": "protagonist"})
+    assert store.stories.calls[-1] == ("start", "ABC-1", "go", "protagonist") and r["character"] == "chr1" and r["phase"] == "planning"
+
+
+def test_story_author_verbs_forward(h, store):
+    h("story.proceed", {"key": "ABC-1", "note": "n"}); h("story.approve", {"key": "ABC-1"}); h("story.back", {"key": "ABC-1", "note": "b"})
+    h("story.cancel", {"key": "ABC-1"}); h("story.reopen", {"key": "ABC-1", "note": "r"}); h("story.comment", {"key": "ABC-1", "body": "hey"})
+    assert store.stories.calls == [("proceed", "ABC-1", "n"), ("approve", "ABC-1", ""), ("back", "ABC-1", "b"),
+                                   ("cancel", "ABC-1", ""), ("reopen", "ABC-1", "r"), ("comment", "ABC-1", "hey", "")]
+    assert store.stories.verbs == []   # no character → nothing logged
+
+
+def test_story_cast_verbs_forward_and_log(h, store):
+    assert h("story.yield", {"character": "chr1", "kind": "question", "body": "q", "options": ["a", "b"]})["kind"] == "question"
+    h("story.proceed", {"character": "chr1", "note": "bounded"})
+    h("story.recap", {"character": "chr1", "body": "r"})
+    h("story.comment", {"character": "chr1", "body": "c", "thread": "t2"})
+    assert store.stories.calls == [("cast_yield", "chr1", "question", "q", ["a", "b"], ""), ("cast_proceed", "chr1", "bounded"),
+                                   ("cast_recap", "chr1", "r"), ("cast_comment", "chr1", "c", "t2")]
+    assert [(v[1], v[3]) for v in store.stories.verbs] == [("yield", True), ("proceed", True), ("recap", True), ("comment", True)]
+    assert "character" not in store.stories.verbs[0][2]
+
+
+def test_story_cast_rejection_is_logged_and_raised(h, store):
+    with pytest.raises(Exception, match="already waits"):
+        h("story.yield", {"character": "chr1", "kind": "question", "body": "boom"})
+    assert store.stories.verbs[-1][3] is False and "already waits" in store.stories.verbs[-1][4]
 
 
 # ---------------------------------------------------------------- IpcServer round-trip

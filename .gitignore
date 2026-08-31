@@ -5,9 +5,9 @@ __pycache__/
 # your config: created from *.def.* on first run, never tracked
 harness/config.py
 qml/Theme.qml
-# runtime state (threads, tasks, session)
-.harness/
-.harness-session.json
+# runtime state (threads, tasks, session): the checkout's own workspace state, not tracked
+# while the project is experimental
+.zharn/
 tests/_out/
 # agent scratch (SDD ledgers, briefs, reports)
 .superpowers/

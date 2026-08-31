@@ -13,7 +13,7 @@ from PySide6.QtTest import QTest
 from harness.__main__ import ROOT, build
 
 OUT = ROOT / "tests" / "_out"
-DATA = OUT / "agents-data"
+WS = OUT / "agents-ws"
 
 
 def wait_until(cond, timeout_ms=8000, step=25):
@@ -27,8 +27,8 @@ def wait_until(cond, timeout_ms=8000, step=25):
 
 @pytest.fixture(scope="module")
 def harness():
-    shutil.rmtree(DATA, ignore_errors=True)
-    os.environ["HARNESS_DATA_DIR"] = str(DATA)
+    shutil.rmtree(WS, ignore_errors=True)
+    os.environ["HARNESS_WORKSPACE"] = str(WS)
     os.environ["HARNESS_SESSION"] = str(OUT / "agents-session.json")
     os.environ["HARNESS_CLAUDE_CMD"] = f"{sys.executable} {ROOT / 'tests' / 'fake_claude.py'}"
     (OUT / "agents-session.json").unlink(missing_ok=True)
@@ -68,12 +68,12 @@ def test_spawn_streams_and_settles(harness):
     assert c.sessionId == "fake-session-1" and c.model == "fake-model"
     assert abs(c.costUsd - 0.0123) < 1e-6 and c.turns == 1
     # child process got the harness env
-    records = [json.loads(l) for l in (DATA / "contexts" / f"{cid}.jsonl").read_text().splitlines()]
+    records = [json.loads(l) for l in (store.contexts.data_dir / f"{cid}.jsonl").read_text().splitlines()]
     assert [r["type"] for r in records[:3]] == ["harness.meta", "harness.user", "system"]
     init = records[2]
     assert init["harness_env"]["HARNESS_CONTEXT_ID"] == cid
     assert init["harness_env"]["HARNESS_STORY_KEY"] == "ABC-1"
-    assert init["harness_env"]["HARNESS_WORKSPACE"] == str(ROOT)
+    assert init["harness_env"]["HARNESS_WORKSPACE"] == store.workspaceDir
     # summary row in the list model
     assert any(r["id"] == cid and r["status"] == "idle" for r in store.contexts.model.rows())
 
@@ -139,7 +139,7 @@ def test_cli_over_ipc(harness):
 def test_transcripts_persist_and_replay(harness):
     app, store, _ = harness
     from harness.contexts import ContextStore
-    fresh = ContextStore(ROOT, DATA / "contexts", store.roles, workspace_dir=ROOT)
+    fresh = ContextStore(ROOT, store.contexts.data_dir, store.roles, workspace_dir=store.contexts.workspace_dir)
     ids = {c.id for c in store.contexts.all()}
     assert {c.id for c in fresh.all()} == ids
     for c in fresh.all():
@@ -167,3 +167,36 @@ def test_context_tab_renders_and_screenshot(harness):
     assert wait_until(lambda: c.status == "idle")
     assert rows(c)[-1]["text"] == "echo: from the ui"
     assert wait_until(lambda: lists[0].property("count") == c.transcript.count())
+
+
+def test_story_start_yield_over_cli_and_reply(harness):
+    app, store, _ = harness
+    key = store.stories.create("E2E", "end to end")
+    chr_id = store.stories.start(key, "yield-question", "protagonist")
+    ch = store.stories.character(chr_id)
+    ctx = store.contexts.get(ch["live_context"])
+    assert ctx.owner == chr_id and ctx.storyKey == key
+    assert wait_until(lambda: store.stories.get(key)["ball"] == "author", timeout_ms=15000), store.stories.get(key)
+    q = store.stories.comments(key)[-1]
+    assert q["kind"] == "question" and q["structured"]["options"] == ["a", "b"] and q["authorName"] == "protagonist"
+    assert store.stories.get(key)["flavor"] == "question" and store.notify.status == f"{key} needs you: question"
+    assert store.stories.character(chr_id)["verbs_log"][-1]["verb"] == "yield"
+    assert wait_until(lambda: ctx.status == "idle", timeout_ms=15000)
+    store.stories.comment(key, "a")
+    assert store.stories.get(key)["ball"] == "cast"
+    assert wait_until(lambda: ctx.status == "idle" and rows(ctx)[-1]["role"] == "assistant", timeout_ms=15000)
+    assert rows(ctx)[-1]["text"].startswith("echo: ")
+    assert "[you] reply in #thr_" in rows(ctx)[-2]["text"]
+
+
+def test_cli_story_show_over_ipc(harness):
+    app, store, _ = harness
+    key = store.stories.list()[-1]["key"]
+    env = {**os.environ, "HARNESS_IPC": store.ipcPath}
+    p = subprocess.Popen([sys.executable, "-m", "harness.cli", "--json", "story", "show", key], stdout=subprocess.PIPE,
+                         stderr=subprocess.PIPE, text=True, env=env, cwd=ROOT)
+    assert wait_until(lambda: p.poll() is not None, timeout_ms=30000)
+    out, err = p.communicate()
+    assert p.returncode == 0, err
+    data = json.loads(out)
+    assert data["key"] == key and data["comments"] and data["cast"][0]["name"] == "protagonist" and data["contexts"]

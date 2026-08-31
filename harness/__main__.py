@@ -45,24 +45,31 @@ def build(argv=None, force_poll=False):
     from harness.store import AppStore, LayoutStore, Session
     from harness.tasks import TaskStore
     from harness.contexts import ContextStore
+    from harness.stories import StoryStore
+    from harness.workspace import Workspace
 
     app = QGuiApplication.instance() or QGuiApplication(argv or sys.argv)
     app.setApplicationName("zharn")
     app.setOrganizationName("zharn")
     QQuickStyle.setStyle("Basic")
 
-    data_dir = Path(os.environ.get("HARNESS_DATA_DIR") or ROOT / ".harness")
+    ws_dir = Path(os.environ.get("HARNESS_WORKSPACE") or ROOT)
+    workspace = Workspace.open_or_create(ws_dir)
+    if not workspace.repos and (ws_dir / ".git").exists():
+        workspace.add_repo(ws_dir)
+    data_dir = workspace.local_dir
     session = Session(Path(os.environ.get("HARNESS_SESSION") or data_dir / "session.json"))
     layout_store = LayoutStore(session)
     content = ContentRegistry(QML_DIR)
     roles = RoleStore(data_dir)
-    contexts = ContextStore(ROOT, data_dir / "contexts", roles, workspace_dir=ROOT)
+    contexts = ContextStore(ROOT, data_dir / "contexts", roles, workspace_dir=workspace.dir)
     tasks = TaskStore(data_dir, contexts)
+    stories = StoryStore(workspace, contexts, roles)
     notifier = Notifier()
-    for s in (layout_store, roles, contexts, tasks):
+    for s in (layout_store, roles, contexts, tasks, stories):
         s.notifier = notifier  # @intent slots report here; the status bar shows it
     store = AppStore(session, layout_store, content, cfg.THEME, contexts=contexts, roles=roles, tasks=tasks,
-                     notifier=notifier)
+                     stories=stories, workspace=workspace, notifier=notifier)
     ipc = IpcServer(f"zharn-{os.getpid()}", make_handler(store), parent=store)
     store._ipc_path = ipc.path
     contexts.extra_env = lambda: {"HARNESS_IPC": ipc.path}

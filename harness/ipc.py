@@ -58,12 +58,61 @@ class IpcServer(QObject):
 
 def make_handler(app_store):
     """Command table. Names mirror the CLI: <noun>.<verb>."""
+    def story_cmd(cmd: str, a: dict):
+        stories, contexts = app_store.stories, app_store.contexts
+        verb = cmd.split(".", 1)[1]
+        if verb == "list":
+            return stories.list()
+        if verb == "show":
+            row = stories.get(a["key"])
+            if not row:
+                raise KeyError(a["key"])
+            key = row["key"]
+            return {**row, "comments": stories.comments(key), "cast": stories.cast(key),
+                    "contexts": [c for c in contexts.summaries() if c["storyKey"] == key]}
+        if verb == "create":
+            return stories.get(stories.create(a["title"], a.get("description", "")))
+        if verb == "start":
+            chr_id = stories.start(a["key"], a.get("note", ""), a.get("role", ""))
+            return {**stories.get(a["key"]), "character": chr_id}
+        ch = a.get("character", "")
+        if verb == "yield":
+            return stories.cast_yield(ch, a["kind"], a["body"], a.get("options") or [], a.get("thread", ""))
+        if verb == "recap":
+            return stories.cast_recap(ch, a["body"])
+        if verb == "comment":
+            if ch:
+                return stories.cast_comment(ch, a["body"], a.get("thread", ""))
+            return stories.comment(a["key"], a["body"], a.get("thread", ""))
+        if verb == "proceed":
+            if ch:
+                return stories.cast_proceed(ch, a.get("note", ""))
+            stories.proceed(a["key"], a.get("note", ""))
+            return stories.get(a["key"])
+        author = {"approve": stories.approve, "back": stories.backToPlanning, "cancel": stories.cancel, "reopen": stories.reopen}.get(verb)
+        if author is not None:
+            author(a["key"], a.get("note", ""))
+            return stories.get(a["key"])
+        raise ValueError(f"unknown command {cmd!r}")
+
     def h(cmd: str, a: dict):
         contexts, tasks, roles, layout = app_store.contexts, app_store.tasks, app_store.roles, app_store.layout
         if cmd == "ping":
             return {"pid": os.getpid()}
         if cmd == "role.list":
             return roles.roles
+        if cmd.startswith("story."):
+            ch = a.get("character", "")
+            if not ch:
+                return story_cmd(cmd, a)
+            logged = {k: v for k, v in a.items() if k != "character"}
+            try:
+                result = story_cmd(cmd, a)
+            except Exception as e:
+                app_store.stories.log_verb(ch, cmd.split(".", 1)[1], logged, False, f"{type(e).__name__}: {e}")
+                raise
+            app_store.stories.log_verb(ch, cmd.split(".", 1)[1], logged, True)
+            return result
         if cmd == "context.list":
             return [s for s in contexts.summaries() if not a.get("story") or s["storyKey"] == a["story"]]
         if cmd == "context.show":

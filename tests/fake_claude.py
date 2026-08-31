@@ -6,6 +6,7 @@ Speaks the real event protocol (captured from claude 2.1.250). Behaviour is keye
 """
 import json
 import os
+import subprocess
 import sys
 import time
 
@@ -54,6 +55,10 @@ def main():
         emit({"type": "system", "subtype": "status", "status": "requesting"})
         if "slow" in prompt:
             time.sleep(1.5)
+        elif "yield-question" in prompt:
+            cli = os.environ["HARNESS_CLI"].split() + ["story", "yield", "--question", "--body", "which one?", "--options", "a,b"]
+            r = subprocess.run(cli, capture_output=True, text=True, env=os.environ)
+            tool_turn("Bash", {"command": "zharn story yield --question …"}, (r.stdout + r.stderr).strip(), is_error=r.returncode != 0)
         if "tool" in prompt:
             tool_turn("Bash", {"command": "echo hello-from-tool"}, "hello-from-tool")
         if "fail" in prompt:

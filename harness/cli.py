@@ -49,13 +49,15 @@ def out(value, as_json: bool):
     elif isinstance(value, list):
         for row in value:
             if isinstance(row, dict):
-                print("  ".join(f"{k}={row[k]}" for k in ("id", "key", "name", "status", "title", "owner", "storyKey", "model") if k in row))
+                print("  ".join(f"{k}={row[k]}" for k in ("id", "key", "name", "phase", "ball", "status", "title", "storyKey", "owner", "kind", "model") if k in row))
             else:
                 print(row)
     elif isinstance(value, dict):
         for k, v in value.items():
-            if k != "transcript":
+            if k not in ("comments", "cast", "contexts", "transcript"):
                 print(f"{k}: {v}")
+        for c in value.get("comments", []):
+            print(f"[{c.get('authorName', '')}/{c['kind']}] {c['body']}")
         for row in value.get("transcript", []):
             print(f"[{row['role']}/{row['kind']}] {row.get('name', '')} {row.get('text') or row.get('input', '')}")
     else:
@@ -89,6 +91,20 @@ def main(argv=None):
     st = tk.add_parser("status"); st.add_argument("key"); st.add_argument("status")
     cr = tk.add_parser("create"); cr.add_argument("--title", required=True); cr.add_argument("--description", default="")
 
+    stp = sub.add_parser("story").add_subparsers(dest="verb", required=True)
+    stp.add_parser("list")
+    stp.add_parser("show").add_argument("key", nargs="?", default=os.environ.get("HARNESS_STORY_KEY", ""))
+    c = stp.add_parser("create"); c.add_argument("--title", required=True); c.add_argument("--description", default="")
+    s = stp.add_parser("start"); s.add_argument("key"); s.add_argument("--note", default=""); s.add_argument("--role", default="")
+    y = stp.add_parser("yield"); y.add_argument("--question", action="store_true"); y.add_argument("--handoff", action="store_true")
+    y.add_argument("--body", required=True); y.add_argument("--options", default=""); y.add_argument("--thread", default="")
+    pr = stp.add_parser("proceed"); pr.add_argument("key", nargs="?", default=""); pr.add_argument("--note", default="")
+    stp.add_parser("recap").add_argument("--body", required=True)
+    cm = stp.add_parser("comment"); cm.add_argument("--body", required=True); cm.add_argument("--thread", default=""); cm.add_argument("--story", default=os.environ.get("HARNESS_STORY_KEY", ""))
+    rp = stp.add_parser("reply"); rp.add_argument("key"); rp.add_argument("--body", required=True); rp.add_argument("--thread", default="")
+    for v in ("approve", "back", "cancel", "reopen"):
+        x = stp.add_parser(v); x.add_argument("key"); x.add_argument("--note", default="")
+
     sub.add_parser("ping")
     a = p.parse_args(argv)
 
@@ -100,6 +116,12 @@ def main(argv=None):
                 return s
             time.sleep(0.5)
         sys.exit(f"timeout waiting for {cid}")
+
+    def character() -> str:
+        ch = os.environ.get("HARNESS_CHARACTER_ID", "")
+        if not ch:
+            sys.exit("HARNESS_CHARACTER_ID is not set (run this inside a character)")
+        return ch
 
     if a.noun == "ping":
         out(request("ping", {}), a.json)
@@ -125,6 +147,27 @@ def main(argv=None):
             out(s if a.json else (s.get("lastText") or s["status"]), a.json)
         elif a.verb == "send": out(request("context.send", {"id": a.id, "text": a.message}), a.json)
         elif a.verb == "stop": out(request("context.stop", {"id": a.id}), a.json)
+    elif a.noun == "story":
+        ch = os.environ.get("HARNESS_CHARACTER_ID", "")
+        if a.verb == "list": out(request("story.list", {}), a.json)
+        elif a.verb == "show": out(request("story.show", {"key": a.key}), a.json)
+        elif a.verb == "create": out(request("story.create", {"title": a.title, "description": a.description}), a.json)
+        elif a.verb == "start": out(request("story.start", {"key": a.key, "note": a.note, "role": a.role}), a.json)
+        elif a.verb == "yield":
+            if a.question == a.handoff:
+                sys.exit("yield needs exactly one of --question / --handoff")
+            opts = [o.strip() for o in a.options.split(",") if o.strip()]
+            out(request("story.yield", {"character": character(), "kind": "question" if a.question else "handoff",
+                                        "body": a.body, "options": opts, "thread": a.thread}), a.json)
+        elif a.verb == "recap": out(request("story.recap", {"character": character(), "body": a.body}), a.json)
+        elif a.verb == "proceed":
+            args = {"character": ch, "note": a.note} if ch and not a.key else {"key": a.key, "note": a.note}
+            out(request("story.proceed", args), a.json)
+        elif a.verb == "comment":
+            args = {"character": ch, "body": a.body, "thread": a.thread} if ch else {"key": a.story, "body": a.body, "thread": a.thread}
+            out(request("story.comment", args), a.json)
+        elif a.verb == "reply": out(request("story.comment", {"key": a.key, "body": a.body, "thread": a.thread}), a.json)
+        else: out(request(f"story.{a.verb}", {"key": a.key, "note": a.note}), a.json)
 
 
 if __name__ == "__main__":
