@@ -38,7 +38,7 @@ Known limits, and the rule that neutralizes each:
 │ QGuiApplication · watcher (poll or inotify) · Reloader · Session      │
 │                                                                       │
 │ ┌─ Store layer (reload-tolerant) ─────────────────────────────────┐   │
-│ │ Projects · Threads · Environments · Providers · Terminals       │   │
+│ │ Workspace · Repos · Environments · Stories · Contexts · Roles   │   │
 │ │ QObject singletons, long-lived, exposed to QML by *instance*    │   │
 │ └─────────────────────────────────────────────────────────────────┘   │
 │ ┌─ Logic layer (hot-swapped by importlib.reload) ─────────────────┐   │
@@ -63,7 +63,7 @@ Known limits, and the rule that neutralizes each:
 
 ## 3. What we keep from bb
 
-Verbatim conceptual model (`bb guide`): **Project** ↔ repo · **Thread** = one agent conversation,
+Verbatim conceptual model (`bb guide`): **Project** ↔ repo (zharn: **repo**, inside a **workspace**, §3c) · **Thread** = one agent conversation,
 optional parent (parent gets child lifecycle events) · **Environment** = checkout or managed
 worktree, shareable across threads, `.bb-env-setup.sh` hook · **Provider** = agent backend +
 model · **Terminal** = persistent PTY scoped to thread/env · forks (clone session at a turn) ·
@@ -165,9 +165,36 @@ Defined in **[`docs/AGENT-MODEL.md`](AGENT-MODEL.md)** (design) and
   bookkeeping, the recap/recast ladder) and injects phase skills (vendored from superpowers into
   `harness/skills/`) for the rest.
 
-Kept from bb: projects with prefixes, roles/presets, attachments, mentions (`@ABC-12`), a
-**New Context** button (bb's "new thread": a bare chat for questions, promotable into a story),
-and stories without a project landing in an auto-created "Inbox".
+Kept from bb: roles/presets, attachments, mentions (`@ABC-12`), a **New Context** button (bb's
+"new thread": a bare chat for questions, promotable into a story). Not kept: per-project prefixes
+and the auto-created "Inbox" project — stories are rooted at a workspace (§3c).
+
+## 3c. Workspaces, repos, environments
+
+Defined in **[`docs/superpowers/specs/2026-08-31-workspace-model-design.md`](superpowers/specs/2026-08-31-workspace-model-design.md)**,
+which wins over this section and over the code. In brief:
+
+* A **workspace** is a directory with a `.zharn/`: one board, one story-key prefix, a set of
+  repos. It is what you open on the start screen. Identity is a UUID in `workspace.toml`, never a
+  path (the same dir has three spellings on a Windows-GUI/WSL-agents machine).
+* A **repo** is a registered git repository (path, name, `checks`, `setup`, `base`) — bb's
+  "project", renamed because it is 1:1 with a repository and "project" is the word a board will
+  want for a group of stories. Repos may live anywhere; inside the workspace dir they are stored
+  relative. The author registers repos; **so may any character**, by path or by URL (cloned into
+  `<workspace>/repos/`), recorded as a system comment in its thread. Unregistering is author-only.
+* An **environment** is a checkout of one repo where a context stands: the main checkout, or a
+  managed worktree zharn creates on branch `zharn/<key>`. A story acquires environments lazily —
+  the first `zharn env open <repo>` makes the worktree for `(story, repo)`, shared by the cast —
+  so a story's repos are *derived* from where its cast worked: zero for docs, two for API+client.
+  Per-repo `checks` run in each environment at every implementing handoff.
+* **Stories are workspace-rooted**, so cross-repo work needs no ceremony. **Move story to
+  workspace** re-keys a story (old key kept as an alias) and re-homes its environments.
+* **Scratch** is an ordinary workspace zharn creates in appdata on first run — pinned, undeletable,
+  zharn's own checkout pre-registered — the home of bare contexts started from the start screen
+  and of stories that do not yet have a home. No code may special-case it.
+* Storage: the durable record (`workspace.toml`, `stories/<key>/story.json` + `threads.jsonl`)
+  lives in `.zharn/`, portable and committable; machine-local state (contexts, worktrees, layout)
+  in `.zharn/local/`, gitignored.
 
 ## 4. Fork-as-config
 
@@ -178,7 +205,8 @@ and stories without a project landing in an auto-created "Inbox".
   generation keeps running and the error is shown in-app. No patch files.
 * Because the agent runs *inside* the harness, "customize" = "ask a character (or a bare
   context) to change it."
-  The harness should expose its own source tree as a first-class Project.
+  The harness's own checkout is pre-registered as a repo in Scratch and can be registered in any
+  workspace (§3c).
 
 ## 5. Terminal & editor (open decisions)
 
@@ -227,10 +255,14 @@ Known churn: every intent re-parses the whole tree and rebuilds all groups (fine
 5. **Story tab + board rework**: threads with per-cell action bars, option buttons, `@`/`/call`,
    cast panel (attention, inbox, context meter, Recast), needs-you highlighting and count,
    interactive context views, New Context + Promote to story.
-6. Projects/Environments (worktree create via `git worktree`), `.env-setup` hook; what Approve
-   does to the worktree (merge/PR) gets its own spec; git status + filesystem panels.
+6. **Workspaces, repos, environments** per the 2026-08-31 spec: `workspace.toml` + `.zharn/`
+   layout, start screen (Scratch, recents, open folder), repo registration (author + `zharn repo
+   add`), lazy managed worktrees (`zharn env open`), per-repo checks at handoff, story move with
+   aliases; migrate `.harness/` → `.zharn/`. What Approve does to a story's environments
+   (merge/PR/cleanup) gets its own spec; git status + filesystem panels.
 7. `pyte`-backed terminal panel.
-8. Self-hosting: open zharn as a Project inside zharn and have a thread edit the UI.
+8. Self-hosting: open Scratch, start a story against the pre-registered zharn repo, and have the
+   cast edit the UI.
 
 ## Sources (selected)
 

@@ -57,7 +57,7 @@ outputs; rejections raise with the reason the CLI prints. Every phase-changing c
 | Verb | Who | Precondition | Effect |
 |---|---|---|---|
 | `yield --question --body … [--options a,b] [--thread t]` | engaged character | thread has no pending yield; main thread: protagonist only | `question` comment; thread turn → author |
-| `yield --handoff --body … [--attach …] [--thread t]` | engaged character | as above; main thread in `implementing`: no open sub-stories, and the harness runs `config.CHECK_CMD` first, attaching `{cmd, exit, output}` | `handoff` comment; thread turn → author |
+| `yield --handoff --body … [--attach …] [--thread t]` | engaged character | as above; main thread in `implementing`: no open sub-stories, and the harness first runs each touched repo's `checks` in the story's environment for it (workspace spec §4.4), attaching `[{repo, cmd, exit, output}]` | `handoff` comment; thread turn → author |
 | `proceed [--note …]` | protagonist | `(planning, cast)`; if the role has `outline_first`, an outline handoff must have been Proceed-ed | System comment on main → `(implementing, cast)`. **stdout is the `implementing-a-story` skill.** |
 | `recap --body …` | any | — | `recap` comment on main; recorded as the character's latest recap. No transition. |
 | `comment --body … [--thread t] [--reply-to id] [--to @Name…] [--attach …]` | any | default `t` = attended thread | `text` comment, delivered per §3.2. No transition. |
@@ -237,7 +237,8 @@ protagonist, main_thread, parent_story, role`; **ball not stored**); `Thread` (c
 each existing top-level comment becomes a thread; existing agent threads on a task become
 characters named after their preset, the earliest the protagonist, their contexts carried over.
 Presets are renamed roles (`harness/presets.py` → `harness/roles.py`), gaining
-`outline_first: bool`.
+`outline_first: bool`. On-disk layout (`.zharn/stories/<key>/`, `local/`) and the `.harness/` →
+`.zharn/` move are in the workspace spec (`2026-08-31-workspace-model-design.md` §6, §9).
 
 ## 8. Tests
 
@@ -253,9 +254,9 @@ Presets are renamed roles (`harness/presets.py` → `harness/roles.py`), gaining
 
 ## 9. Out of scope
 
-Approve's effect on the environment (merge/PR/worktree); roles beyond `outline_first` and
-`instructions`; multi-machine execution; context forking beyond `minion --fork`; provider-side
-compaction (recast supersedes it).
+Approve's effect on the environment (merge/PR/worktree); workspaces, repos and environments
+themselves (own spec, 2026-08-31); roles beyond `outline_first` and `instructions`; multi-machine
+execution; context forking beyond `minion --fork`; provider-side compaction (recast supersedes it).
 
 ## Appendix — vocabulary map
 

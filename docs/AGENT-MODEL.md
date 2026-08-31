@@ -37,8 +37,9 @@ by the human (a **bare context**, started from the New Context button, belonging
 
 The rest of the cast list:
 
-**Story** — the smallest unit of work its author describes and validates. Stories live on a
-board. What happens inside a story is the cast's business, not the author's.
+**Story** — the smallest unit of work its author describes and validates. Stories live on the
+board of a workspace, never inside a repository: the repositories a story touches follow from
+where its cast chose to work. What happens inside a story is the cast's business, not the author's.
 
 **Main thread** — a story's first thread, opened by Start. Its author is the story's author and
 its lead is the protagonist. It is the story's spine: questions, the outline, handoffs, and the
@@ -226,6 +227,8 @@ context loses only residue. A recap carries the rest, and it too is just a comme
 ## 10. Boundaries
 
 This document does not decide what Approve does to the code (merge, pull request, worktree
-cleanup); that belongs with environments. It does not decide execution on other machines. It
-does not define roles beyond the handful shipped as examples, nor context forking beyond
-minions.
+cleanup); that belongs with environments. Workspaces, repos, and environments — where a story
+lives on disk and where a character stands when it works — are defined in
+`docs/superpowers/specs/2026-08-31-workspace-model-design.md`. It does not decide execution on
+other machines. It does not define roles beyond the handful shipped as examples, nor context
+forking beyond minions.
