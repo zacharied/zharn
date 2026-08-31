@@ -105,7 +105,7 @@ No sidebar. The window is:
 └──────────────────────────────────────────────────────┘
 ```
 
-* **Dock (left/right/bottom)** hosts only **dockable panels**: task board, task details (the old
+* **Dock (left/right/bottom)** hosts only **dockable panels**: board, contexts (the old
   bb sidebar becomes just another panel), git status, filesystem, terminal, agent log, roles.
   States: docked-visible, collapsed-to-strip, slide-over (overlay `Item`, not a window), floating
   (`Window`).

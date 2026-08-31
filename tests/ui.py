@@ -100,6 +100,9 @@ class Harness:
         """One window wrapper + one probe per QML generation."""
         if self._gen == self.store.generation:
             return
+        # The reloader deleteLater()s the old roots before we get here; drop our references to
+        # them first so a stale probe/window wrapper can never survive a generation swap.
+        self._probe = self._win = self._comp = None
         self._win = self.reloader.engine.rootObjects()[-1]
         comp = QQmlComponent(self.reloader.engine, str(PROBE))
         assert not comp.isError(), comp.errorString()

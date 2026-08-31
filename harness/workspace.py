@@ -12,6 +12,8 @@ try:
 except ModuleNotFoundError:  # Python 3.10
     import tomli as tomllib  # type: ignore[no-redef]
 
+from harness.fsutil import write_text_atomic
+
 REPO_FIELDS = ("name", "path", "checks", "setup", "base")
 
 
@@ -85,7 +87,7 @@ class Workspace:
 
     def save(self) -> None:
         self.zharn_dir.mkdir(parents=True, exist_ok=True)
-        (self.zharn_dir / "workspace.toml").write_text(_dump_toml(self._data), encoding="utf-8")
+        write_text_atomic(self.zharn_dir / "workspace.toml", _dump_toml(self._data))
 
     # ---------------------------------------------------------------- identity
     @property

@@ -115,6 +115,7 @@ def test_new_context_button_opens_a_bare_context(ui):
     assert ui.store.contexts.model.count() == n + 1
     cid = ui.store.contexts.model.rows()[-1]["id"]
     assert ui.store.contexts.get(cid).owner == "human"
+    assert ui.store.contexts.get(cid).roleName == "claude-default"
     assert ui.has(f"tab_context_{cid}")
 
 

@@ -33,6 +33,9 @@ class StubContexts(QObject):
         self.created = []
 
     def create(self, role_name, **kw):
+        if role_name == "codex-review":
+            # Mirrors the real ContextStore.create's guard for unimplemented providers.
+            raise ValueError("provider 'codex' not implemented yet")
         cid = f"ctx_{len(self.by_id) + 1}"
         self.by_id[cid] = StubContext(cid, {"role": role_name, **kw})
         self.created.append((role_name, kw))
@@ -48,7 +51,9 @@ class StubContexts(QObject):
 class StubRoles:
     def get(self, name):
         return {"protagonist": {"name": "protagonist", "instructions": "Lead.", "outline_first": True},
-                "claude-fast": {"name": "claude-fast", "instructions": "", "outline_first": False}}.get(name, {})
+                "claude-fast": {"name": "claude-fast", "instructions": "", "outline_first": False},
+                "codex-review": {"name": "codex-review", "instructions": "", "outline_first": False, "provider": "codex"},
+                }.get(name, {})
 
 
 class Notes:
@@ -106,6 +111,20 @@ def test_fresh_store_reloads_stories_comments_and_characters(ws, contexts):
     assert b.character(chr_id)["name"] == "protagonist" and b.character(chr_id)["live_context"] == "ctx_1"
 
 
+def test_corrupt_story_json_is_skipped_and_reported_once_a_notifier_is_attached(ws, contexts):
+    a = StoryStore(ws, contexts, StubRoles())
+    key = a.create("A")
+    (ws.story_dir(key) / "story.json").write_text("{not json", encoding="utf-8")
+    b = StoryStore(ws, contexts, StubRoles())
+    assert key not in [row["key"] for row in b.list()]
+    assert b.load_errors and any(key in e for e in b.load_errors)
+    notes = Notes()
+    b.notifier = notes
+    b.create("x")  # any mutation that runs _refresh
+    assert any(key in e for e in notes.errors)
+    assert b.load_errors == []
+
+
 def test_update_edits_unstarted_story_only(store):
     key = store.create("A")
     store.update(key, "A2", "d2")
@@ -155,6 +174,20 @@ def test_start_defaults_role_and_rejects_unknown(store, monkeypatch):
     assert store.get(key2)["phase"] == "todo"
 
 
+def test_start_rejects_unimplemented_provider_without_wedging_the_story(store, ws):
+    key = store.create("A")
+    with pytest.raises(ValueError, match="codex"):
+        store.start(key, "", "codex-review")
+    row = store.get(key)
+    assert row["phase"] == "todo" and row["protagonist"] == ""
+    assert store.cast(key) == []
+    fresh = StoryStore(ws, StubContexts(), StubRoles())
+    assert fresh.get(key)["phase"] == "todo"
+    # Start still works afterwards — the story was never wedged.
+    chr_id = store.start(key, "", "protagonist")
+    assert store.get(key)["phase"] == "planning" and store.character(chr_id) is not None
+
+
 def test_second_character_with_same_role_gets_suffixed_name(store):
     k1, c1 = started(store)
     k2, c2 = started(store)
@@ -198,6 +231,18 @@ def test_cast_proceed_allowed_for_plain_role(store):
     assert store.get(key)["phase"] == "implementing" and c["kind"] == "system"
 
 
+def test_cast_proceed_gate_matches_transition_not_prose(store):
+    key, chr_id = started(store)
+    # A comment whose prose mimics the old "outline approved" sentinel must not satisfy the gate:
+    # only the real planning/author -> implementing/cast transition (an author Proceed) does.
+    store.comment(key, "outline approved (fake, not a real transition)")
+    with pytest.raises(Rejected, match="outline"):
+        store.cast_proceed(chr_id)
+    store.cast_yield(chr_id, "handoff", "the outline")
+    store.proceed(key, "ok")
+    assert store.get(key)["phase"] == "implementing"
+
+
 def test_cast_recap_and_comment(store):
     key, chr_id = started(store)
     r = store.cast_recap(chr_id, "done: x")
@@ -212,6 +257,16 @@ def test_log_verb_appends_to_character(store):
     store.log_verb(chr_id, "yield", {"kind": "question"}, False, "already waits")
     log = store.character(chr_id)["verbs_log"]
     assert [(e["verb"], e["ok"]) for e in log] == [("yield", True), ("yield", False)] and log[1]["error"] == "already waits"
+
+
+def test_log_verb_caps_at_verbs_log_max(store):
+    from harness.stories import VERBS_LOG_MAX
+    key, chr_id = started(store)
+    for i in range(205):
+        store.log_verb(chr_id, "yield", {"i": i}, True)
+    log = store.character(chr_id)["verbs_log"]
+    assert len(log) == VERBS_LOG_MAX == 200
+    assert log[0]["args"]["i"] == 5  # the 6th logged (0-indexed: entries 0-4 were dropped)
 
 
 # ---------------------------------------------------------------- author actions and delivery
@@ -241,6 +296,16 @@ def test_proceed_moves_phase_and_tells_protagonist(store, contexts):
     store.proceed(key, "go ahead")
     assert store.get(key)["phase"] == "implementing" and store.get(key)["ball"] == "cast"
     assert "outline approved" in ctx.sent[-1] and "Phase is now implementing" in ctx.sent[-1]
+
+
+def test_deliver_refreshes_system_prompt_with_current_phase(store, contexts):
+    key, chr_id = started(store)
+    ctx = contexts.get("ctx_1")
+    store.cast_yield(chr_id, "handoff", "outline")
+    store.proceed(key, "go ahead")
+    # _deliver rewrites ctx.meta["systemPrompt"] (Context._spawn reads it fresh on every resume)
+    # so a resumed protagonist sees the phase it's actually in, not the one frozen at cast time.
+    assert "phase: implementing" in ctx.meta["systemPrompt"]
 
 
 def test_approve_ends_story_and_sends_nothing(store, contexts):

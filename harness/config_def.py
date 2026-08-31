@@ -53,8 +53,10 @@ DEFAULT_ROLES = [
     {"name": "codex-review", "provider": "codex", "model": "gpt-5.6-sol", "reasoning": "high", "permission": "accept-edits"},
 ]
 DEFAULT_ROLE = "protagonist"
+# Role for bare contexts started from New Context (Welcome / Contexts panel) — never the story-leading role.
+DEFAULT_BARE_ROLE = "claude-default"
 
-# System prompt for a character (rebuilt on every spawn/resume). Phase skills arrive in the next plan.
+# System prompt for a character (rebuilt on every delivery). Phase skills arrive in the next plan.
 CHARACTER_SYSTEM_PROMPT = """You are {name} ({character_id}), a character in zharn on story {story_key} ("{title}"), phase: {phase}.
 You lead the main thread #{thread_id}; its author is the story's author. Everything you say to the author is a comment posted with the CLI below — nothing else reaches them.
 

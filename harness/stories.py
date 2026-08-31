@@ -15,12 +15,14 @@ from PySide6.QtCore import QObject, Property, Signal, Slot
 
 from harness import config as cfg
 from harness import lifecycle as lc
+from harness.fsutil import write_text_atomic
 from harness.notify import intent
 from harness.qmodels import DictListModel
 
 STORY_ROLES = ["key", "title", "description", "priority", "phase", "ball", "needsYou", "flavor", "author", "protagonist",
                "castCount", "workingCount", "createdAt"]
 WORKING = ("starting", "working")
+VERBS_LOG_MAX = 200
 
 
 def new_id(prefix: str) -> str:
@@ -92,6 +94,7 @@ class StoryStore(QObject):
         self._comments: dict[str, list[dict]] = {}
         self._characters: dict[str, dict] = {}
         self._model = DictListModel(STORY_ROLES, self)
+        self.load_errors: list[str] = []
         self._load()
         contexts.contextsChanged.connect(self._refresh)
 
@@ -101,7 +104,8 @@ class StoryStore(QObject):
             d = self.workspace.story_dir(key)
             try:
                 data = json.loads((d / "story.json").read_text(encoding="utf-8"))
-            except (OSError, ValueError):
+            except (OSError, ValueError) as e:
+                self.load_errors.append(f"{key}: story.json unreadable ({e})")
                 continue
             self._created[key] = data.pop("created", 0)
             self._stories[key] = lc.Story.from_dict(data)
@@ -124,14 +128,14 @@ class StoryStore(QObject):
     def _save_story(self, key: str):
         s = self._stories[key]
         path = self.workspace.story_dir(key) / "story.json"
-        path.write_text(json.dumps({**s.to_dict(), "created": self._created.get(key, 0)}, indent=1), encoding="utf-8")
+        write_text_atomic(path, json.dumps({**s.to_dict(), "created": self._created.get(key, 0)}, indent=1))
 
     def _append_record(self, key: str, record: dict):
         with (self.workspace.story_dir(key) / "threads.jsonl").open("a", encoding="utf-8") as f:
             f.write(json.dumps(record) + "\n")
 
     def _save_characters(self):
-        (self.workspace.local_dir / "characters.json").write_text(json.dumps(self._characters, indent=1), encoding="utf-8")
+        write_text_atomic(self.workspace.local_dir / "characters.json", json.dumps(self._characters, indent=1))
 
     # ---------------------------------------------------------------- rows / queries
     def _row(self, key: str) -> dict:
@@ -148,6 +152,10 @@ class StoryStore(QObject):
     def _refresh(self):
         self._model.reset([self._row(k) for k in self._stories])
         self.storiesChanged.emit()
+        if self.load_errors and self.notifier is not None:
+            for e in self.load_errors:
+                self.notifier.error(e)
+            self.load_errors.clear()
 
     def _key(self, key: str) -> str:
         for k in self._stories:
@@ -228,9 +236,14 @@ class StoryStore(QObject):
         ctx = self._protagonist_context(key)
         if ctx is None:
             return
+        s = self._stories[key]
+        ch = self._characters.get(s.protagonist or "")
+        role_cfg = self._roles.get(ch["role"]) if ch else None
+        if ch is not None and role_cfg:
+            ctx.meta["systemPrompt"] = self._system_prompt(s, ch, role_cfg)
         kind = "reply" if comment.get("reply_to") else ("comment" if comment["kind"] == "text" else comment["kind"])
         text = f"[{author_name(comment['author'], self._characters)}] {kind} in #{comment['thread_id']}: {comment['body']}"
-        phase = self._stories[key].phase
+        phase = s.phase
         if phase != phase_before:
             text += f"\nPhase is now {phase}."
         ctx.send(text)
@@ -267,19 +280,35 @@ class StoryStore(QObject):
         role_cfg = self._roles.get(role_name)
         if not role_cfg:
             raise ValueError(f"unknown role {role_name!r}")
+        provider = role_cfg.get("provider", "claude-code")
+        if provider != "claude-code":
+            raise ValueError(f"role {role_name!r} uses provider {provider!r}, which is not implemented yet")
         taken = {ch["name"] for ch in self._characters.values() if ch["story_key"] == key}
         name, n = role_cfg["name"], 2
         while name in taken:
             name, n = f"{role_cfg['name']}-{n}", n + 1
         chr_id, thread_id = new_id("chr_"), new_id("thr_")
+        prev_story = self._stories[key]
+        prev_comments = list(self._comments.get(key, []))
         self._apply(key, lc.Start(thread_id=thread_id, protagonist=chr_id, note=note, role=role_cfg["name"]))
         ch = {"id": chr_id, "story_key": key, "role": role_cfg["name"], "name": name, "live_context": None,
               "attention": thread_id, "inbox": [], "recaps": [], "verbs_log": []}
         self._characters[chr_id] = ch
         s = self._stories[key]
-        cid = self._contexts.create(role_cfg["name"], story_key=key, owner=chr_id, title=f"{key} · {name}",
-                                    system_prompt=self._system_prompt(s, ch, role_cfg),
-                                    env={"HARNESS_CHARACTER_ID": chr_id})
+        try:
+            cid = self._contexts.create(role_cfg["name"], story_key=key, owner=chr_id, title=f"{key} · {name}",
+                                        system_prompt=self._system_prompt(s, ch, role_cfg),
+                                        env={"HARNESS_CHARACTER_ID": chr_id})
+        except Exception:
+            # Belt and braces: the provider check above should already have caught this, but if
+            # context creation still fails, don't leave the story wedged in planning with a
+            # protagonist that has no context (and no way to Start again).
+            self._stories[key] = prev_story
+            self._comments[key] = prev_comments
+            self._save_story(key)
+            del self._characters[chr_id]
+            self._refresh()
+            raise
         ch["live_context"] = cid
         self._save_characters()
         self._contexts.get(cid).send(render_brief(s, self._comments[key], self._characters, role_cfg, note))
@@ -354,8 +383,10 @@ class StoryStore(QObject):
     def cast_proceed(self, character_id, note="") -> dict:
         key, ch = self._char(character_id)
         role_cfg = self._roles.get(ch["role"]) or {}
+        outline_approved_transition = {"from": ["planning", "author"], "to": ["implementing", "cast"]}
         if role_cfg.get("outline_first") and not any(
-                c["kind"] == "system" and c["body"].startswith("outline approved") for c in self._comments.get(key, [])):
+                c.get("structured", {}).get("transition") == outline_approved_transition
+                for c in self._comments.get(key, [])):
             raise lc.Rejected("your role requires an approved outline first: `yield --handoff` the outline and wait for Proceed")
         return self._apply(key, lc.Proceed(by=character_id, note=note))
 
@@ -375,5 +406,8 @@ class StoryStore(QObject):
         ch = self._characters.get(character_id)
         if ch is None:
             return
-        ch.setdefault("verbs_log", []).append({"verb": verb, "args": dict(args), "ok": ok, "error": error, "ts": time.time()})
+        log = ch.setdefault("verbs_log", [])
+        log.append({"verb": verb, "args": dict(args), "ok": ok, "error": error, "ts": time.time()})
+        if len(log) > VERBS_LOG_MAX:
+            del log[:len(log) - VERBS_LOG_MAX]
         self._save_characters()

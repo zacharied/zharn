@@ -64,6 +64,11 @@ def test_new_bare_has_human_owner_and_no_story(store):
     assert c.transcript.rows()[-1]["text"] == "echo: first message"
 
 
+def test_new_bare_default_role_is_the_bare_role(store):
+    cid = store.newBare("")
+    assert store.get(cid).roleName == "claude-default"
+
+
 def test_unknown_role_and_unimplemented_provider_raise(store):
     with pytest.raises(ValueError, match="unknown role"):
         store.create("nope")

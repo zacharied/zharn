@@ -18,7 +18,7 @@ Windows shortcut: double-click or run `run.bat` — it creates `.venv` and insta
 launches the app (arguments are passed through to `python -m harness`).
 
 Always install **editable** (`-e`): the app runs from your checkout (`qml/`, `harness/config.py`,
-transcripts in `.harness/`) — that is the whole point. A plain `pip install .` would copy
+transcripts in `.zharn/local/`) — that is the whole point. A plain `pip install .` would copy
 `harness/` into site-packages, away from `qml/`.
 
 Windows: works natively (PySide6 wheels, no WSL needed). For real agents the `claude` CLI must be

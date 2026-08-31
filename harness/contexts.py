@@ -15,6 +15,7 @@ from PySide6.QtCore import QObject, Property, Signal, Slot
 
 from harness import config as cfg
 from harness.agents import ClaudeCodeProcess, StreamInterpreter, TranscriptModel
+from harness.fsutil import write_text_atomic
 from harness.notify import intent
 from harness.qmodels import DictListModel
 
@@ -236,7 +237,7 @@ class ContextStore(QObject):
 
     def _persist_index(self):
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        (self.data_dir / "index.json").write_text(json.dumps([c.meta for c in self.all()], indent=1))
+        write_text_atomic(self.data_dir / "index.json", json.dumps([c.meta for c in self.all()], indent=1))
 
     def all(self) -> list[Context]:
         return sorted(self._contexts.values(), key=lambda c: c.meta.get("createdAt", 0))
@@ -273,7 +274,7 @@ class ContextStore(QObject):
     @Slot(str, result=str)
     @intent
     def newBare(self, role_name: str) -> str:
-        return self.create(role_name or getattr(cfg, "DEFAULT_ROLE", "claude-default"), title="New context")
+        return self.create(role_name or getattr(cfg, "DEFAULT_BARE_ROLE", "claude-default"), title="New context")
 
     @Slot(str, result=QObject)
     def get(self, cid: str):
