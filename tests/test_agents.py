@@ -1,4 +1,4 @@
-"""Contexts, roles, tasks, IPC/CLI and the context UI — against the fake claude CLI."""
+"""Contexts, roles, stories, IPC/CLI and the context UI — against the fake claude CLI."""
 import json
 import os
 import shutil
@@ -45,13 +45,12 @@ def rows(context):
     return context.transcript.rows()
 
 
-def test_roles_and_demo_tasks(harness):
+def test_roles_and_empty_board(harness):
     app, store, _ = harness
     names = store.roles.names()
     assert "claude-fast" in names and "codex-review" in names
     assert store.roles.get("claude-deep")["model"] == "claude-opus-5"
-    assert store.tasks.model.count() >= 5
-    assert store.tasks.get("ABC-1")["title"].startswith("Hot reload")
+    assert store.stories.model.count() == 0
     with pytest.raises(ValueError):
         store.contexts.spawn("codex-review", "x", story_key="ABC-1")
 
@@ -102,18 +101,6 @@ def test_failure_is_surfaced(harness):
     assert rows(c)[-1]["kind"] == "error" and "simulated failure" in rows(c)[-1]["text"]
 
 
-def test_task_dispatch_sets_in_progress_and_counts(harness):
-    app, store, _ = harness
-    assert store.tasks.get("ABC-3")["status"] == "todo"
-    cid = store.tasks.dispatch("ABC-3", "claude-fast", "do the thing")
-    c = store.contexts.get(cid)
-    assert store.tasks.get("ABC-3")["status"] == "in_progress"
-    assert c.title == "do the thing"
-    assert rows(c)[0]["text"].startswith("# Task ABC-3") and "Report-back contract" in rows(c)[0]["text"]
-    assert wait_until(lambda: c.status == "idle")
-    assert store.tasks.get("ABC-3")["contextCount"] == 1 and store.tasks.get("ABC-3")["workingCount"] == 0
-
-
 def test_cli_over_ipc(harness):
     app, store, _ = harness
     env = {**os.environ, "HARNESS_IPC": store.ipcPath}
@@ -130,10 +117,12 @@ def test_cli_over_ipc(harness):
     assert json.loads(r.stdout)["pid"] == os.getpid()
     r = cli("role", "list")
     assert "claude-fast" in [p["name"] for p in json.loads(r.stdout)]
-    r = cli("task", "show", "ABC-3")
-    assert json.loads(r.stdout)["contexts"][0]["status"] == "idle"
-    r = cli("context", "list", "--story", "ABC-3")
-    assert len(json.loads(r.stdout)) == 1
+    r = cli("story", "create", "--title", "T")
+    key = json.loads(r.stdout)["key"]
+    r = cli("story", "show", key)
+    assert json.loads(r.stdout)["key"] == key
+    r = cli("context", "list", "--story", key)
+    assert json.loads(r.stdout) == []
 
 
 def test_transcripts_persist_and_replay(harness):

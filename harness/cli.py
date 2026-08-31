@@ -85,12 +85,6 @@ def main(argv=None):
     rl = sub.add_parser("role").add_subparsers(dest="verb", required=True)
     rl.add_parser("list")
 
-    tk = sub.add_parser("task").add_subparsers(dest="verb", required=True)
-    tk.add_parser("list")
-    tk.add_parser("show").add_argument("key")
-    st = tk.add_parser("status"); st.add_argument("key"); st.add_argument("status")
-    cr = tk.add_parser("create"); cr.add_argument("--title", required=True); cr.add_argument("--description", default="")
-
     stp = sub.add_parser("story").add_subparsers(dest="verb", required=True)
     stp.add_parser("list")
     stp.add_parser("show").add_argument("key", nargs="?", default=os.environ.get("HARNESS_STORY_KEY", ""))
@@ -127,11 +121,6 @@ def main(argv=None):
         out(request("ping", {}), a.json)
     elif a.noun == "role":
         out(request("role.list", {}), a.json)
-    elif a.noun == "task":
-        if a.verb == "list": out(request("task.list", {}), a.json)
-        elif a.verb == "show": out(request("task.show", {"key": a.key}), a.json)
-        elif a.verb == "status": out(request("task.status", {"key": a.key, "status": a.status}), a.json)
-        elif a.verb == "create": out(request("task.create", {"title": a.title, "description": a.description}), a.json)
     elif a.noun == "context":
         if a.verb == "new":
             s = request("context.new", {"role": a.role, "prompt": a.prompt, "title": a.title, "open": a.open})

@@ -71,38 +71,6 @@ class FakeContexts:
         self._by_id[cid].status = "stopped"
 
 
-class FakeTasks:
-    def __init__(self, contexts, tasks=()):
-        self._contexts = contexts
-        self._tasks = {t["key"]: dict(t) for t in tasks}
-        self.calls = []
-        self._keys = itertools.count(100)
-
-    def dispatch(self, task, role, prompt):
-        self.calls.append(("dispatch", task, role, prompt))
-        return self._contexts.spawn(role, prompt, story_key=task, owner="human", title="dispatched")
-
-    def list(self):
-        return list(self._tasks.values())
-
-    def get(self, key):
-        t = self._tasks.get(key)
-        return dict(t) if t else None
-
-    def contextsFor(self, key):
-        return [s for s in self._contexts.summaries() if s["storyKey"] == key]
-
-    def setStatus(self, key, status):
-        self.calls.append(("setStatus", key, status))
-        self._tasks[key]["status"] = status
-
-    def create(self, title, description=""):
-        self.calls.append(("create", title, description))
-        key = f"T-{next(self._keys)}"
-        self._tasks[key] = {"key": key, "title": title, "description": description, "status": "todo"}
-        return key
-
-
 class FakeRoles:
     def __init__(self, *names):
         self.roles = [{"name": n, "model": "m"} for n in names]
@@ -155,10 +123,6 @@ class FakeAppStore:
                               {"role": "assistant", "kind": "text", "text": "hello"}]),
             FakeContext("t2", title="second", status="working", storyKey="ABC-2", owner="human"),
         )
-        self.tasks = FakeTasks(self.contexts, [
-            {"key": "ABC-1", "title": "one", "status": "todo"},
-            {"key": "ABC-2", "title": "two", "status": "in-progress"},
-        ])
         self.roles = FakeRoles("claude-fast", "claude-deep")
         self.layout = FakeLayout()
         self.stories = FakeStories()
@@ -252,46 +216,14 @@ def test_context_stop_stops_and_returns_summary(h, store):
     assert s["id"] == "t2" and s["status"] == "stopped"
 
 
-def test_task_list_returns_all_tasks(h):
-    assert [t["key"] for t in h("task.list", {})] == ["ABC-1", "ABC-2"]
-
-
-def test_task_show_attaches_contexts_for_task(h):
-    t = h("task.show", {"key": "ABC-1"})
-    assert t["title"] == "one"
-    assert [s["id"] for s in t["contexts"]] == ["t1"]
-
-
-def test_task_show_unknown_key_raises_keyerror(h):
-    with pytest.raises(KeyError):
-        h("task.show", {"key": "ZZZ-9"})
-
-
-def test_task_status_sets_status_and_returns_task(h, store):
-    t = h("task.status", {"key": "ABC-1", "status": "done"})
-    assert store.tasks.calls == [("setStatus", "ABC-1", "done")]
-    assert t["key"] == "ABC-1" and t["status"] == "done"
-
-
-def test_task_create_returns_created_task(h, store):
-    t = h("task.create", {"title": "new one", "description": "desc"})
-    assert store.tasks.calls == [("create", "new one", "desc")]
-    assert t["title"] == "new one" and t["description"] == "desc" and t["key"].startswith("T-")
-
-
-def test_task_create_description_defaults_to_empty(h, store):
-    h("task.create", {"title": "bare"})
-    assert store.tasks.calls == [("create", "bare", "")]
-
-
 def test_layout_open_forwards_kind_key_title(h, store):
-    assert h("layout.open", {"kind": "task", "key": "ABC-1", "title": "one"}) is True
-    assert store.layout.opened == [("task", "ABC-1", "one")]
+    assert h("layout.open", {"kind": "context", "key": "ABC-1", "title": "one"}) is True
+    assert store.layout.opened == [("context", "ABC-1", "one")]
 
 
 def test_layout_open_key_and_title_default_to_empty(h, store):
-    h("layout.open", {"kind": "tasks"})
-    assert store.layout.opened == [("tasks", "", "")]
+    h("layout.open", {"kind": "board"})
+    assert store.layout.opened == [("board", "", "")]
 
 
 def test_unknown_command_raises_valueerror(h):

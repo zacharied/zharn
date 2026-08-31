@@ -43,7 +43,6 @@ def build(argv=None, force_poll=False):
     from harness.roles import RoleStore
     from harness.shell import QML_DIR, Reloader
     from harness.store import AppStore, LayoutStore, Session
-    from harness.tasks import TaskStore
     from harness.contexts import ContextStore
     from harness.stories import StoryStore
     from harness.workspace import Workspace
@@ -63,12 +62,11 @@ def build(argv=None, force_poll=False):
     content = ContentRegistry(QML_DIR)
     roles = RoleStore(data_dir)
     contexts = ContextStore(ROOT, data_dir / "contexts", roles, workspace_dir=workspace.dir)
-    tasks = TaskStore(data_dir, contexts)
     stories = StoryStore(workspace, contexts, roles)
     notifier = Notifier()
-    for s in (layout_store, roles, contexts, tasks, stories):
+    for s in (layout_store, roles, contexts, stories):
         s.notifier = notifier  # @intent slots report here; the status bar shows it
-    store = AppStore(session, layout_store, content, cfg.THEME, contexts=contexts, roles=roles, tasks=tasks,
+    store = AppStore(session, layout_store, content, cfg.THEME, contexts=contexts, roles=roles,
                      stories=stories, workspace=workspace, notifier=notifier)
     ipc = IpcServer(f"zharn-{os.getpid()}", make_handler(store), parent=store)
     store._ipc_path = ipc.path
@@ -85,9 +83,10 @@ def main():
     smoke_prompt = os.environ.get("HARNESS_SMOKE_PROMPT")  # smoke-test hooks: real agent run, then exit
     if smoke_prompt:
         from PySide6.QtCore import QTimer
-        task_key = store.tasks.list()[0]["key"]
-        cid = store.tasks.dispatch(task_key, os.environ.get("HARNESS_SMOKE_ROLE", "claude-default"), smoke_prompt)
-        store.layout.openContent("context", cid, store.contexts.get(cid).title)
+        key = store.stories.create("smoke", "smoke test")
+        chr_id = store.stories.start(key, smoke_prompt, os.environ.get("HARNESS_SMOKE_ROLE", "protagonist"))
+        cid = store.stories.character(chr_id)["live_context"]
+        store.layout.openContent("context", cid, key)
         context = store.contexts.get(cid)
 
         def settled():

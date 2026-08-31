@@ -82,7 +82,7 @@ def test_welcome_new_story_creates_and_opens_one(ui):
     assert ui.has(f"tab_story_{ui.store.stories.list()[-1]['key']}")
 
 
-def test_welcome_open_board_shows_the_task_board(ui):
+def test_welcome_open_board_shows_the_story_board(ui):
     ui.store.layout.resetLayout()
     ui.store.layout.togglePanel("left", "board")  # collapse it first
     QTest.qWait(50)

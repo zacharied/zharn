@@ -96,7 +96,7 @@ def make_handler(app_store):
         raise ValueError(f"unknown command {cmd!r}")
 
     def h(cmd: str, a: dict):
-        contexts, tasks, roles, layout = app_store.contexts, app_store.tasks, app_store.roles, app_store.layout
+        contexts, roles, layout = app_store.contexts, app_store.roles, app_store.layout
         if cmd == "ping":
             return {"pid": os.getpid()}
         if cmd == "role.list":
@@ -137,19 +137,6 @@ def make_handler(app_store):
         if cmd == "context.stop":
             contexts.stop(a["id"])
             return contexts.get(a["id"]).summary()
-        if cmd == "task.list":
-            return tasks.list()
-        if cmd == "task.show":
-            t = tasks.get(a["key"])
-            if not t:
-                raise KeyError(a["key"])
-            t["contexts"] = tasks.contextsFor(a["key"])
-            return t
-        if cmd == "task.status":
-            tasks.setStatus(a["key"], a["status"])
-            return tasks.get(a["key"])
-        if cmd == "task.create":
-            return tasks.get(tasks.create(a["title"], a.get("description", "")))
         if cmd == "layout.open":
             layout.openContent(a["kind"], a.get("key", ""), a.get("title", ""))
             return True

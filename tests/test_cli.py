@@ -252,36 +252,6 @@ def test_context_stop_requests_stop(recorder):
     assert recorder.calls == [("context.stop", {"id": "t1"})]
 
 
-def test_task_list_requests_task_list(recorder):
-    recorder.replies["task.list"] = []
-    cli.main(["task", "list"])
-    assert recorder.calls == [("task.list", {})]
-
-
-def test_task_show_forwards_key(recorder):
-    recorder.replies["task.show"] = {"key": "ABC-1"}
-    cli.main(["task", "show", "ABC-1"])
-    assert recorder.calls == [("task.show", {"key": "ABC-1"})]
-
-
-def test_task_status_forwards_key_and_status(recorder):
-    recorder.replies["task.status"] = {"key": "ABC-1"}
-    cli.main(["task", "status", "ABC-1", "done"])
-    assert recorder.calls == [("task.status", {"key": "ABC-1", "status": "done"})]
-
-
-def test_task_create_forwards_title_and_default_description(recorder):
-    recorder.replies["task.create"] = {"key": "ABC-2"}
-    cli.main(["task", "create", "--title", "T"])
-    assert recorder.calls == [("task.create", {"title": "T", "description": ""})]
-
-
-def test_task_create_forwards_description(recorder):
-    recorder.replies["task.create"] = {"key": "ABC-2"}
-    cli.main(["task", "create", "--title", "T", "--description", "D"])
-    assert recorder.calls[0][1]["description"] == "D"
-
-
 def test_missing_subcommand_is_a_usage_error(recorder):
     with pytest.raises(SystemExit) as e:
         cli.main(["context"])

@@ -37,7 +37,7 @@ PERMISSION_FLAGS = {
 # harness reasoning level → claude-code flags
 EFFORT_FLAGS = {lvl: ["--effort", lvl] for lvl in ("low", "medium", "high", "xhigh", "max")}
 
-# System prompt for a bare context (no story). Characters get CHARACTER_SYSTEM_PROMPT (Task 5).
+# System prompt for a bare context (no story). Characters get CHARACTER_SYSTEM_PROMPT instead.
 BARE_CONTEXT_SYSTEM_PROMPT = (
     "You are a bare context in zharn (context {context_id}, no story): a scratch conversation. "
     "HARNESS_CLI is set; `$HARNESS_CLI context list` and `$HARNESS_CLI context show <id>` are available."
