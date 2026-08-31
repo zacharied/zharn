@@ -9,3 +9,5 @@ qml/Theme.qml
 .harness/
 .harness-session.json
 tests/_out/
+# agent scratch (SDD ledgers, briefs, reports)
+.superpowers/
