@@ -105,16 +105,16 @@ class TaskStore(QObject):
     @Slot(str, str, str, result=str)
     @Slot(str, str, str, str, result=str)
     @intent
-    def dispatch(self, key, preset_name, prompt, parent_id="") -> str:
+    def dispatch(self, key, role_name, prompt, parent_id="") -> str:
         """bb-style: task context + report-back contract + the user's prompt → new thread."""
         t = self._find(key)
         if t is None:
             raise ValueError(f"unknown task {key!r}")
         full = (f"# Task {t['key']}: {t['title']}\n\n{t.get('description', '')}\n\n"
                 f"## Report-back contract\nYou are working on task {t['key']} inside zharn. "
-                f"Spawn helpers on the same task with `$HARNESS_CLI thread spawn --preset <name> --prompt \"...\"` "
+                f"Spawn helpers on the same task with `$HARNESS_CLI thread spawn --role <name> --prompt \"...\"` "
                 f"and wait with `$HARNESS_CLI thread wait <id>`. Keep the task's status accurate.\n\n## Instructions\n{prompt}")
-        tid = self._threads.spawn(key, preset_name, full, parent_id, prompt.strip().splitlines()[0][:60] if prompt.strip() else preset_name)
+        tid = self._threads.spawn(key, role_name, full, parent_id, prompt.strip().splitlines()[0][:60] if prompt.strip() else role_name)
         if t["status"] in ("backlog", "todo"):
             t["status"] = "in_progress"
             self._persist()

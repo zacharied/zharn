@@ -8,7 +8,7 @@ import pytest
 from PySide6.QtTest import QTest
 
 from harness.__main__ import ROOT
-from harness.presets import PresetStore
+from harness.roles import RoleStore
 from harness.threads import ThreadStore
 
 
@@ -26,7 +26,7 @@ def wait_until(cond, timeout_ms=5000, step=20):
 
 @pytest.fixture
 def store(tmp_path):
-    s = ThreadStore(ROOT, tmp_path, PresetStore(tmp_path))
+    s = ThreadStore(ROOT, tmp_path, RoleStore(tmp_path))
     yield s
     s.shutdown()
 

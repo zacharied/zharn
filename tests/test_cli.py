@@ -146,10 +146,10 @@ def test_ping_requests_ping(recorder, capsys):
     assert capsys.readouterr().out == "pid: 5\n"
 
 
-def test_preset_list_requests_preset_list(recorder, capsys):
-    recorder.replies["preset.list"] = [{"name": "claude-fast", "model": "m"}]
-    cli.main(["preset", "list"])
-    assert recorder.calls == [("preset.list", {})]
+def test_role_list_requests_role_list(recorder, capsys):
+    recorder.replies["role.list"] = [{"name": "claude-fast", "model": "m"}]
+    cli.main(["role", "list"])
+    assert recorder.calls == [("role.list", {})]
     assert capsys.readouterr().out == "name=claude-fast  model=m\n"
 
 
@@ -163,34 +163,34 @@ def test_thread_spawn_defaults_task_and_parent_from_env(recorder, monkeypatch, c
     monkeypatch.setenv("HARNESS_TASK_KEY", "ABC-1")
     monkeypatch.setenv("HARNESS_THREAD_ID", "parent1")
     recorder.replies["thread.spawn"] = {"id": "t9", "status": "working"}
-    cli.main(["thread", "spawn", "--preset", "p", "--prompt", "x"])
-    assert recorder.calls == [("thread.spawn", {"task": "ABC-1", "preset": "p", "prompt": "x", "parent": "parent1", "open": False})]
+    cli.main(["thread", "spawn", "--role", "p", "--prompt", "x"])
+    assert recorder.calls == [("thread.spawn", {"task": "ABC-1", "role": "p", "prompt": "x", "parent": "parent1", "open": False})]
     assert capsys.readouterr().out == "t9\n"
 
 
 def test_thread_spawn_no_parent_clears_parent(recorder, monkeypatch):
     monkeypatch.setenv("HARNESS_THREAD_ID", "parent1")
     recorder.replies["thread.spawn"] = {"id": "t9", "status": "working"}
-    cli.main(["thread", "spawn", "--preset", "p", "--prompt", "x", "--no-parent"])
+    cli.main(["thread", "spawn", "--role", "p", "--prompt", "x", "--no-parent"])
     assert recorder.calls[0][1]["parent"] == ""
 
 
 def test_thread_spawn_task_flag_overrides_env(recorder, monkeypatch):
     monkeypatch.setenv("HARNESS_TASK_KEY", "ABC-1")
     recorder.replies["thread.spawn"] = {"id": "t9", "status": "working"}
-    cli.main(["thread", "spawn", "--preset", "p", "--prompt", "x", "--task", "XYZ-2"])
+    cli.main(["thread", "spawn", "--role", "p", "--prompt", "x", "--task", "XYZ-2"])
     assert recorder.calls[0][1]["task"] == "XYZ-2"
 
 
 def test_thread_spawn_without_env_sends_empty_task_and_parent(recorder):
     recorder.replies["thread.spawn"] = {"id": "t9", "status": "working"}
-    cli.main(["thread", "spawn", "--preset", "p", "--prompt", "x"])
+    cli.main(["thread", "spawn", "--role", "p", "--prompt", "x"])
     assert recorder.calls[0][1]["task"] == "" and recorder.calls[0][1]["parent"] == ""
 
 
 def test_thread_spawn_open_flag_is_forwarded(recorder):
     recorder.replies["thread.spawn"] = {"id": "t9", "status": "working"}
-    cli.main(["thread", "spawn", "--preset", "p", "--prompt", "x", "--open"])
+    cli.main(["thread", "spawn", "--role", "p", "--prompt", "x", "--open"])
     assert recorder.calls[0][1]["open"] is True
 
 
@@ -198,8 +198,8 @@ def test_thread_spawn_wait_polls_show_until_settled_and_prints_last_text(recorde
     recorder.replies["thread.spawn"] = {"id": "t9", "status": "working"}
     recorder.replies["thread.show"] = deque([{"id": "t9", "status": "working"},
                                              {"id": "t9", "status": "idle", "lastText": "all done"}])
-    cli.main(["thread", "spawn", "--preset", "p", "--prompt", "x", "--wait"])
-    assert recorder.calls == [("thread.spawn", {"task": "", "preset": "p", "prompt": "x", "parent": "", "open": False}),
+    cli.main(["thread", "spawn", "--role", "p", "--prompt", "x", "--wait"])
+    assert recorder.calls == [("thread.spawn", {"task": "", "role": "p", "prompt": "x", "parent": "", "open": False}),
                               ("thread.show", {"id": "t9"}), ("thread.show", {"id": "t9"})]
     assert capsys.readouterr().out == "all done\n"
 
@@ -207,7 +207,7 @@ def test_thread_spawn_wait_polls_show_until_settled_and_prints_last_text(recorde
 def test_thread_spawn_wait_json_prints_full_summary(recorder, fake_clock, capsys):
     recorder.replies["thread.spawn"] = {"id": "t9", "status": "working"}
     recorder.replies["thread.show"] = deque([{"id": "t9", "status": "idle", "lastText": "done"}])
-    cli.main(["--json", "thread", "spawn", "--preset", "p", "--prompt", "x", "--wait"])
+    cli.main(["--json", "thread", "spawn", "--role", "p", "--prompt", "x", "--wait"])
     assert json.loads(capsys.readouterr().out) == {"id": "t9", "status": "idle", "lastText": "done"}
 
 

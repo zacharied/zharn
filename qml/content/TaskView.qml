@@ -44,7 +44,7 @@ ContentBase {
                     required property string title
                     required property string taskKey
                     required property string status
-                    required property string presetName
+                    required property string roleName
                     required property string parentId
                     required property double costUsd
                     visible: taskKey === tabKey
@@ -54,7 +54,7 @@ ContentBase {
                         anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 10; spacing: 8
                         Rectangle { width: 8; height: 8; radius: 4; color: view.statusColor[status] || "gray" }
                         Label { text: (parentId ? "↳ " : "") + title; color: app.theme.text; Layout.fillWidth: true; elide: Text.ElideRight }
-                        Label { text: presetName; color: app.theme.textMuted; font.pixelSize: 11 }
+                        Label { text: roleName; color: app.theme.textMuted; font.pixelSize: 11 }
                         Label { text: status; color: app.theme.textMuted; font.pixelSize: 11 }
                         Label { text: "$" + costUsd.toFixed(3); color: app.theme.textMuted; font.pixelSize: 11 }
                     }
@@ -66,8 +66,8 @@ ContentBase {
             Label { text: "Dispatch"; color: app.theme.text; font.bold: true; Layout.topMargin: 8 }
             RowLayout {
                 spacing: 8
-                ComboBox { id: presetBox; objectName: "presetBox"; model: app.presets.names(); Layout.preferredWidth: 180 }
-                Label { text: presetBox.currentText ? (app.presets.get(presetBox.currentText).model || "provider default") : ""; color: app.theme.textMuted; font.pixelSize: 11 }
+                ComboBox { id: roleBox; objectName: "roleBox"; model: app.roles.names(); Layout.preferredWidth: 180 }
+                Label { text: roleBox.currentText ? (app.roles.get(roleBox.currentText).model || "provider default") : ""; color: app.theme.textMuted; font.pixelSize: 11 }
             }
             TextArea {
                 id: promptArea
@@ -79,10 +79,10 @@ ContentBase {
             }
             Button {
                 objectName: "dispatchButton"
-                text: "Dispatch " + presetBox.currentText
+                text: "Dispatch " + roleBox.currentText
                 enabled: promptArea.text.trim().length > 0
                 onClicked: {
-                    var id = app.tasks.dispatch(tabKey, presetBox.currentText, promptArea.text)
+                    var id = app.tasks.dispatch(tabKey, roleBox.currentText, promptArea.text)
                     if (!id) return  // failed: the reason is in the status bar (app.notify)
                     promptArea.text = ""
                     app.layout.openContent("thread", id, app.threads.get(id).title)

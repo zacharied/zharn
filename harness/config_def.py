@@ -42,17 +42,20 @@ AGENT_SYSTEM_PROMPT = (
     "You are running inside zharn as thread {thread_id} on task {task_key}. "
     "Environment variables HARNESS_THREAD_ID, HARNESS_TASK_KEY and HARNESS_CLI are set. "
     "To delegate, spawn a sibling agent on the same task and wait for it:\n"
-    "  $HARNESS_CLI thread spawn --preset <name> --prompt \"...\" --wait\n"
-    "List presets with `$HARNESS_CLI preset list`, threads with `$HARNESS_CLI thread list`, "
+    "  $HARNESS_CLI thread spawn --role <name> --prompt \"...\" --wait\n"
+    "List roles with `$HARNESS_CLI role list`, threads with `$HARNESS_CLI thread list`, "
     "tasks with `$HARNESS_CLI task list`, and set task status with `$HARNESS_CLI task status <key> <status>`."
 )
 # When a child thread settles, send its summary to an idle parent as a new turn
 NOTIFY_PARENT_ON_CHILD_SETTLED = True
 
-# Delegation presets (bb ships none; one-click dispatch needs some)
-DEFAULT_PRESETS = [
+# Roles: what a character is cast from. `outline_first` = must get an outline approved before implementing.
+DEFAULT_ROLES = [
+    {"name": "protagonist", "provider": "claude-code", "model": "", "reasoning": "high", "permission": "auto", "outline_first": True,
+     "instructions": "You lead this story: classify the work, ask the author what you must, outline when the work needs it, then build or delegate."},
     {"name": "claude-fast", "provider": "claude-code", "model": "claude-sonnet-5", "reasoning": "medium", "permission": "auto"},
     {"name": "claude-deep", "provider": "claude-code", "model": "claude-opus-5", "reasoning": "high", "permission": "auto"},
     {"name": "claude-default", "provider": "claude-code", "model": "", "reasoning": "", "permission": "auto"},
     {"name": "codex-review", "provider": "codex", "model": "gpt-5.6-sol", "reasoning": "high", "permission": "accept-edits"},
 ]
+DEFAULT_ROLE = "protagonist"

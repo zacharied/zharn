@@ -106,7 +106,7 @@ No sidebar. The window is:
 ```
 
 * **Dock (left/right/bottom)** hosts only **dockable panels**: task board, task details (the old
-  bb sidebar becomes just another panel), git status, filesystem, terminal, agent log, presets.
+  bb sidebar becomes just another panel), git status, filesystem, terminal, agent log, roles.
   States: docked-visible, collapsed-to-strip, slide-over (overlay `Item`, not a window), floating
   (`Window`).
 * **MCC** is a tab group that can show *any* content: a panel, a document, a thread, a task, a
@@ -159,7 +159,7 @@ Defined in **[`docs/AGENT-MODEL.md`](AGENT-MODEL.md)** (design) and
 * The **protagonist** is cast at Start onto the story's **main thread** and is the only character
   that can yield there — the ball *is* the main thread's turn. It calls in **friends** (peers on
   their own threads), sends out **minions** (invisible helpers; forkable contexts), or creates
-  **sub-stories** (which it then authors). Characters are cast from **roles** (the old presets).
+  **sub-stories** (which it then authors). Characters are cast from **roles**.
 * State is `(phase ∈ backlog|todo|planning|implementing|done|canceled, ball = main thread's turn)`.
   **Nobody sets status** — Start/Reply/Proceed/Approve (author) and `yield`/`proceed` (cast) are
   the only actions; each writes a comment, and the threads are the audit log.
@@ -174,7 +174,7 @@ Defined in **[`docs/AGENT-MODEL.md`](AGENT-MODEL.md)** (design) and
   bookkeeping, the recap/recast ladder) and injects phase skills (vendored from superpowers into
   `harness/skills/`) for the rest.
 
-Kept from bb: roles/presets, attachments, mentions (`@ABC-12`), a **New Context** button (bb's
+Kept from bb: roles, attachments, mentions (`@ABC-12`), a **New Context** button (bb's
 "new thread": a bare chat for questions, promotable into a story). Not kept: per-project prefixes
 and the auto-created "Inbox" project — stories are rooted at a workspace (§3c).
 
@@ -245,7 +245,7 @@ Virtual Keyboard, Timeline).
 ## 8. Next steps
 
 Status 2026-08-28: the UI is driven by tests (`tests/ui.py`, ~265 tests); every QML-facing slot is an `@intent` that reports failures to the status bar; the kanban wraps its columns when docked narrow.
-Status 2026-08-27: steps 1–2 and 4 done (agent driver over claude-code stream-json, presets,
+Status 2026-08-27: steps 1–2 and 4 done (agent driver over claude-code stream-json, roles,
 task dispatch with report-back contract, IPC + `harness.cli` for agent-spawns-agent on the same task,
 thread/task/board/agent-log tabs). Step 3 (full task store: labels, comments, attachments) is next.
 Earlier status: steps 1–2 done (skeleton, generation reloader, layout tree + QML renderer with

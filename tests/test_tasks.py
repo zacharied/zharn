@@ -27,9 +27,9 @@ class StubThreads(QObject):
     def threads_for(self, key):
         return self.by_key.get(key, [])
 
-    def spawn(self, task_key, preset_name, prompt, parent_id, title):
+    def spawn(self, task_key, role_name, prompt, parent_id, title):
         tid = f"thread-{len(self.spawned) + 1}"
-        self.spawned.append({"id": tid, "task_key": task_key, "preset_name": preset_name,
+        self.spawned.append({"id": tid, "task_key": task_key, "role_name": role_name,
                              "prompt": prompt, "parent_id": parent_id, "title": title})
         return tid
 
@@ -168,7 +168,7 @@ def test_dispatch_spawns_thread_and_returns_its_id(store, threads):
     assert tid == "thread-1"
     call = threads.spawned[0]
     assert call["task_key"] == "ABC-3"
-    assert call["preset_name"] == "claude-fast"
+    assert call["role_name"] == "claude-fast"
     assert call["parent_id"] == ""
 
 
@@ -188,7 +188,7 @@ def test_dispatch_title_is_first_prompt_line_truncated_to_60(store, threads):
     assert threads.spawned[0]["title"] == long_line[:60]
 
 
-def test_dispatch_title_falls_back_to_preset_name_for_blank_prompt(store, threads):
+def test_dispatch_title_falls_back_to_role_name_for_blank_prompt(store, threads):
     store.dispatch("ABC-1", "claude-fast", "   \n")
     assert threads.spawned[0]["title"] == "claude-fast"
 

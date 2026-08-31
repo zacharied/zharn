@@ -49,14 +49,14 @@ through. Everything else is yours too — fork it.
 
 Threads run `claude -p --output-format stream-json --input-format stream-json` as a child process
 (one process per thread, follow-ups over stdin, `--resume` after a restart). Every thread belongs to
-a task; dispatch from a task tab with a preset (`harness/config_def.py: DEFAULT_PRESETS`).
+a task; dispatch from a task tab with a role (`harness/config_def.py: DEFAULT_ROLES`).
 
 Agents get `HARNESS_THREAD_ID`, `HARNESS_TASK_KEY`, `HARNESS_IPC` and `HARNESS_CLI` and can drive
 the harness over a local socket — bb's `BB_CLI` idea:
 
 ```sh
-$HARNESS_CLI thread spawn --preset claude-fast --prompt "write the tests" --wait   # sibling on the same task
-$HARNESS_CLI thread list --task ABC-12 | preset list | task status ABC-12 in_review
+$HARNESS_CLI thread spawn --role claude-fast --prompt "write the tests" --wait   # sibling on the same task
+$HARNESS_CLI thread list --task ABC-12 | role list | task status ABC-12 in_review
 ```
 
 Child threads are parented to the caller; when a child settles, the parent transcript gets a note
@@ -74,7 +74,7 @@ QT_QPA_PLATFORM=offscreen python -m pytest      # ~265 tests, ~30 s, no display 
 
 Three layers, all offscreen:
 
-* `tests/test_<module>.py` — unit tests per Python module (stream interpreter, models, tasks, presets,
+* `tests/test_<module>.py` — unit tests per Python module (stream interpreter, models, tasks, roles,
   IPC, CLI, watcher, layout, notifier, process wrapper).
 * `tests/test_ui_*.py` — **drive the real QML** through `tests/ui.py`: find a control by `objectName`,
   click it, type into it, assert the store changed. Every interactive control in `qml/` has a stable

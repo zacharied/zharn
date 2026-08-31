@@ -141,12 +141,12 @@ class AppStore(QObject):
     hotChanged = Signal()
 
     def __init__(self, session: Session, layout_store: LayoutStore, content, theme: dict,
-                 threads=None, presets=None, tasks=None, notifier=None):
+                 threads=None, roles=None, tasks=None, notifier=None):
         super().__init__()
         self._session = session
         self._layout = layout_store
         self._content = content
-        self._threads, self._presets, self._tasks = threads, presets, tasks
+        self._threads, self._roles, self._tasks = threads, roles, tasks
         self._notify = notifier or Notifier()
         self._notify.setParent(self)
         self._ipc_path = ""
@@ -169,8 +169,8 @@ class AppStore(QObject):
         return self._threads
 
     @Property(QObject, constant=True)
-    def presets(self):
-        return self._presets
+    def roles(self):
+        return self._roles
 
     @Property(QObject, constant=True)
     def tasks(self):

@@ -49,8 +49,8 @@ class FakeThreads:
     def get(self, tid):
         return self._by_id.get(tid)
 
-    def spawn(self, task, preset, prompt, parent="", title=""):
-        self.calls.append(("spawn", task, preset, prompt, parent, title))
+    def spawn(self, task, role, prompt, parent="", title=""):
+        self.calls.append(("spawn", task, role, prompt, parent, title))
         tid = f"new{next(self._ids)}"
         self._by_id[tid] = FakeThread(tid, title=title or prompt, status="working", taskKey=task)
         return tid
@@ -71,9 +71,9 @@ class FakeTasks:
         self.calls = []
         self._keys = itertools.count(100)
 
-    def dispatch(self, task, preset, prompt, parent=""):
-        self.calls.append(("dispatch", task, preset, prompt, parent))
-        return self._threads.spawn(task, preset, prompt, parent, "dispatched")
+    def dispatch(self, task, role, prompt, parent=""):
+        self.calls.append(("dispatch", task, role, prompt, parent))
+        return self._threads.spawn(task, role, prompt, parent, "dispatched")
 
     def list(self):
         return list(self._tasks.values())
@@ -96,9 +96,9 @@ class FakeTasks:
         return key
 
 
-class FakePresets:
+class FakeRoles:
     def __init__(self, *names):
-        self.presets = [{"name": n, "model": "m"} for n in names]
+        self.roles = [{"name": n, "model": "m"} for n in names]
 
 
 class FakeLayout:
@@ -121,7 +121,7 @@ class FakeAppStore:
             {"key": "ABC-1", "title": "one", "status": "todo"},
             {"key": "ABC-2", "title": "two", "status": "in-progress"},
         ])
-        self.presets = FakePresets("claude-fast", "claude-deep")
+        self.roles = FakeRoles("claude-fast", "claude-deep")
         self.layout = FakeLayout()
 
 
@@ -141,8 +141,8 @@ def test_ping_returns_own_pid(h):
     assert h("ping", {}) == {"pid": os.getpid()}
 
 
-def test_preset_list_returns_presets(h, store):
-    assert h("preset.list", {}) == store.presets.presets
+def test_role_list_returns_roles(h, store):
+    assert h("role.list", {}) == store.roles.roles
 
 
 def test_thread_list_without_filter_returns_all_summaries(h):
@@ -175,25 +175,25 @@ def test_thread_show_unknown_id_raises_keyerror(h):
 
 
 def test_thread_spawn_with_task_goes_through_tasks_dispatch(h, store):
-    s = h("thread.spawn", {"task": "ABC-1", "preset": "claude-fast", "prompt": "do it", "parent": "t1"})
+    s = h("thread.spawn", {"task": "ABC-1", "role": "claude-fast", "prompt": "do it", "parent": "t1"})
     assert store.tasks.calls == [("dispatch", "ABC-1", "claude-fast", "do it", "t1")]
     assert s["id"] == "new1" and s["taskKey"] == "ABC-1" and s["status"] == "working"
 
 
 def test_thread_spawn_without_task_goes_through_threads_spawn_with_title(h, store):
-    s = h("thread.spawn", {"preset": "claude-deep", "prompt": "p", "title": "titled"})
+    s = h("thread.spawn", {"role": "claude-deep", "prompt": "p", "title": "titled"})
     assert store.tasks.calls == []
     assert store.threads.calls == [("spawn", "", "claude-deep", "p", "", "titled")]
     assert s["title"] == "titled" and s["taskKey"] == ""
 
 
 def test_thread_spawn_open_opens_thread_tab_in_layout(h, store):
-    s = h("thread.spawn", {"preset": "claude-fast", "prompt": "p", "title": "tab", "open": True})
+    s = h("thread.spawn", {"role": "claude-fast", "prompt": "p", "title": "tab", "open": True})
     assert store.layout.opened == [("thread", s["id"], "tab")]
 
 
 def test_thread_spawn_without_open_does_not_touch_layout(h, store):
-    h("thread.spawn", {"preset": "claude-fast", "prompt": "p"})
+    h("thread.spawn", {"role": "claude-fast", "prompt": "p"})
     assert store.layout.opened == []
 
 

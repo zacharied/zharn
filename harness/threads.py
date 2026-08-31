@@ -16,7 +16,7 @@ from harness.agents import ClaudeCodeProcess, StreamInterpreter, TranscriptModel
 from harness.notify import intent
 from harness.qmodels import DictListModel
 
-THREAD_ROLES = ["id", "title", "taskKey", "status", "presetName", "parentId", "costUsd", "turns", "createdAt"]
+THREAD_ROLES = ["id", "title", "taskKey", "status", "roleName", "parentId", "costUsd", "turns", "createdAt"]
 SETTLED = ("idle", "failed", "stopped")
 
 
@@ -51,7 +51,7 @@ class Thread(QObject):
     def taskKey(self): return self.meta.get("taskKey", "")
 
     @Property(str, constant=True)
-    def presetName(self): return self.meta.get("preset", "")
+    def roleName(self): return self.meta.get("role", "")
 
     @Property(str, constant=True)
     def parentId(self): return self.meta.get("parentId", "")
@@ -63,7 +63,7 @@ class Thread(QObject):
     def sessionId(self): return self._interp.session_id
 
     @Property(str, notify=changed)
-    def model(self): return self._interp.model_name or self.meta.get("presetConfig", {}).get("model", "")
+    def model(self): return self._interp.model_name or self.meta.get("roleConfig", {}).get("model", "")
 
     @Property(float, notify=changed)
     def costUsd(self): return self._interp.cost_usd
@@ -88,7 +88,7 @@ class Thread(QObject):
 
     def summary(self) -> dict:
         return {"id": self.id, "title": self.title, "taskKey": self.taskKey, "status": self._status,
-                "presetName": self.presetName, "parentId": self.parentId, "costUsd": round(self._interp.cost_usd, 4),
+                "roleName": self.roleName, "parentId": self.parentId, "costUsd": round(self._interp.cost_usd, 4),
                 "turns": self._interp.turns, "createdAt": self.meta.get("createdAt", 0), "sessionId": self._interp.session_id,
                 "model": self.model, "lastText": self.last_assistant_text()}
 
@@ -114,19 +114,19 @@ class Thread(QObject):
         return env
 
     def _system_prompt(self) -> str:
-        preset = self.meta.get("presetConfig", {})
+        role = self.meta.get("roleConfig", {})
         parts = [getattr(cfg, "AGENT_SYSTEM_PROMPT", "").format(thread_id=self.id, task_key=self.taskKey or "(none)")]
-        if preset.get("instructions"):
-            parts.append(preset["instructions"])
+        if role.get("instructions"):
+            parts.append(role["instructions"])
         return "\n\n".join(p for p in parts if p)
 
     def _spawn(self, resume: str = ""):
-        preset = self.meta.get("presetConfig", {})
+        role = self.meta.get("roleConfig", {})
         extra = []
-        effort = getattr(cfg, "EFFORT_FLAGS", {}).get(preset.get("reasoning", ""), [])
+        effort = getattr(cfg, "EFFORT_FLAGS", {}).get(role.get("reasoning", ""), [])
         extra += list(effort)
         self._proc = ClaudeCodeProcess(cwd=self.meta.get("cwd") or str(self._store.root), env=self._env(),
-                                       model=preset.get("model", ""), permission=preset.get("permission", "auto"),
+                                       model=role.get("model", ""), permission=role.get("permission", "auto"),
                                        resume=resume, system_prompt=self._system_prompt(), extra_args=extra)
         self._proc.event.connect(self._on_event)
         self._proc.stderrText.connect(self._on_stderr)
@@ -212,11 +212,11 @@ class ThreadStore(QObject):
     threadSettled = Signal(str)
     notifier = None
 
-    def __init__(self, root: Path, data_dir: Path, presets, parent=None):
+    def __init__(self, root: Path, data_dir: Path, roles, parent=None):
         super().__init__(parent)
         self.root = root
         self.data_dir = data_dir
-        self.presets = presets
+        self.roles = roles
         self.extra_env = lambda: {}
         self._threads: dict[str, Thread] = {}
         self._model = DictListModel(THREAD_ROLES, self)
@@ -252,15 +252,15 @@ class ThreadStore(QObject):
     @Slot(str, str, str, str, result=str)
     @Slot(str, str, str, str, str, result=str)
     @intent
-    def spawn(self, task_key: str, preset_name: str, prompt: str, parent_id: str = "", title: str = "") -> str:
-        preset = self.presets.get(preset_name)
-        if not preset:
-            raise ValueError(f"unknown preset {preset_name!r}")
-        if preset.get("provider", "claude-code") != "claude-code":
-            raise ValueError(f"provider {preset['provider']!r} not implemented yet")
-        title = title or (prompt.strip().splitlines()[0][:60] if prompt.strip() else preset_name)
-        meta = {"id": new_thread_id(), "title": title, "taskKey": task_key, "preset": preset["name"],
-                "presetConfig": preset, "parentId": parent_id, "cwd": str(self.root), "createdAt": time.time(), "status": "starting"}
+    def spawn(self, task_key: str, role_name: str, prompt: str, parent_id: str = "", title: str = "") -> str:
+        role = self.roles.get(role_name)
+        if not role:
+            raise ValueError(f"unknown role {role_name!r}")
+        if role.get("provider", "claude-code") != "claude-code":
+            raise ValueError(f"provider {role['provider']!r} not implemented yet")
+        title = title or (prompt.strip().splitlines()[0][:60] if prompt.strip() else role_name)
+        meta = {"id": new_thread_id(), "title": title, "taskKey": task_key, "role": role["name"],
+                "roleConfig": role, "parentId": parent_id, "cwd": str(self.root), "createdAt": time.time(), "status": "starting"}
         t = Thread(self, meta)
         self._threads[t.id] = t
         t._log({"type": "harness.meta", **meta})

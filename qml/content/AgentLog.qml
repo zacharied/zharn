@@ -14,7 +14,7 @@ ContentBase {
             required property string title
             required property string taskKey
             required property string status
-            required property string presetName
+            required property string roleName
             required property string parentId
             required property double costUsd
             objectName: "agentLogRow_" + id
@@ -25,7 +25,7 @@ ContentBase {
                 Rectangle { width: 8; height: 8; radius: 4; color: statusColor[status] || "gray" }
                 Label { text: taskKey; color: app.theme.accent; font.pixelSize: 11; font.family: app.theme.monoFamily }
                 Label { text: (parentId ? "↳ " : "") + title; color: app.theme.text; Layout.fillWidth: true; elide: Text.ElideRight }
-                Label { text: presetName; color: app.theme.textMuted; font.pixelSize: 11 }
+                Label { text: roleName; color: app.theme.textMuted; font.pixelSize: 11 }
                 Label { text: status; color: app.theme.textMuted; font.pixelSize: 11 }
             }
             HoverHandler { id: hh }

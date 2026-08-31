@@ -69,7 +69,7 @@ def main(argv=None):
 
     th = sub.add_parser("thread").add_subparsers(dest="verb", required=True)
     sp = th.add_parser("spawn", help="Spawn a new thread (child of this one when run inside a thread)")
-    sp.add_argument("--preset", required=True)
+    sp.add_argument("--role", required=True)
     sp.add_argument("--prompt", required=True)
     sp.add_argument("--task", default=os.environ.get("HARNESS_TASK_KEY", ""))
     sp.add_argument("--no-parent", action="store_true", help="Do not parent to the current thread")
@@ -81,8 +81,8 @@ def main(argv=None):
     sd = th.add_parser("send"); sd.add_argument("id"); sd.add_argument("--message", required=True)
     th.add_parser("stop").add_argument("id")
 
-    pr = sub.add_parser("preset").add_subparsers(dest="verb", required=True)
-    pr.add_parser("list")
+    rl = sub.add_parser("role").add_subparsers(dest="verb", required=True)
+    rl.add_parser("list")
 
     tk = sub.add_parser("task").add_subparsers(dest="verb", required=True)
     tk.add_parser("list")
@@ -104,8 +104,8 @@ def main(argv=None):
 
     if a.noun == "ping":
         out(request("ping", {}), a.json)
-    elif a.noun == "preset":
-        out(request("preset.list", {}), a.json)
+    elif a.noun == "role":
+        out(request("role.list", {}), a.json)
     elif a.noun == "task":
         if a.verb == "list": out(request("task.list", {}), a.json)
         elif a.verb == "show": out(request("task.show", {"key": a.key}), a.json)
@@ -114,7 +114,7 @@ def main(argv=None):
     elif a.noun == "thread":
         if a.verb == "spawn":
             parent = "" if a.no_parent else os.environ.get("HARNESS_THREAD_ID", "")
-            s = request("thread.spawn", {"task": a.task, "preset": a.preset, "prompt": a.prompt, "parent": parent, "open": a.open})
+            s = request("thread.spawn", {"task": a.task, "role": a.role, "prompt": a.prompt, "parent": parent, "open": a.open})
             if a.wait:
                 s = wait(s["id"], 1200)
                 out(s if a.json else (s.get("lastText") or s["status"]), a.json)

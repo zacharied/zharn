@@ -1,4 +1,4 @@
-"""Threads, presets, tasks, IPC/CLI and the thread UI — against the fake claude CLI."""
+"""Threads, roles, tasks, IPC/CLI and the thread UI — against the fake claude CLI."""
 import json
 import os
 import shutil
@@ -45,11 +45,11 @@ def rows(thread):
     return thread.transcript.rows()
 
 
-def test_presets_and_demo_tasks(harness):
+def test_roles_and_demo_tasks(harness):
     app, store, _ = harness
-    names = store.presets.names()
+    names = store.roles.names()
     assert "claude-fast" in names and "codex-review" in names
-    assert store.presets.get("claude-deep")["model"] == "claude-opus-5"
+    assert store.roles.get("claude-deep")["model"] == "claude-opus-5"
     assert store.tasks.model.count() >= 5
     assert store.tasks.get("ABC-1")["title"].startswith("Hot reload")
     with pytest.raises(ValueError):
@@ -128,7 +128,7 @@ def test_cli_over_ipc(harness):
     r = cli("ping")
     assert r.returncode == 0, r.stderr
     assert json.loads(r.stdout)["pid"] == os.getpid()
-    r = cli("preset", "list")
+    r = cli("role", "list")
     assert "claude-fast" in [p["name"] for p in json.loads(r.stdout)]
     r = cli("task", "show", "ABC-3")
     assert json.loads(r.stdout)["threads"][0]["status"] == "idle"
@@ -143,7 +143,7 @@ def test_agent_spawns_child_on_same_task_and_parent_is_notified(harness):
     parent = store.threads.get(tid)
     assert wait_until(lambda: len(store.threads.threads_for("ABC-4")) == 2, timeout_ms=15000)
     child = [x for x in store.threads.threads_for("ABC-4") if x.id != tid][0]
-    assert child.parentId == tid and child.taskKey == "ABC-4" and child.presetName == "claude-fast"
+    assert child.parentId == tid and child.taskKey == "ABC-4" and child.roleName == "claude-fast"
     assert wait_until(lambda: child.status == "idle", timeout_ms=15000)
     # the parent's tool_result contains the child's last reply (via `thread spawn --wait`)
     assert wait_until(lambda: parent.status == "idle" and any(r["kind"] == "tool_result" for r in rows(parent)), timeout_ms=15000)
@@ -165,7 +165,7 @@ def test_agent_spawns_child_on_same_task_and_parent_is_notified(harness):
 def test_transcripts_persist_and_replay(harness):
     app, store, _ = harness
     from harness.threads import ThreadStore
-    fresh = ThreadStore(ROOT, DATA, store.presets)
+    fresh = ThreadStore(ROOT, DATA, store.roles)
     ids = {t.id for t in store.threads.all()}
     assert {t.id for t in fresh.all()} == ids
     for t in fresh.all():

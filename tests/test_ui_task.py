@@ -35,7 +35,7 @@ def test_dispatch_button_spawns_thread_and_opens_its_tab(ui):
 def test_dispatch_with_unimplemented_provider_shows_error_banner(ui):
     ui.store.layout.openContent("task", "ABC-4", "ABC-4")
     QTest.qWait(100)
-    ui.choose(ui.find("presetBox"), "codex-review")
+    ui.choose(ui.find("roleBox"), "codex-review")
     n = ui.store.threads.model.count()
     ui.focus_and_type(ui.find("dispatchPrompt"), "review it")
     ui.click(ui.find("dispatchButton"))

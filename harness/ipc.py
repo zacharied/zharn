@@ -1,5 +1,5 @@
 """Local IPC so agents (child processes) can drive the harness: spawn sibling threads on their
-task, wait on them, list presets. One JSON request per connection, newline-terminated."""
+task, wait on them, list roles. One JSON request per connection, newline-terminated."""
 from __future__ import annotations
 
 import json
@@ -59,11 +59,11 @@ class IpcServer(QObject):
 def make_handler(app_store):
     """Command table. Names mirror the CLI: <noun>.<verb>."""
     def h(cmd: str, a: dict):
-        threads, tasks, presets, layout = app_store.threads, app_store.tasks, app_store.presets, app_store.layout
+        threads, tasks, roles, layout = app_store.threads, app_store.tasks, app_store.roles, app_store.layout
         if cmd == "ping":
             return {"pid": os.getpid()}
-        if cmd == "preset.list":
-            return presets.presets
+        if cmd == "role.list":
+            return roles.roles
         if cmd == "thread.list":
             return [s for s in threads.summaries() if not a.get("task") or s["taskKey"] == a["task"]]
         if cmd == "thread.show":
@@ -77,9 +77,9 @@ def make_handler(app_store):
         if cmd == "thread.spawn":
             task = a.get("task") or ""
             if task:
-                tid = tasks.dispatch(task, a["preset"], a["prompt"], a.get("parent", ""))
+                tid = tasks.dispatch(task, a["role"], a["prompt"], a.get("parent", ""))
             else:
-                tid = threads.spawn("", a["preset"], a["prompt"], a.get("parent", ""), a.get("title", ""))
+                tid = threads.spawn("", a["role"], a["prompt"], a.get("parent", ""), a.get("title", ""))
             if a.get("open"):
                 layout.openContent("thread", tid, threads.get(tid).title)
             return threads.get(tid).summary()

@@ -16,7 +16,7 @@ ContentBase {
             Button { objectName: "welcomeAgentLog"; text: "Agent log"; onClicked: app.layout.showPanel("agent_log") }
             Button { objectName: "welcomeReset"; text: "Reset layout"; onClicked: app.layout.resetLayout() }
         }
-        Label { text: "Agents can drive this app too: $HARNESS_CLI thread spawn --preset claude-fast --prompt \"...\" --wait"; color: app.theme.textMuted; font.family: app.theme.monoFamily; font.pixelSize: 11; wrapMode: Text.Wrap; Layout.fillWidth: true }
+        Label { text: "Agents can drive this app too: $HARNESS_CLI thread spawn --role claude-fast --prompt \"...\" --wait"; color: app.theme.textMuted; font.family: app.theme.monoFamily; font.pixelSize: 11; wrapMode: Text.Wrap; Layout.fillWidth: true }
         Item { Layout.fillHeight: true }
     }
 }

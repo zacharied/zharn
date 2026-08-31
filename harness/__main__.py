@@ -21,7 +21,7 @@ def ensure_user_config():
             "from harness.config_def import *  # noqa: F401,F403\n\n"
             "# Examples:\n"
             '# THEME = {**THEME, "accent": "#c678dd"}\n'
-            '# DEFAULT_PRESETS = DEFAULT_PRESETS + [{"name": "mine", "provider": "claude-code", "model": "claude-opus-5", "reasoning": "high", "permission": "full"}]\n')
+            '# DEFAULT_ROLES = DEFAULT_ROLES + [{"name": "mine", "provider": "claude-code", "model": "claude-opus-5", "reasoning": "high", "permission": "full"}]\n')
 
 
 def load_theme() -> dict:
@@ -40,7 +40,7 @@ def build(argv=None, force_poll=False):
     from harness.content import ContentRegistry
     from harness.ipc import IpcServer, make_handler
     from harness.notify import Notifier
-    from harness.presets import PresetStore
+    from harness.roles import RoleStore
     from harness.shell import QML_DIR, Reloader
     from harness.store import AppStore, LayoutStore, Session
     from harness.tasks import TaskStore
@@ -55,13 +55,13 @@ def build(argv=None, force_poll=False):
     session = Session(Path(os.environ.get("HARNESS_SESSION") or data_dir / "session.json"))
     layout_store = LayoutStore(session)
     content = ContentRegistry(QML_DIR)
-    presets = PresetStore(data_dir)
-    threads = ThreadStore(ROOT, data_dir, presets)
+    roles = RoleStore(data_dir)
+    threads = ThreadStore(ROOT, data_dir, roles)
     tasks = TaskStore(data_dir, threads)
     notifier = Notifier()
-    for s in (layout_store, presets, threads, tasks):
+    for s in (layout_store, roles, threads, tasks):
         s.notifier = notifier  # @intent slots report here; the status bar shows it
-    store = AppStore(session, layout_store, content, cfg.THEME, threads=threads, presets=presets, tasks=tasks,
+    store = AppStore(session, layout_store, content, cfg.THEME, threads=threads, roles=roles, tasks=tasks,
                      notifier=notifier)
     ipc = IpcServer(f"zharn-{os.getpid()}", make_handler(store), parent=store)
     store._ipc_path = ipc.path
@@ -79,7 +79,7 @@ def main():
     if smoke_prompt:
         from PySide6.QtCore import QTimer
         task_key = store.tasks.list()[0]["key"]
-        tid = store.tasks.dispatch(task_key, os.environ.get("HARNESS_SMOKE_PRESET", "claude-default"), smoke_prompt)
+        tid = store.tasks.dispatch(task_key, os.environ.get("HARNESS_SMOKE_ROLE", "claude-default"), smoke_prompt)
         store.layout.openContent("thread", tid, store.threads.get(tid).title)
         thread = store.threads.get(tid)
 

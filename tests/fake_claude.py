@@ -57,7 +57,7 @@ def main():
         if "slow" in prompt:
             time.sleep(1.5)
         if "spawn-child" in prompt:
-            cli = os.environ["HARNESS_CLI"].split() + ["thread", "spawn", "--preset", "claude-fast", "--prompt", "child says hi", "--wait"]
+            cli = os.environ["HARNESS_CLI"].split() + ["thread", "spawn", "--role", "claude-fast", "--prompt", "child says hi", "--wait"]
             r = subprocess.run(cli, capture_output=True, text=True, env=os.environ)
             tool_turn("Bash", {"command": " ".join(cli[-7:])}, (r.stdout + r.stderr).strip(), is_error=r.returncode != 0)
         elif "tool" in prompt:
