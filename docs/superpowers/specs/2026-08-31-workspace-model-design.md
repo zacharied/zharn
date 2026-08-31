@@ -224,6 +224,12 @@ Author-only, UI (and CLI when the author is a character, for sub-stories):
 
 ## 9. Migration
 
+> **Compatibility policy (2026-08-31, DESIGN.md §0): not built.** The checkout's `.harness/` is
+> simply deleted; on first run this checkout is opened as a fresh workspace (§7) with `.`
+> registered as a repo. The paragraph below documents only where each old thing's *equivalent*
+> now lives.
+
+
 `.harness/` in this checkout becomes `.zharn/` of a workspace whose dir is the checkout and whose
 single repo is `.`. The prefix is taken from the existing store (`ABC`) so keys do not change;
 `tasks.json` → `stories/<key>/` per the lifecycle spec §7; `threads/` → `local/contexts/`;

@@ -4,6 +4,15 @@ A native, self-modifying coding-agent harness. Keeps bb's model, drops the web s
 and treats *your fork as your config* (suckless/st style). Hot reload is a hard requirement
 because the thing that edits the harness is the agent running inside it.
 
+## 0. Compatibility policy (2026-08-31)
+
+**This is an experimental project. Historical compatibility does not matter until the author says
+so.** No migrations of on-disk data (`.harness/`, `tasks.json`, thread transcripts, sessions), no
+deprecation shims, no aliases for renamed modules, env vars, or CLI verbs. When a model changes,
+delete the old code and the old data; rewrite tests against the new shape. Where a spec below
+describes a migration, read it as "what the new layout is", not as work to do — the migration
+sections are kept only so the vocabulary maps stay readable.
+
 ## 1. The stack decision
 
 **PySide6 6.11 + Qt Quick/QML, no C++ in the loop.**

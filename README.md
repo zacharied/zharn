@@ -37,6 +37,9 @@ through. Everything else is yours too — fork it.
 
 ## Agents
 
+> **Experimental — no backward compatibility** (DESIGN.md §0): on-disk formats, module names,
+> env vars and CLI verbs change without migration until further notice.
+>
 > **Mid-rework.** The thread/task model below is what currently runs; it is being reworked into
 > the **Story model** — stories with a cast of characters, comment threads with turns, attention-
 > based delivery, recap/recast — per [docs/AGENT-MODEL.md](docs/AGENT-MODEL.md) and the

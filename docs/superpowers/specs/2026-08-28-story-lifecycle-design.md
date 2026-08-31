@@ -229,6 +229,11 @@ baseline failure first (writing-skills).
 
 ## 7. Data and migration
 
+> **Compatibility policy (2026-08-31, DESIGN.md §0): no migration is built.** The old
+> `.harness/` store is deleted, not converted; `Thread` → `Context` is a rename with no alias.
+> The paragraph below is kept as the *vocabulary map* between old and new records only.
+
+
 Existing JSON store. `Task` → `Story` (`key, title, description, priority, phase, author,
 protagonist, main_thread, parent_story, role`; **ball not stored**); `Thread` (comments) and
 `Comment` new (§1, §4); code `Thread` → `Context` (+ `owner, predecessor, forked_from`);
