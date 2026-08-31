@@ -130,3 +130,13 @@ def test_repo_lookup_and_status(tmp_path):
 def test_toml_roundtrip_escapes_quotes_and_backslashes(tmp_path):
     ws = Workspace.create(tmp_path / "p", name='He said "hi" C:\\x')
     assert Workspace.open(tmp_path / "p").name == 'He said "hi" C:\\x'
+
+
+def test_toml_roundtrip_escapes_control_characters(tmp_path):
+    ws = Workspace.create(tmp_path / "p1", name="line1\nline2")
+    (tmp_path / "p1" / "repo1").mkdir()
+    ws.add_repo(tmp_path / "p1" / "repo1", checks="x\ny", setup="a\tb")
+    ws2 = Workspace.open(tmp_path / "p1")
+    assert ws2.name == "line1\nline2"
+    assert ws2.repo("repo1")["checks"] == "x\ny"
+    assert ws2.repo("repo1")["setup"] == "a\tb"

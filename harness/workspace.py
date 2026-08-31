@@ -2,6 +2,7 @@
 (docs/superpowers/specs/2026-08-31-workspace-model-design.md §2, §3.1, §5.1, §6). Pure Python."""
 from __future__ import annotations
 
+import json
 import re
 import uuid
 from pathlib import Path
@@ -20,7 +21,7 @@ def default_prefix(name: str) -> str:
 
 
 def _toml_str(s: str) -> str:
-    return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    return json.dumps(s)
 
 
 def _dump_toml(data: dict) -> str:
