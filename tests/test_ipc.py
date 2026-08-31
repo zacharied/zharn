@@ -112,6 +112,8 @@ class FakeStories:
     def cast_proceed(self, character_id, note=""): self.calls.append(("cast_proceed", character_id, note)); return {"id": "c6", "kind": "system"}
     def cast_recap(self, character_id, body): self.calls.append(("cast_recap", character_id, body)); return {"id": "c7", "kind": "recap"}
     def cast_comment(self, character_id, body, thread_id=""): self.calls.append(("cast_comment", character_id, body, thread_id)); return {"id": "c8", "kind": "text"}
+    def resolve(self, key, thread_id, note=""): self.calls.append(("resolve", key, thread_id, note)); return {"id": "c10", "kind": "system"}
+    def cast_resolve(self, character_id, thread_id, note=""): self.calls.append(("cast_resolve", character_id, thread_id, note)); return {"id": "c11", "kind": "system"}
     def log_verb(self, character_id, verb, args, ok, error=""): self.verbs.append((character_id, verb, dict(args), ok, error))
 
 
@@ -263,6 +265,14 @@ def test_story_cast_verbs_forward_and_log(h, store):
                                    ("cast_recap", "chr1", "r"), ("cast_comment", "chr1", "c", "t2")]
     assert [(v[1], v[3]) for v in store.stories.verbs] == [("yield", True), ("proceed", True), ("recap", True), ("comment", True)]
     assert "character" not in store.stories.verbs[0][2]
+
+
+def test_story_resolve_forwards_author_and_cast_forms(h, store):
+    r = h("story.resolve", {"key": "ABC-1", "thread": "t2", "note": "n"})
+    assert r["kind"] == "system"
+    h("story.resolve", {"character": "chr1", "thread": "t2", "note": "n2"})
+    assert store.stories.calls == [("resolve", "ABC-1", "t2", "n"), ("cast_resolve", "chr1", "t2", "n2")]
+    assert [(v[1], v[3]) for v in store.stories.verbs] == [("resolve", True)]  # only the cast form is a character verb
 
 
 def test_story_cast_rejection_is_logged_and_raised(h, store):

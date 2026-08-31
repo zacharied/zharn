@@ -6,7 +6,7 @@ import pytest
 from PySide6.QtCore import QObject, Signal
 
 from harness import config as cfg
-from harness.lifecycle import Rejected
+from harness.lifecycle import OpenThread, Rejected, Yield
 from harness.stories import StoryStore, author_name, needs_you_flavor, render_brief
 from harness.workspace import Workspace
 
@@ -332,6 +332,57 @@ def test_back_to_planning_and_reopen_resume_protagonist(store, contexts):
     ctx.stopped = False
     store.reopen(key, "one more")
     assert store.get(key)["phase"] == "implementing" and "one more" in ctx.sent[-1]
+
+
+def side_thread_waiting(store, chr_id, key, author="human", lead=None):
+    """A side thread t2 yielded back to its author. Side-thread creation (open-thread UI, `call`)
+    arrives with the friends plan; until then tests arrange it through the reducer directly."""
+    store._apply(key, OpenThread(thread_id="t2", author=author, lead=lead or chr_id, body="why X?"))
+    store._apply(key, Yield(thread_id="t2", by=lead or chr_id, kind="handoff", body="because Y"))
+
+
+def test_resolve_closes_side_thread_and_clears_lead_attention(store, contexts):
+    key, chr_id = started(store)
+    side_thread_waiting(store, chr_id, key)
+    store._characters[chr_id]["attention"] = "t2"
+    ctx = contexts.get("ctx_1")
+    n = len(ctx.sent)
+    c = store.resolve(key, "t2", "settled, thanks")
+    assert c["kind"] == "system" and "settled, thanks" in c["body"]
+    assert store.story(key).thread("t2").turn == "resolved"
+    assert store.character(chr_id)["attention"] is None      # was attending the resolved thread
+    assert len(ctx.sent) == n                                # the lead is not resumed or notified
+
+
+def test_resolve_leaves_attention_alone_when_lead_attends_elsewhere(store):
+    key, chr_id = started(store)
+    side_thread_waiting(store, chr_id, key)
+    main = store.story(key).main_thread
+    store.resolve(key, "t2")
+    assert store.character(chr_id)["attention"] == main
+
+
+def test_resolve_rejections_raise_and_report(store):
+    key, chr_id = started(store)
+    store.cast_yield(chr_id, "handoff", "outline")
+    with pytest.raises(Rejected, match="main"):
+        store.resolve(key, store.story(key).main_thread)
+    assert store.notifier.errors and "resolve" in store.notifier.errors[-1]
+
+
+def test_cast_resolve_resolves_a_thread_the_character_authored(store):
+    key, chr_id = started(store)
+    store._apply(key, OpenThread(thread_id="t2", author=chr_id, lead="chr_friend", body="do it"))
+    store._apply(key, Yield(thread_id="t2", by="chr_friend", kind="handoff", body="done"))
+    c = store.cast_resolve(chr_id, "t2", "all good")
+    assert c["kind"] == "system" and c["author"] == chr_id and "all good" in c["body"]
+    assert store.story(key).thread("t2").turn == "resolved"
+
+
+def test_cast_resolve_requires_an_explicit_thread(store):
+    key, chr_id = started(store)
+    with pytest.raises(Rejected, match="thread"):
+        store.cast_resolve(chr_id, "")
 
 
 def test_author_action_rejections_raise_and_report(store):

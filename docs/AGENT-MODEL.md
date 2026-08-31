@@ -24,7 +24,8 @@ collapse into the same thing, the model is wrong.
 
 **Thread** — *what*: a root comment and its replies; one topic on a story. A thread has an
 **author** (whoever opened it), a **lead** (the character its root comment addressed), and a
-**turn** — whether the thread currently waits on its author or its cast.
+**turn** — whether the thread currently waits on its author, waits on its cast, or is
+**resolved**: topic closed, nothing pending.
 
 **Character** — *who*: a role instantiated on a story. A named participant with an inbox and an
 attention, who posts comments *as itself* (e.g. "Reviewer · opus"), leads many threads over its
@@ -70,6 +71,10 @@ instructions, skills.
 **handoff** (a result: an outline, an answer, finished work). A yield flips the thread's turn;
 on the main thread, that is the ball moving.
 
+**Resolve** — a thread's author declaring its topic finished. The counterpart to Reply: both
+answer a pending yield, but a reply hands the thread back to its cast while a resolve closes it,
+waking nobody. A comment in a resolved thread reopens it.
+
 **Inbox / attention** — a character attends one thread at a time; everything else addressed to
 it queues in its inbox until it comes up for air. Nobody can hijack a character's attention —
 but anyone can join the thread it is already attending.
@@ -114,14 +119,15 @@ ball. Three rules make the matrix honest:
 ## 4. Actions
 
 **The author** can: Start (an optional opening note and a choice of role for the protagonist) ·
-Reply to a yield · Proceed · Approve · Back to planning · Cancel · Reopen · open a new thread
+Reply to a yield · Resolve a side thread waiting on them · Proceed · Approve · Back to planning ·
+Cancel · Reopen · open a new thread
 (to the protagonist by default, to `@Name`, or to a fresh friend via a role) · reply in any
 thread · **Recast** any character (optionally onto a new role or model) · start a bare context ·
 promote a bare context into a story.
 
-**Any character** can: yield in a thread it is engaged in · comment · open a thread · call in a
-friend · send out minions · create a sub-story · post a recap · wait for a character to yield to
-it or a sub-story to come back.
+**Any character** can: yield in a thread it is engaged in · comment · open a thread · resolve a
+thread it authored that waits on it · call in a friend · send out minions · create a sub-story ·
+post a recap · wait for a character to yield to it or a sub-story to come back.
 
 **Only the protagonist** can: yield on the main thread — questions, handoffs — and Proceed.
 
@@ -140,7 +146,8 @@ it or a sub-story to come back.
    handoff flips their thread back to the protagonist, who calls a **Reviewer** into that same
    thread; the review lands as a reply beneath the result. Fixes go round once more.
 5. Meanwhile the author may open a side thread to the protagonist — "why X and not Y?" — which
-   waits in its inbox and gets answered between turns, without derailing the build. If the
+   waits in its inbox and gets answered between turns, without derailing the build; the author
+   replies, or resolves the thread if the answer settles it. If the
    protagonist's context runs low, the harness tells it to recap, and the author (or the
    harness) recasts it: same character, fresh memory, the story record as its brief.
 6. The protagonist hands off on the main thread: what changed, how it was verified, where to
@@ -175,6 +182,8 @@ rarely needed.
   first, delivered when the character is waiting or idle.
 * An author's comment in a thread that is waiting on them **is** the reply — there is exactly
   one pending yield there, so there is nothing else it could mean. The turn flips back.
+* A resolved thread is not locked: any comment in it reopens it. But once a story is done or
+  canceled its threads are read-only — Reopen the story first.
 * Cast talk never moves the ball; only main-thread yields and replies do.
 * A question that offers choices is shown as choices; picking one answers it.
 * A character's context is viewable — thinking, tool calls, minions, and every predecessor

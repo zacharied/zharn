@@ -5,7 +5,7 @@ import itertools
 import pytest
 
 from harness.lifecycle import (ACTIVE, PHASES, TERMINAL, Approve, BackToPlanning, Cancel, Comment, OpenThread,
-                               Proceed, Recap, Rejected, Reopen, Reply, Start, Story, Thread, Yield,
+                               Proceed, Recap, Rejected, Reopen, Reply, Resolve, Start, Story, Thread, Yield,
                                check_invariants, step)
 
 _ids = itertools.count(1)
@@ -320,6 +320,139 @@ def test_side_thread_yield_by_thread_author_rejected():
     s, _ = run(started(), OpenThread(thread_id="t2", author="chr1", lead="chr2", body="do it"))
     with pytest.raises(Rejected, match="author"):
         step(s, Yield("t2", "chr1", "handoff", "x"), comment_id="x", now=1.0)
+
+
+# ---------------------------------------------------------------- Resolve
+
+
+def waiting_side_thread(author="human", lead="chr2"):
+    """A started story with side thread t2 yielded back to its author; returns (story, yield comment)."""
+    s, _ = run(started(), OpenThread(thread_id="t2", author=author, lead=lead, body="why X?"))
+    return run(s, Yield("t2", lead, "handoff", "because Y"))
+
+
+def test_resolve_closes_the_pending_yield_without_waking_anyone():
+    s, y = waiting_side_thread()
+    s, c = run(s, Resolve(thread_id="t2", by="human", note="settled, thanks"))
+    t = s.thread("t2")
+    assert t.turn == "resolved" and t.pending_yield is None
+    assert c["kind"] == "system" and "settled, thanks" in c["body"] and c["reply_to"] == y["id"]
+    assert s.ball == "cast" and "transition" not in c["structured"]
+
+
+def test_character_resolves_a_thread_it_authored():
+    s, _ = waiting_side_thread(author="chr1", lead="chr2")
+    s, c = run(s, Resolve(thread_id="t2", by="chr1"))
+    assert s.thread("t2").turn == "resolved" and c["author"] == "chr1"
+
+
+def test_resolve_main_thread_rejected():
+    s = at("planning", "author")
+    with pytest.raises(Rejected, match="main"):
+        step(s, Resolve(thread_id="t1", by="human"), comment_id="x", now=1.0)
+
+
+def test_resolve_while_waiting_on_cast_rejected():
+    s, _ = run(started(), OpenThread(thread_id="t2", author="human", lead="chr2", body="why?"))
+    with pytest.raises(Rejected, match="cast"):
+        step(s, Resolve(thread_id="t2", by="human"), comment_id="x", now=1.0)
+
+
+def test_resolve_by_non_author_rejected():
+    s, _ = waiting_side_thread()
+    with pytest.raises(Rejected, match="author"):
+        step(s, Resolve(thread_id="t2", by="chr2"), comment_id="x", now=1.0)
+
+
+def test_resolve_already_resolved_or_unknown_thread_rejected():
+    s, _ = waiting_side_thread()
+    s, _ = run(s, Resolve(thread_id="t2", by="human"))
+    with pytest.raises(Rejected):
+        step(s, Resolve(thread_id="t2", by="human"), comment_id="x", now=1.0)
+    with pytest.raises(Rejected, match="thread"):
+        step(s, Resolve(thread_id="zz", by="human"), comment_id="x", now=1.0)
+
+
+def test_resolve_on_terminal_story_rejected():
+    s = at("implementing", "author")
+    s, _ = run(s, OpenThread(thread_id="t2", author="human", lead="chr2", body="q"))
+    s, _ = run(s, Yield("t2", "chr2", "handoff", "a"))
+    s, _ = run(s, Approve())
+    with pytest.raises(Rejected, match="terminal"):
+        step(s, Resolve(thread_id="t2", by="human"), comment_id="x", now=1.0)
+
+
+def test_approve_resolves_every_open_thread_main_included():
+    s = at("implementing", "author")
+    s, _ = run(s, OpenThread(thread_id="t2", author="human", lead="chr2", body="q"))
+    s, _ = run(s, Yield("t2", "chr2", "handoff", "a"))                        # waits on the human
+    s, _ = run(s, OpenThread(thread_id="t3", author="chr1", lead="chr3", body="do"))  # waits on cast
+    s, _ = run(s, Approve())
+    assert all(t.turn == "resolved" and t.pending_yield is None for t in s.threads)
+
+
+def test_cancel_resolves_every_open_thread_main_included():
+    s = at("implementing", "cast")
+    s, _ = run(s, OpenThread(thread_id="t2", author="human", lead="chr2", body="q"))
+    s, _ = run(s, Yield("t2", "chr2", "handoff", "a"))
+    s, _ = run(s, Cancel())
+    assert all(t.turn == "resolved" and t.pending_yield is None for t in s.threads)
+
+
+def test_comment_in_resolved_thread_reopens_it_to_cast():
+    s, _ = waiting_side_thread()
+    s, _ = run(s, Resolve(thread_id="t2", by="human"))
+    s, c = run(s, Comment("t2", "human", "actually, one more thing"))
+    assert s.thread("t2").turn == "cast" and c["kind"] == "text" and c["reply_to"] is None
+
+
+def test_yield_in_resolved_thread_reopens_it_straight_to_author():
+    s, _ = waiting_side_thread()
+    s, _ = run(s, Resolve(thread_id="t2", by="human"))
+    s, c = run(s, Yield("t2", "chr2", "question", "one more?"))
+    assert s.thread("t2").turn == "author" and s.thread("t2").pending_yield == c["id"]
+
+
+@pytest.mark.parametrize("phase", TERMINAL)
+def test_comment_in_thread_of_terminal_story_rejected(phase):
+    with pytest.raises(Rejected, match="terminal"):
+        step(at(phase, None), Comment("t1", "human", "x"), comment_id="x", now=1.0)
+
+
+def test_recap_on_terminal_story_rejected():
+    with pytest.raises(Rejected, match="terminal"):
+        step(at("canceled", None), Recap(by="chr1", body="x"), comment_id="x", now=1.0)
+
+
+def test_reopen_unresolves_main_but_leaves_side_threads_resolved():
+    s = at("implementing", "author")
+    s, _ = run(s, OpenThread(thread_id="t2", author="human", lead="chr2", body="q"))
+    s, _ = run(s, Yield("t2", "chr2", "handoff", "a"))
+    s, _ = run(s, Approve())
+    s, _ = run(s, Reopen(note="more"))
+    assert s.main.turn == "cast" and s.thread("t2").turn == "resolved"
+
+
+def test_invariants_catch_resolved_thread_with_pending_yield():
+    s, _ = waiting_side_thread()
+    s, _ = run(s, Resolve(thread_id="t2", by="human"))
+    s.thread("t2").pending_yield = "c9"
+    with pytest.raises(AssertionError):
+        check_invariants(s)
+
+
+def test_invariants_catch_resolved_main_on_active_story():
+    s = started()
+    s.main.turn = "resolved"
+    with pytest.raises(AssertionError):
+        check_invariants(s)
+
+
+def test_invariants_catch_unresolved_main_on_terminal_story():
+    s = at("done", None)
+    s.main.turn = "cast"
+    with pytest.raises(AssertionError):
+        check_invariants(s)
 
 
 # ---------------------------------------------------------------- Comment / Recap

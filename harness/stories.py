@@ -364,6 +364,16 @@ class StoryStore(QObject):
     @Slot(str, str, result="QVariantMap")
     @Slot(str, str, str, result="QVariantMap")
     @intent
+    def resolve(self, key, thread_id, note=""):
+        """Close a side thread waiting on the author: nobody is resumed or notified (§2.1)."""
+        key = self._key(key)
+        comment = self._author_action(key, lc.Resolve(thread_id=thread_id, by="human", note=note), resume=False)
+        self._clear_attention(key, thread_id)
+        return comment
+
+    @Slot(str, str, result="QVariantMap")
+    @Slot(str, str, str, result="QVariantMap")
+    @intent
     def comment(self, key, body, thread_id=""):
         key = self._key(key)
         s = self._stories[key]
@@ -389,6 +399,22 @@ class StoryStore(QObject):
                 for c in self._comments.get(key, [])):
             raise lc.Rejected("your role requires an approved outline first: `yield --handoff` the outline and wait for Proceed")
         return self._apply(key, lc.Proceed(by=character_id, note=note))
+
+    def cast_resolve(self, character_id, thread_id, note="") -> dict:
+        key, ch = self._char(character_id)
+        if not thread_id:
+            raise lc.Rejected("resolve needs an explicit --thread")
+        c = self._apply(key, lc.Resolve(thread_id=thread_id, by=character_id, note=note))
+        self._clear_attention(key, thread_id)
+        return c
+
+    def _clear_attention(self, key: str, thread_id: str):
+        """A lead attending a just-resolved thread comes up for air (§2.1 Resolve)."""
+        lead = self._stories[key].thread(thread_id).lead
+        ch = self._characters.get(lead)
+        if ch is not None and ch.get("attention") == thread_id:
+            ch["attention"] = None
+            self._save_characters()
 
     def cast_recap(self, character_id, body) -> dict:
         key, ch = self._char(character_id)

@@ -15,7 +15,7 @@ Story.main_thread   = <thread_id> | null
 Story.parent_story  = <story_key> | null
 
 Thread    { id, story_key, author: "human"|<character_id>, lead: <character_id>,
-            turn ∈ cast | author }
+            turn ∈ cast | author | resolved }
 Character { id, story_key, role, name, live_context: <context_id>,
             attention: <thread_id> | null, inbox: [<comment_id>] }
 Context   { id, owner: <character_id> | <minion of character_id> | "human",
@@ -42,13 +42,14 @@ outputs; rejections raise with the reason the CLI prints. Every phase-changing c
 |---|---|---|
 | Start `[note] [role]` | phase ∈ {backlog, todo} | Open the main thread; cast the protagonist fresh from `role` (default `config.DEFAULT_ROLE`) with the brief (§3.1); `note` is the root comment. → `(planning, cast)`. |
 | Reply | some thread of the story has turn = author | Any author comment in such a thread **is** the reply to its one pending yield: append, deliver to the yield's author, turn → cast. On the main thread this moves the ball → `(same phase, cast)`. |
+| Resolve `[note] --thread t` | `t`'s turn = author; not the main thread. (A thread still waiting on its cast cannot be resolved — a request is not retractable, only its answer is resolvable.) | `system` comment carrying the note; the pending yield is closed; the lead is neither resumed nor notified, and if it was attending `t` its attention clears; turn → resolved. No transition. |
 | Proceed `[note]` | `(planning, author)` | System comment "outline approved" on main; resume protagonist. → `(implementing, cast)`. |
-| Approve `[note]` | `(implementing, author)` | System comment; nobody resumed. → `(done)`. |
+| Approve `[note]` | `(implementing, author)` | System comment; nobody resumed; every open thread of the story resolves, main included (ball is already null once terminal). → `(done)`. |
 | Back to planning `[note]` | `(implementing, author)` | System comment; resume protagonist with note. → `(planning, cast)`. |
-| Cancel `[note]` | non-terminal | Stop every character and minion; cancel open sub-stories. → `(canceled)`. |
+| Cancel `[note]` | non-terminal | Stop every character and minion; cancel open sub-stories; every open thread resolves, main included. → `(canceled)`. |
 | Reopen `note` | terminal | Resume (or recast) protagonist with note on main. → `(implementing, cast)`. |
 | Open a thread `body` | started, non-terminal | Root comment. No mention → addressed to the protagonist; `@Name` → to Name; `/call <role> [note]` → cast a fresh friend to lead it. Lead = addressee; author = opener; delivered per §3.2. No transition. |
-| Reply in a thread (turn = cast) | — | Delivered per §3.2 (attended → now; else inbox). No transition. |
+| Reply in a thread (turn = cast) | non-terminal | Delivered per §3.2 (attended → now; else inbox). No transition. |
 | Recast `character [role] [model]` | character not mid-turn (author may stop it first) | Replace `live_context` per the ladder (§3.4); system comment on main. Threads, inbox, pending yields, name survive. No transition. |
 | New Context `[note]` | — | Bare context; not a story action. Promote (§6) casts it as a new story's protagonist. |
 
@@ -58,6 +59,7 @@ outputs; rejections raise with the reason the CLI prints. Every phase-changing c
 |---|---|---|---|
 | `yield --question --body … [--options a,b] [--thread t]` | engaged character | thread has no pending yield; main thread: protagonist only | `question` comment; thread turn → author |
 | `yield --handoff --body … [--attach …] [--thread t]` | engaged character | as above; main thread in `implementing`: no open sub-stories, and the harness first runs each touched repo's `checks` in the story's environment for it (workspace spec §4.4), attaching `[{repo, cmd, exit, output}]` | `handoff` comment; thread turn → author |
+| `resolve --thread t [--note …]` | `t`'s author | as §2.1 Resolve: turn = author, not the main thread | As §2.1 Resolve: system comment, yield closed, lead neither resumed nor notified, turn → resolved |
 | `proceed [--note …]` | protagonist | `(planning, cast)`; if the role has `outline_first`, an outline handoff must have been Proceed-ed | System comment on main → `(implementing, cast)`. **stdout is the `implementing-a-story` skill.** |
 | `recap --body …` | any | — | `recap` comment on main; recorded as the character's latest recap. No transition. |
 | `comment --body … [--thread t] [--reply-to id] [--to @Name…] [--attach …]` | any | default `t` = attended thread | `text` comment, delivered per §3.2. No transition. |
@@ -66,11 +68,19 @@ outputs; rejections raise with the reason the CLI prints. Every phase-changing c
 | `minion --role R --prompt … [--n k] [--fork]` | any | — | Hidden context(s); `--fork` clones the caller's context. Block; print result(s). Claude characters may use the native `Agent` tool instead. |
 | `create --title … [--description …] [--start --role R]` | any | — | Sub-story with `author = <this character>`, `parent_story = <this story>`. |
 | `wait <key>` | author of `<key>` | — | Block until `<key>`'s ball reaches author or terminal; print the triggering comment. |
-| `reply <key> --thread t --body …` · `proceed <key>` · `approve <key>` · `cancel <key>` · `recast <key> …` | author of `<key>` | — | Author actions of §2.1. Rejected otherwise. |
+| `reply <key> --thread t --body …` · `resolve <key> --thread t [--note …]` · `proceed <key>` · `approve <key>` · `cancel <key>` · `recast <key> …` | author of `<key>` | — | Author actions of §2.1. Rejected otherwise. |
 | `inbox` · `show [<key>]` · `list` · `cast [<key>]` | any | — | Read-only. |
 
 There is no status verb of any kind. Rejections print the reason and exit non-zero; every verb
 call (accepted or not) is appended to the character's `verbs_log`.
+
+**Reopen rule.** On a non-terminal story a resolved thread is not locked: any comment in it
+reopens it — turn → cast, delivered per §3.2 — and a yield in it (its "no pending yield"
+precondition is already satisfied) reopens it straight to turn = author. On a terminal story
+every thread is resolved and read-only: comments there are rejected — Reopen the story first.
+Story **Reopen** therefore needs no special case: its note is a comment in the resolved main
+thread of a now non-terminal story, which reopens to cast exactly as `(implementing, cast)`
+requires.
 
 ### 2.3 Harness mechanics
 
@@ -89,7 +99,9 @@ call (accepted or not) is appended to the character's `verbs_log`.
 ### 2.4 Invariants (asserted in tests)
 
 * `Story.ball` = main thread's turn while planning/implementing; null otherwise. Never stored.
-* Per thread: turn = author ⇔ exactly one pending yield in that thread.
+* Per thread: turn = author ⇔ exactly one pending yield in that thread; turn = resolved ⇒ no
+  pending yield. (A stored `pending_yield` id is a denormalization of the comments, never truth.)
+* The main thread is resolved ⇔ the story is terminal.
 * Every thread has exactly one lead; every character has exactly one live context and attends at
   most one thread; a character's inbox never contains comments from its attended thread.
 * Only the protagonist yields on the main thread; a main handoff is blocked while any sub-story
@@ -103,7 +115,8 @@ call (accepted or not) is appended to the character's `verbs_log`.
 
 ### 3.1 Brief
 
-Story key + title + description; the threads in order — resolved ones folded to root + yields —
+Story key + title + description; the threads in order — resolved ones folded to root + yields +
+closing note —
 rendered as markdown with author names and kinds; recaps; sub-stories with `(phase, ball)`; cast
 with roles; attachments; then the role's instructions and the call-in note (or Start note).
 A recast context's brief ends with "you are a recast of <name>; your predecessor's recap is
@@ -150,7 +163,7 @@ Comment
 ```
 
 * A thread whose turn = author renders the matching action bar (main thread: the story's cell
-  actions; other threads: Reply).
+  actions; other threads: Reply · Resolve).
 * `question.options` render as buttons; a click posts the reply.
 * `is_image` attachments render inline.
 
@@ -216,7 +229,8 @@ baseline failure first (writing-skills).
   muted / live activity, cast avatars with attention state, open sub-story count.
 * **Story tab** (`qml/content/Story.qml`): header (key, title, editable description while
   unstarted, role picker + Start with note | phase chip + main action bar); threads with
-  replies, option buttons, handoff evidence, resolved threads folded; a composer per thread and
+  replies, option buttons, handoff evidence, resolved threads folded to root + yields + closing
+  note; a composer per thread and
   one for new threads, `@` autocomplete over the cast and `/call <role> [note]`; side panel:
   cast (attention: busy on #n / waiting / idle · inbox depth · context meter · Recast button →
   role/model dialog), sub-stories (phase+ball → open).
@@ -248,7 +262,9 @@ Presets are renamed roles (`harness/presets.py` → `harness/roles.py`), gaining
 ## 8. Tests
 
 * `tests/test_lifecycle.py`: every cell × every action of §2 as a table, per-thread turn flips,
-  rejections, §2.4 invariants.
+  rejections, §2.4 invariants. Resolve: rejections (main thread, turn = cast, non-author,
+  terminal story), reopen-on-comment and reopen-on-yield, the Approve/Cancel terminal sweep,
+  needs-you dropping resolved threads.
 * `tests/test_cli.py`, `test_ipc.py`: each verb, authorship checks, `wait` semantics including
   interruption labels, inbox ordering and attention moves, per-thread auto-yield, recap, recast
   ladder rungs 1–3, sub-story flows.

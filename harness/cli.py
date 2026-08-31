@@ -96,6 +96,8 @@ def main(argv=None):
     stp.add_parser("recap").add_argument("--body", required=True)
     cm = stp.add_parser("comment"); cm.add_argument("--body", required=True); cm.add_argument("--thread", default=""); cm.add_argument("--story", default=os.environ.get("HARNESS_STORY_KEY", ""))
     rp = stp.add_parser("reply"); rp.add_argument("key"); rp.add_argument("--body", required=True); rp.add_argument("--thread", default="")
+    rv = stp.add_parser("resolve", help="Close a side thread waiting on you; nobody is resumed")
+    rv.add_argument("key", nargs="?", default=""); rv.add_argument("--thread", required=True); rv.add_argument("--note", default="")
     for v in ("approve", "back", "cancel", "reopen"):
         x = stp.add_parser(v); x.add_argument("key"); x.add_argument("--note", default="")
 
@@ -156,6 +158,9 @@ def main(argv=None):
             args = {"character": ch, "body": a.body, "thread": a.thread} if ch else {"key": a.story, "body": a.body, "thread": a.thread}
             out(request("story.comment", args), a.json)
         elif a.verb == "reply": out(request("story.comment", {"key": a.key, "body": a.body, "thread": a.thread}), a.json)
+        elif a.verb == "resolve":
+            args = {"character": ch, "thread": a.thread, "note": a.note} if ch and not a.key else {"key": a.key, "thread": a.thread, "note": a.note}
+            out(request("story.resolve", args), a.json)
         else: out(request(f"story.{a.verb}", {"key": a.key, "note": a.note}), a.json)
 
 

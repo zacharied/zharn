@@ -89,6 +89,10 @@ def make_handler(app_store):
                 return stories.cast_proceed(ch, a.get("note", ""))
             stories.proceed(a["key"], a.get("note", ""))
             return stories.get(a["key"])
+        if verb == "resolve":
+            if ch:
+                return stories.cast_resolve(ch, a.get("thread", ""), a.get("note", ""))
+            return stories.resolve(a["key"], a.get("thread", ""), a.get("note", ""))
         author = {"approve": stories.approve, "back": stories.backToPlanning, "cancel": stories.cancel, "reopen": stories.reopen}.get(verb)
         if author is not None:
             author(a["key"], a.get("note", ""))

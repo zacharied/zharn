@@ -27,7 +27,7 @@ class Thread:
     id: str
     author: str                      # "human" | character id
     lead: str                        # character id
-    turn: str = "cast"               # "cast" | "author"
+    turn: str = "cast"               # "cast" | "author" | "resolved"
     pending_yield: str | None = None  # comment id while turn == "author"
 
 
@@ -84,6 +84,13 @@ class Reply:
     thread_id: str
     body: str
     by: str = "human"
+
+
+@dataclass
+class Resolve:
+    thread_id: str
+    by: str = "human"
+    note: str = ""
 
 
 @dataclass
@@ -234,15 +241,36 @@ def step(story: Story, action, *, comment_id: str, now: float) -> tuple[Story, d
         pending, t.turn, t.pending_yield = t.pending_yield, "cast", None
         c = _comment(s, comment_id, now, thread_id=t.id, author=action.by, kind="text", body=action.body, reply_to=pending)
 
+    elif isinstance(action, Resolve):
+        if s.phase in TERMINAL:
+            raise Rejected(f"{s.key} is terminal ({s.phase}); its threads are read-only until Reopen")
+        t = _require_thread(s, action.thread_id)
+        if t.id == s.main_thread:
+            raise Rejected("the main thread is never resolved directly; Approve or Cancel the story")
+        if action.by != t.author:
+            raise Rejected(f"only the thread's author ({t.author}) can resolve it")
+        if t.turn != "author":
+            raise Rejected(f"thread {t.id} is not waiting on its author (turn: {t.turn}); "
+                           "a request to the cast cannot be retracted, only its answer resolved")
+        pending, t.turn, t.pending_yield = t.pending_yield, "resolved", None
+        c = _comment(s, comment_id, now, thread_id=t.id, author=action.by, kind="system",
+                     body=_with_note("resolved", action.note), reply_to=pending)
+
     elif isinstance(action, Comment):
+        if s.phase in TERMINAL:
+            raise Rejected(f"{s.key} is terminal ({s.phase}); its threads are read-only until Reopen")
         t = _require_thread(s, action.thread_id)
         if t.turn == "author" and action.by == t.author:
             return step(story, Reply(thread_id=t.id, body=action.body, by=action.by), comment_id=comment_id, now=now)
+        if t.turn == "resolved":
+            t.turn = "cast"  # any comment reopens a resolved thread (§2.2 reopen rule)
         c = _comment(s, comment_id, now, thread_id=t.id, author=action.by, kind="text", body=action.body)
 
     elif isinstance(action, Recap):
         if s.main_thread is None:
             raise Rejected(f"{s.key} has not been started")
+        if s.phase in TERMINAL:
+            raise Rejected(f"{s.key} is terminal ({s.phase}); its threads are read-only until Reopen")
         c = _comment(s, comment_id, now, thread_id=s.main_thread, author=action.by, kind="recap", body=action.body)
 
     elif isinstance(action, Proceed):
@@ -268,10 +296,12 @@ def step(story: Story, action, *, comment_id: str, now: float) -> tuple[Story, d
         if (s.phase, s.ball) != ("implementing", "author"):
             raise Rejected(f"requires (implementing, author); {s.key} is ({s.phase}, {s.ball})")
         m = s.main
-        m.turn, m.pending_yield = "cast", None
         if isinstance(action, Approve):
+            for t in s.threads:  # terminal sweep: every open thread resolves, main included
+                t.turn, t.pending_yield = "resolved", None
             s.phase, body = "done", _with_note("approved", action.note)
         else:
+            m.turn, m.pending_yield = "cast", None
             s.phase, body = "planning", _with_note("back to planning", action.note)
         c = _comment(s, comment_id, now, thread_id=m.id, author=action.by, kind="system", body=body)
 
@@ -281,8 +311,8 @@ def step(story: Story, action, *, comment_id: str, now: float) -> tuple[Story, d
         if s.phase in TERMINAL:
             raise Rejected(f"{s.key} is already terminal ({s.phase})")
         s.phase = "canceled"
-        if s.main is not None:
-            s.main.turn, s.main.pending_yield = "cast", None
+        for t in s.threads:  # terminal sweep: every open thread resolves, main included
+            t.turn, t.pending_yield = "resolved", None
         c = _comment(s, comment_id, now, thread_id=s.main_thread, author=action.by, kind="system",
                      body=_with_note("canceled", action.note))
 
@@ -322,9 +352,11 @@ def check_invariants(story: Story) -> None:
     ids = [t.id for t in story.threads]
     assert len(ids) == len(set(ids)), "duplicate thread ids"
     for t in story.threads:
-        assert t.turn in ("cast", "author"), f"bad turn {t.turn!r}"
+        assert t.turn in ("cast", "author", "resolved"), f"bad turn {t.turn!r}"
         assert (t.turn == "author") == (t.pending_yield is not None), f"thread {t.id}: turn/pending_yield disagree"
         assert t.lead, f"thread {t.id} has no lead"
+    if story.main is not None:
+        assert (story.main.turn == "resolved") == (story.phase in TERMINAL), "main thread is resolved iff the story is terminal"
     if story.phase in ACTIVE:
         assert story.ball == story.main.turn
     else:

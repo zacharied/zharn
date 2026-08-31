@@ -314,3 +314,12 @@ def test_story_author_verbs_outside_a_character(recorder):
                               ("story.back", {"key": "ABC-1", "note": "b"}), ("story.cancel", {"key": "ABC-1", "note": ""}),
                               ("story.reopen", {"key": "ABC-1", "note": "r"}), ("story.comment", {"key": "ABC-1", "body": "yes", "thread": "t1"}),
                               ("story.comment", {"key": "ABC-1", "body": "c", "thread": ""})]
+
+
+def test_story_resolve_inside_and_outside_a_character(recorder, monkeypatch):
+    recorder.replies["story.resolve"] = {"id": "c1", "kind": "system"}
+    cli.main(["story", "resolve", "ABC-1", "--thread", "t2", "--note", "n"])
+    monkeypatch.setenv("HARNESS_CHARACTER_ID", "chr1")
+    cli.main(["story", "resolve", "--thread", "t2"])
+    assert recorder.calls == [("story.resolve", {"key": "ABC-1", "thread": "t2", "note": "n"}),
+                              ("story.resolve", {"character": "chr1", "thread": "t2", "note": ""})]
