@@ -2,12 +2,10 @@
 Speaks the real event protocol (captured from claude 2.1.250). Behaviour is keyed on the prompt:
   contains "tool"        → a tool_use + tool_result round before the answer
   contains "fail"        → result with is_error
-  contains "spawn-child" → actually runs $HARNESS_CLI to spawn+wait a sibling (tests the IPC path)
   contains "slow"        → 1.5 s pause before answering
 """
 import json
 import os
-import subprocess
 import sys
 import time
 
@@ -45,7 +43,7 @@ def main():
     if "--resume" in args:
         SESSION = args[args.index("--resume") + 1]
     emit({"type": "system", "subtype": "init", "cwd": os.getcwd(), "model": "fake-model", "tools": ["Bash"],
-          "harness_env": {k: os.environ.get(k, "") for k in ("HARNESS_THREAD_ID", "HARNESS_TASK_KEY", "HARNESS_IPC")}})
+          "harness_env": {k: os.environ[k] for k in ("HARNESS_CONTEXT_ID", "HARNESS_STORY_KEY", "HARNESS_CHARACTER_ID", "HARNESS_WORKSPACE") if k in os.environ}})
     for line in sys.stdin:
         line = line.strip()
         if not line:
@@ -56,11 +54,7 @@ def main():
         emit({"type": "system", "subtype": "status", "status": "requesting"})
         if "slow" in prompt:
             time.sleep(1.5)
-        if "spawn-child" in prompt:
-            cli = os.environ["HARNESS_CLI"].split() + ["thread", "spawn", "--role", "claude-fast", "--prompt", "child says hi", "--wait"]
-            r = subprocess.run(cli, capture_output=True, text=True, env=os.environ)
-            tool_turn("Bash", {"command": " ".join(cli[-7:])}, (r.stdout + r.stderr).strip(), is_error=r.returncode != 0)
-        elif "tool" in prompt:
+        if "tool" in prompt:
             tool_turn("Bash", {"command": "echo hello-from-tool"}, "hello-from-tool")
         if "fail" in prompt:
             emit({"type": "result", "subtype": "error_during_execution", "is_error": True, "result": "simulated failure",

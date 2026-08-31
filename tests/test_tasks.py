@@ -1,4 +1,4 @@
-"""TaskStore unit tests against an in-file threads stub (no processes, no fake CLI)."""
+"""TaskStore unit tests against an in-file contexts stub (no processes, no fake CLI)."""
 import json
 
 import pytest
@@ -7,7 +7,7 @@ from PySide6.QtCore import QObject, Signal
 from harness.tasks import DEMO, STATUSES, TaskStore
 
 
-class StubThread:
+class StubContext:
     def __init__(self, status):
         self.status = status
 
@@ -15,33 +15,33 @@ class StubThread:
         return {"status": self.status}
 
 
-class StubThreads(QObject):
-    """The slice of ThreadStore that TaskStore touches: threads_for, spawn, threadsChanged."""
-    threadsChanged = Signal()
+class StubContexts(QObject):
+    """The slice of ContextStore that TaskStore touches: contexts_for, spawn, contextsChanged."""
+    contextsChanged = Signal()
 
     def __init__(self):
         super().__init__()
-        self.by_key: dict[str, list[StubThread]] = {}
+        self.by_key: dict[str, list[StubContext]] = {}
         self.spawned: list[dict] = []
 
-    def threads_for(self, key):
+    def contexts_for(self, key):
         return self.by_key.get(key, [])
 
-    def spawn(self, task_key, role_name, prompt, parent_id, title):
-        tid = f"thread-{len(self.spawned) + 1}"
-        self.spawned.append({"id": tid, "task_key": task_key, "role_name": role_name,
-                             "prompt": prompt, "parent_id": parent_id, "title": title})
-        return tid
+    def spawn(self, role_name, prompt, *, story_key, owner, title):
+        cid = f"context-{len(self.spawned) + 1}"
+        self.spawned.append({"id": cid, "role_name": role_name, "prompt": prompt,
+                             "story_key": story_key, "owner": owner, "title": title})
+        return cid
 
 
 @pytest.fixture
-def threads():
-    return StubThreads()
+def contexts():
+    return StubContexts()
 
 
 @pytest.fixture
-def store(tmp_path, threads):
-    return TaskStore(tmp_path, threads)
+def store(tmp_path, contexts):
+    return TaskStore(tmp_path, contexts)
 
 
 def read_json(tmp_path):
@@ -63,18 +63,18 @@ def test_first_run_persists_seeded_tasks_to_json(tmp_path, store):
     assert data["tasks"][0]["key"] == "ABC-1"
 
 
-def test_second_store_over_same_dir_loads_without_reseeding(tmp_path, threads):
-    first = TaskStore(tmp_path, threads)
+def test_second_store_over_same_dir_loads_without_reseeding(tmp_path, contexts):
+    first = TaskStore(tmp_path, contexts)
     new_key = first.create("Persisted task")
-    second = TaskStore(tmp_path, threads)
+    second = TaskStore(tmp_path, contexts)
     assert [t["key"] for t in second.list()] == [t["key"] for t in first.list()]
     assert second.get(new_key)["title"] == "Persisted task"
     # `next` was restored, so the counter continues rather than restarting at 1
     assert second.create("Another") == f"ABC-{len(DEMO) + 2}"
 
 
-def test_custom_prefix_is_used_for_keys(tmp_path, threads):
-    s = TaskStore(tmp_path, threads, prefix="XYZ")
+def test_custom_prefix_is_used_for_keys(tmp_path, contexts):
+    s = TaskStore(tmp_path, contexts, prefix="XYZ")
     assert [t["key"] for t in s.list()][0] == "XYZ-1"
     assert s.create("t") == f"XYZ-{len(DEMO) + 1}"
 
@@ -112,27 +112,27 @@ def test_get_unknown_key_returns_empty_dict(store):
     assert store.get("") == {}
 
 
-# --- list rows & thread counts --------------------------------------------
+# --- list rows & context counts ---------------------------------------------
 
-def test_list_rows_include_thread_counts_from_threads(store, threads):
-    threads.by_key["ABC-1"] = [StubThread("working"), StubThread("starting"), StubThread("idle")]
+def test_list_rows_include_context_counts_from_contexts(store, contexts):
+    contexts.by_key["ABC-1"] = [StubContext("working"), StubContext("starting"), StubContext("idle")]
     row = next(r for r in store.list() if r["key"] == "ABC-1")
-    assert row["threadCount"] == 3
+    assert row["contextCount"] == 3
     assert row["workingCount"] == 2
 
 
-def test_list_rows_without_threads_have_zero_counts(store):
-    assert all(r["threadCount"] == 0 and r["workingCount"] == 0 for r in store.list())
+def test_list_rows_without_contexts_have_zero_counts(store):
+    assert all(r["contextCount"] == 0 and r["workingCount"] == 0 for r in store.list())
 
 
-def test_model_refreshes_when_threads_change(store, threads):
+def test_model_refreshes_when_contexts_change(store, contexts):
     emitted = []
     store.tasksChanged.connect(lambda: emitted.append(True))
-    threads.by_key["ABC-2"] = [StubThread("working")]
-    assert store.model.rows()[1]["threadCount"] == 0, "stale until threads notify"
-    threads.threadsChanged.emit()
+    contexts.by_key["ABC-2"] = [StubContext("working")]
+    assert store.model.rows()[1]["contextCount"] == 0, "stale until contexts notify"
+    contexts.contextsChanged.emit()
     assert emitted
-    assert store.model.rows()[1]["threadCount"] == 1
+    assert store.model.rows()[1]["contextCount"] == 1
 
 
 # --- setStatus -------------------------------------------------------------
@@ -163,18 +163,18 @@ def test_statuses_property_exposes_all_statuses(store):
 
 # --- dispatch --------------------------------------------------------------
 
-def test_dispatch_spawns_thread_and_returns_its_id(store, threads):
-    tid = store.dispatch("ABC-3", "claude-fast", "do the thing")
-    assert tid == "thread-1"
-    call = threads.spawned[0]
-    assert call["task_key"] == "ABC-3"
+def test_dispatch_spawns_context_and_returns_its_id(store, contexts):
+    cid = store.dispatch("ABC-3", "claude-fast", "do the thing")
+    assert cid == "context-1"
+    call = contexts.spawned[0]
+    assert call["story_key"] == "ABC-3"
     assert call["role_name"] == "claude-fast"
-    assert call["parent_id"] == ""
+    assert call["owner"] == "human"
 
 
-def test_dispatch_prompt_contains_task_header_description_contract_and_instructions(store, threads):
+def test_dispatch_prompt_contains_task_header_description_contract_and_instructions(store, contexts):
     store.dispatch("ABC-1", "claude-fast", "please refactor the loader")
-    prompt = threads.spawned[0]["prompt"]
+    prompt = contexts.spawned[0]["prompt"]
     task = store.get("ABC-1")
     assert prompt.startswith(f"# Task ABC-1: {task['title']}")
     assert task["description"] in prompt
@@ -182,20 +182,15 @@ def test_dispatch_prompt_contains_task_header_description_contract_and_instructi
     assert prompt.rstrip().endswith("## Instructions\nplease refactor the loader")
 
 
-def test_dispatch_title_is_first_prompt_line_truncated_to_60(store, threads):
+def test_dispatch_title_is_first_prompt_line_truncated_to_60(store, contexts):
     long_line = "x" * 80
     store.dispatch("ABC-1", "claude-fast", f"  {long_line}\nsecond line\n")
-    assert threads.spawned[0]["title"] == long_line[:60]
+    assert contexts.spawned[0]["title"] == long_line[:60]
 
 
-def test_dispatch_title_falls_back_to_role_name_for_blank_prompt(store, threads):
+def test_dispatch_title_falls_back_to_role_name_for_blank_prompt(store, contexts):
     store.dispatch("ABC-1", "claude-fast", "   \n")
-    assert threads.spawned[0]["title"] == "claude-fast"
-
-
-def test_dispatch_passes_parent_id(store, threads):
-    store.dispatch("ABC-1", "claude-fast", "child work", "parent-thread")
-    assert threads.spawned[0]["parent_id"] == "parent-thread"
+    assert contexts.spawned[0]["title"] == "claude-fast"
 
 
 @pytest.mark.parametrize("key", ["ABC-3", "ABC-5"])  # todo, backlog
@@ -220,18 +215,18 @@ def test_dispatch_leaves_done_untouched(store):
     assert store.get("ABC-4")["status"] == "done"
 
 
-def test_dispatch_unknown_task_raises_and_spawns_nothing(store, threads):
+def test_dispatch_unknown_task_raises_and_spawns_nothing(store, contexts):
     with pytest.raises(ValueError):
         store.dispatch("ABC-999", "claude-fast", "go")
-    assert threads.spawned == []
+    assert contexts.spawned == []
 
 
-def test_dispatch_is_case_insensitive_and_uses_canonical_key(store, threads):
+def test_dispatch_is_case_insensitive_and_uses_canonical_key(store, contexts):
     store.dispatch("abc-3", "claude-fast", "go")
-    assert threads.spawned[0]["prompt"].startswith("# Task ABC-3:")
+    assert contexts.spawned[0]["prompt"].startswith("# Task ABC-3:")
     assert store.get("ABC-3")["status"] == "in_progress"
 
 
-def test_threads_for_returns_thread_summaries(store, threads):
-    threads.by_key["ABC-1"] = [StubThread("idle")]
-    assert store.threadsFor("ABC-1") == [{"status": "idle"}]
+def test_contexts_for_returns_context_summaries(store, contexts):
+    contexts.by_key["ABC-1"] = [StubContext("idle")]
+    assert store.contextsFor("ABC-1") == [{"status": "idle"}]

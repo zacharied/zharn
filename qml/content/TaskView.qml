@@ -3,7 +3,7 @@ import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import ".."
 
-// A task: description, its threads, and a dispatch form. tabKey = task key.
+// A task: description, its contexts, and a dispatch form. tabKey = task key.
 ContentBase {
     id: view
     property var task: app.tasks.get(tabKey)
@@ -36,32 +36,31 @@ ContentBase {
             }
             Label { text: view.task.description || "No description."; color: app.theme.textMuted; wrapMode: Text.Wrap; Layout.fillWidth: true }
 
-            Label { text: "Threads"; color: app.theme.text; font.bold: true; Layout.topMargin: 8 }
+            Label { text: "Contexts"; color: app.theme.text; font.bold: true; Layout.topMargin: 8 }
             Repeater {
-                model: app.threads.model
+                model: app.contexts.model
                 delegate: Rectangle {
                     required property string id
                     required property string title
-                    required property string taskKey
+                    required property string storyKey
                     required property string status
                     required property string roleName
-                    required property string parentId
                     required property double costUsd
-                    visible: taskKey === tabKey
+                    visible: storyKey === tabKey
                     Layout.fillWidth: true; height: visible ? 36 : 0
                     radius: 4; color: app.theme.panel; border.color: app.theme.border
                     RowLayout {
                         anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 10; spacing: 8
                         Rectangle { width: 8; height: 8; radius: 4; color: view.statusColor[status] || "gray" }
-                        Label { text: (parentId ? "↳ " : "") + title; color: app.theme.text; Layout.fillWidth: true; elide: Text.ElideRight }
+                        Label { text: title; color: app.theme.text; Layout.fillWidth: true; elide: Text.ElideRight }
                         Label { text: roleName; color: app.theme.textMuted; font.pixelSize: 11 }
                         Label { text: status; color: app.theme.textMuted; font.pixelSize: 11 }
                         Label { text: "$" + costUsd.toFixed(3); color: app.theme.textMuted; font.pixelSize: 11 }
                     }
-                    TapHandler { onTapped: app.layout.openContent("thread", id, title) }
+                    TapHandler { onTapped: app.layout.openContent("context", id, title) }
                 }
             }
-            Label { visible: (view.task.threadCount || 0) === 0; text: "No threads yet — dispatch one below."; color: app.theme.textMuted }
+            Label { visible: (view.task.contextCount || 0) === 0; text: "No contexts yet — dispatch one below."; color: app.theme.textMuted }
 
             Label { text: "Dispatch"; color: app.theme.text; font.bold: true; Layout.topMargin: 8 }
             RowLayout {
@@ -85,7 +84,7 @@ ContentBase {
                     var id = app.tasks.dispatch(tabKey, roleBox.currentText, promptArea.text)
                     if (!id) return  // failed: the reason is in the status bar (app.notify)
                     promptArea.text = ""
-                    app.layout.openContent("thread", id, app.threads.get(id).title)
+                    app.layout.openContent("context", id, app.contexts.get(id).title)
                 }
             }
         }

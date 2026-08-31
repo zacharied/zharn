@@ -40,27 +40,26 @@ through. Everything else is yours too — fork it.
 > **Experimental — no backward compatibility** (DESIGN.md §0): on-disk formats, module names,
 > env vars and CLI verbs change without migration until further notice.
 >
-> **Mid-rework.** The thread/task model below is what currently runs; it is being reworked into
+> **Mid-rework.** The task/context model below is what currently runs; it is being reworked into
 > the **Story model** — stories with a cast of characters, comment threads with turns, attention-
 > based delivery, recap/recast — per [docs/AGENT-MODEL.md](docs/AGENT-MODEL.md) and the
-> [lifecycle spec](docs/superpowers/specs/2026-08-28-story-lifecycle-design.md). In that model the
-> agent conversations below are renamed **contexts** ("thread" becomes a chain of comments), tasks
-> become stories, and `task status` disappears (nobody sets status).
+> [lifecycle spec](docs/superpowers/specs/2026-08-28-story-lifecycle-design.md). In that model
+> tasks become stories, and `task status` disappears (nobody sets status).
 
-Threads run `claude -p --output-format stream-json --input-format stream-json` as a child process
-(one process per thread, follow-ups over stdin, `--resume` after a restart). Every thread belongs to
-a task; dispatch from a task tab with a role (`harness/config_def.py: DEFAULT_ROLES`).
+A **context** is one agent conversation: `claude -p --output-format stream-json
+--input-format stream-json` as a child process (one process per context, follow-ups over stdin,
+`--resume` after a restart). A context is either *bare* (owned by the human, no story) or attached
+to a task's story key; dispatch from a task tab with a role (`harness/config_def.py: DEFAULT_ROLES`).
+Transcripts persist as JSONL under `<workspace>/.harness/contexts/<id>.jsonl`, indexed by
+`.harness/contexts/index.json`.
 
-Agents get `HARNESS_THREAD_ID`, `HARNESS_TASK_KEY`, `HARNESS_IPC` and `HARNESS_CLI` and can drive
-the harness over a local socket — bb's `BB_CLI` idea:
+Agents get `HARNESS_CONTEXT_ID`, `HARNESS_STORY_KEY`, `HARNESS_WORKSPACE`, `HARNESS_ROOT`,
+`HARNESS_IPC` and `HARNESS_CLI` and can drive the harness over a local socket — bb's `BB_CLI` idea:
 
 ```sh
-$HARNESS_CLI thread spawn --role claude-fast --prompt "write the tests" --wait   # sibling on the same task
-$HARNESS_CLI thread list --task ABC-12 | role list | task status ABC-12 in_review
+$HARNESS_CLI context new --role claude-fast --prompt "write the tests" --wait   # a fresh bare context
+$HARNESS_CLI context list --story ABC-12 | role list | task status ABC-12 in_review
 ```
-
-Child threads are parented to the caller; when a child settles, the parent transcript gets a note
-and, if the parent is idle, a follow-up turn with the child's outcome.
 
 Point `HARNESS_CLAUDE_CMD` at another CLI to substitute the provider (the tests use
 `tests/fake_claude.py`, which speaks the same protocol).

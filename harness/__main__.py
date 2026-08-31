@@ -44,7 +44,7 @@ def build(argv=None, force_poll=False):
     from harness.shell import QML_DIR, Reloader
     from harness.store import AppStore, LayoutStore, Session
     from harness.tasks import TaskStore
-    from harness.threads import ThreadStore
+    from harness.contexts import ContextStore
 
     app = QGuiApplication.instance() or QGuiApplication(argv or sys.argv)
     app.setApplicationName("zharn")
@@ -56,16 +56,16 @@ def build(argv=None, force_poll=False):
     layout_store = LayoutStore(session)
     content = ContentRegistry(QML_DIR)
     roles = RoleStore(data_dir)
-    threads = ThreadStore(ROOT, data_dir, roles)
-    tasks = TaskStore(data_dir, threads)
+    contexts = ContextStore(ROOT, data_dir / "contexts", roles, workspace_dir=ROOT)
+    tasks = TaskStore(data_dir, contexts)
     notifier = Notifier()
-    for s in (layout_store, roles, threads, tasks):
+    for s in (layout_store, roles, contexts, tasks):
         s.notifier = notifier  # @intent slots report here; the status bar shows it
-    store = AppStore(session, layout_store, content, cfg.THEME, threads=threads, roles=roles, tasks=tasks,
+    store = AppStore(session, layout_store, content, cfg.THEME, contexts=contexts, roles=roles, tasks=tasks,
                      notifier=notifier)
     ipc = IpcServer(f"zharn-{os.getpid()}", make_handler(store), parent=store)
     store._ipc_path = ipc.path
-    threads.extra_env = lambda: {"HARNESS_IPC": ipc.path}
+    contexts.extra_env = lambda: {"HARNESS_IPC": ipc.path}
     reloader = Reloader(store, load_theme, force_poll=force_poll or bool(os.environ.get("HOT_POLL")),
                         poll_ms=getattr(cfg, "WATCH_POLL_MS", 250))
     return app, store, reloader
@@ -79,14 +79,14 @@ def main():
     if smoke_prompt:
         from PySide6.QtCore import QTimer
         task_key = store.tasks.list()[0]["key"]
-        tid = store.tasks.dispatch(task_key, os.environ.get("HARNESS_SMOKE_ROLE", "claude-default"), smoke_prompt)
-        store.layout.openContent("thread", tid, store.threads.get(tid).title)
-        thread = store.threads.get(tid)
+        cid = store.tasks.dispatch(task_key, os.environ.get("HARNESS_SMOKE_ROLE", "claude-default"), smoke_prompt)
+        store.layout.openContent("context", cid, store.contexts.get(cid).title)
+        context = store.contexts.get(cid)
 
         def settled():
-            if thread.status in ("idle", "failed", "stopped"):
-                print("[smoke] " + json.dumps(thread.summary()), flush=True)
-                for row in thread.transcript.rows():
+            if context.status in ("idle", "failed", "stopped"):
+                print("[smoke] " + json.dumps(context.summary()), flush=True)
+                for row in context.transcript.rows():
                     print(f"[smoke] {row['role']}/{row['kind']}: {(row['text'] or row['input'])[:160]!r}", flush=True)
                 QTimer.singleShot(800, finish)
             else:
@@ -102,7 +102,7 @@ def main():
         from PySide6.QtCore import QTimer
         QTimer.singleShot(int(os.environ["HARNESS_EXIT_AFTER_MS"]), finish)
     rc = app.exec()
-    store.threads.shutdown()
+    store.contexts.shutdown()
     reloader.shutdown()
     sys.exit(rc)
 

@@ -257,11 +257,11 @@ def test_move_to_own_edge_from_multi_tab_group_splits_in_two():
 
 def test_show_panel_docks_it_wherever_it_lives_and_keeps_it_shown():
     l = Layout()
-    l.toggle_panel("bottom", "agent_log")
-    l.toggle_panel("bottom", "agent_log")  # collapsed again
-    assert l.show_panel("agent_log") == "bottom"
-    assert l.data["docks"]["bottom"] == {**l.data["docks"]["bottom"], "active": "agent_log", "mode": "docked"}
-    assert l.show_panel("agent_log") == "bottom"  # idempotent, not a toggle
+    l.toggle_panel("bottom", "contexts")
+    l.toggle_panel("bottom", "contexts")  # collapsed again
+    assert l.show_panel("contexts") == "bottom"
+    assert l.data["docks"]["bottom"] == {**l.data["docks"]["bottom"], "active": "contexts", "mode": "docked"}
+    assert l.show_panel("contexts") == "bottom"  # idempotent, not a toggle
     assert l.data["docks"]["bottom"]["mode"] == "docked"
     import pytest
     with pytest.raises(KeyError):

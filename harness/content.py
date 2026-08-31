@@ -14,10 +14,10 @@ KINDS: dict[str, dict] = {
     "files":        {"title": "Files",        "qml": "content/Files.qml",       "panel": True,  "icon": "▤"},
     "git":          {"title": "Git",          "qml": "content/Git.qml",         "panel": True,  "icon": "⎇"},
     "terminal":     {"title": "Terminal",     "qml": "content/Terminal.qml",    "panel": True,  "icon": ">_"},
-    "agent_log":    {"title": "Agent Log",    "qml": "content/AgentLog.qml",    "panel": True,  "icon": "≡"},
+    "contexts":     {"title": "Contexts",     "qml": "content/Contexts.qml",    "panel": True,  "icon": "≡"},
     # documents / conversations (MCC only)
     "welcome":      {"title": "Welcome",      "qml": "content/Welcome.qml",     "panel": False, "icon": "★"},
-    "thread":       {"title": "Thread",       "qml": "content/Thread.qml",      "panel": False, "icon": "💬"},
+    "context":      {"title": "Context",      "qml": "content/Context.qml",     "panel": False, "icon": "💬"},
     "task":         {"title": "Task",         "qml": "content/TaskView.qml",    "panel": False, "icon": "☐"},
     "document":     {"title": "Document",     "qml": "content/Document.qml",    "panel": False, "icon": "▢"},
 }

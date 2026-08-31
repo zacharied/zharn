@@ -37,17 +37,11 @@ PERMISSION_FLAGS = {
 # harness reasoning level → claude-code flags
 EFFORT_FLAGS = {lvl: ["--effort", lvl] for lvl in ("low", "medium", "high", "xhigh", "max")}
 
-# Appended to every agent's system prompt. {thread_id}/{task_key} are filled in.
-AGENT_SYSTEM_PROMPT = (
-    "You are running inside zharn as thread {thread_id} on task {task_key}. "
-    "Environment variables HARNESS_THREAD_ID, HARNESS_TASK_KEY and HARNESS_CLI are set. "
-    "To delegate, spawn a sibling agent on the same task and wait for it:\n"
-    "  $HARNESS_CLI thread spawn --role <name> --prompt \"...\" --wait\n"
-    "List roles with `$HARNESS_CLI role list`, threads with `$HARNESS_CLI thread list`, "
-    "tasks with `$HARNESS_CLI task list`, and set task status with `$HARNESS_CLI task status <key> <status>`."
+# System prompt for a bare context (no story). Characters get CHARACTER_SYSTEM_PROMPT (Task 5).
+BARE_CONTEXT_SYSTEM_PROMPT = (
+    "You are a bare context in zharn (context {context_id}, no story): a scratch conversation. "
+    "HARNESS_CLI is set; `$HARNESS_CLI context list` and `$HARNESS_CLI context show <id>` are available."
 )
-# When a child thread settles, send its summary to an idle parent as a new turn
-NOTIFY_PARENT_ON_CHILD_SETTLED = True
 
 # Roles: what a character is cast from. `outline_first` = must get an outline approved before implementing.
 DEFAULT_ROLES = [

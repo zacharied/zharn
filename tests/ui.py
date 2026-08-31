@@ -179,7 +179,7 @@ class Harness:
 
     def shutdown(self):
         self._probe, self._win = None, None
-        self.store.threads.shutdown()
+        self.store.contexts.shutdown()
         self.reloader.shutdown()
         QTest.qWait(50)
 

@@ -33,7 +33,7 @@ ContentBase {
                                 required property string title
                                 required property string status
                                 required property string priority
-                                required property int threadCount
+                                required property int contextCount
                                 required property int workingCount
                                 objectName: "card_" + key
                                 visible: status === modelData.status
@@ -49,9 +49,9 @@ ContentBase {
                                     }
                                     Label { text: title; color: app.theme.text; wrapMode: Text.Wrap; Layout.fillWidth: true; font.pixelSize: 12 }
                                     RowLayout {
-                                        visible: threadCount > 0
+                                        visible: contextCount > 0
                                         Rectangle { width: 7; height: 7; radius: 4; color: workingCount > 0 ? "#3574f0" : "#5fb865" }
-                                        Label { text: threadCount + (threadCount === 1 ? " thread" : " threads") + (workingCount > 0 ? " · " + workingCount + " working" : ""); color: app.theme.textMuted; font.pixelSize: 10 }
+                                        Label { text: contextCount + (contextCount === 1 ? " context" : " contexts") + (workingCount > 0 ? " · " + workingCount + " working" : ""); color: app.theme.textMuted; font.pixelSize: 10 }
                                     }
                                 }
                                 TapHandler { onTapped: app.layout.openContent("task", key, key + " " + title) }

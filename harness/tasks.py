@@ -1,4 +1,4 @@
-"""Minimal task store: the unit every thread belongs to. Schema mirrors bb's Tasks plugin
+"""Minimal task store: the unit every context belongs to. Schema mirrors bb's Tasks plugin
 (docs/DESIGN.md §3b); the full store (labels, comments, attachments) is roadmap step 3."""
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from harness.qmodels import DictListModel
 
 STATUSES = ["backlog", "todo", "in_progress", "in_review", "done", "canceled"]
 PRIORITIES = ["urgent", "high", "medium", "low", "none"]
-ROLES = ["key", "title", "status", "priority", "description", "threadCount", "workingCount", "createdAt"]
+ROLES = ["key", "title", "status", "priority", "description", "contextCount", "workingCount", "createdAt"]
 
 DEMO = [
     {"title": "Hot reload for QML + Python", "status": "in_review", "priority": "high",
@@ -30,16 +30,16 @@ class TaskStore(QObject):
     tasksChanged = Signal()
     notifier = None
 
-    def __init__(self, data_dir: Path, threads, prefix: str = "ABC", parent=None):
+    def __init__(self, data_dir: Path, contexts, prefix: str = "ABC", parent=None):
         super().__init__(parent)
         self._path = data_dir / "tasks.json"
-        self._threads = threads
+        self._contexts = contexts
         self._prefix = prefix
         self._tasks: list[dict] = []
         self._next = 1
         self._model = DictListModel(ROLES, self)
         self._load()
-        threads.threadsChanged.connect(self._refresh)
+        contexts.contextsChanged.connect(self._refresh)
 
     @Property(QObject, constant=True)
     def model(self): return self._model
@@ -63,8 +63,8 @@ class TaskStore(QObject):
         self._path.write_text(json.dumps({"tasks": self._tasks, "next": self._next}, indent=1))
 
     def _row(self, t: dict) -> dict:
-        ths = self._threads.threads_for(t["key"])
-        return {**t, "threadCount": len(ths), "workingCount": sum(1 for x in ths if x.status in ("starting", "working"))}
+        ctxs = self._contexts.contexts_for(t["key"])
+        return {**t, "contextCount": len(ctxs), "workingCount": sum(1 for x in ctxs if x.status in ("starting", "working"))}
 
     def _refresh(self):
         self._model.reset([self._row(t) for t in self._tasks])
@@ -103,24 +103,24 @@ class TaskStore(QObject):
             self._refresh()
 
     @Slot(str, str, str, result=str)
-    @Slot(str, str, str, str, result=str)
     @intent
-    def dispatch(self, key, role_name, prompt, parent_id="") -> str:
-        """bb-style: task context + report-back contract + the user's prompt → new thread."""
+    def dispatch(self, key, role_name, prompt) -> str:
+        """bb-style: task context + report-back contract + the user's prompt → new context."""
         t = self._find(key)
         if t is None:
             raise ValueError(f"unknown task {key!r}")
         full = (f"# Task {t['key']}: {t['title']}\n\n{t.get('description', '')}\n\n"
                 f"## Report-back contract\nYou are working on task {t['key']} inside zharn. "
-                f"Spawn helpers on the same task with `$HARNESS_CLI thread spawn --role <name> --prompt \"...\"` "
-                f"and wait with `$HARNESS_CLI thread wait <id>`. Keep the task's status accurate.\n\n## Instructions\n{prompt}")
-        tid = self._threads.spawn(key, role_name, full, parent_id, prompt.strip().splitlines()[0][:60] if prompt.strip() else role_name)
+                f"Spawn helpers with `$HARNESS_CLI context new --role <name> --prompt \"...\"` "
+                f"and wait with `$HARNESS_CLI context wait <id>`. Keep the task's status accurate.\n\n## Instructions\n{prompt}")
+        title = prompt.strip().splitlines()[0][:60] if prompt.strip() else role_name
+        cid = self._contexts.spawn(role_name, full, story_key=key, owner="human", title=title)
         if t["status"] in ("backlog", "todo"):
             t["status"] = "in_progress"
             self._persist()
         self._refresh()
-        return tid
+        return cid
 
     @Slot(str, result="QVariantList")
-    def threadsFor(self, key):
-        return [x.summary() for x in self._threads.threads_for(key)]
+    def contextsFor(self, key):
+        return [x.summary() for x in self._contexts.contexts_for(key)]

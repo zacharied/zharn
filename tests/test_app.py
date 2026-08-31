@@ -66,9 +66,9 @@ def test_intents_rerender(harness):
     layout = store.layout
     win = root(reloader)
     gid = layout.activeGroup
-    layout.openContent("thread", "thr_1", "Thread 1")
+    layout.openContent("context", "ctx_1", "Context 1")
     QTest.qWait(50)
-    assert len(find_all(win, r"tab_thread_thr_1")) == 1
+    assert len(find_all(win, r"tab_context_ctx_1")) == 1
     layout.splitGroup(gid, "horizontal")
     QTest.qWait(50)
     assert len(find_all(win, r"group_g\d+")) == 2
@@ -104,7 +104,7 @@ def test_qml_hot_reload_new_generation(harness):
     app, store, reloader = harness
     f = ROOT / "qml" / "content" / "Welcome.qml"
     src = f.read_text()
-    store.layout.openContent("thread", "thr_1", "Thread 1")
+    store.layout.openContent("context", "ctx_1", "Context 1")
     QTest.qWait(50)
     gen = store.generation
     try:
@@ -113,8 +113,8 @@ def test_qml_hot_reload_new_generation(harness):
         assert store.reloadError == ""
         win = root(reloader)
         assert win.objectName() == "mainWindow"
-        # state survived: the thread tab opened in the earlier test is still there
-        assert len(find_all(win, r"tab_thread_thr_1")) == 1
+        # state survived: the context tab opened in the earlier test is still there
+        assert len(find_all(win, r"tab_context_ctx_1")) == 1
         # a broken *content* file still swaps the generation (root loads) but surfaces the error
         store.layout.openContent("welcome", "welcome", "Welcome")  # make its Loader active
         QTest.qWait(50)

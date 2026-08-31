@@ -67,7 +67,7 @@ def test_request_sends_cmd_and_args_and_returns_result(fake_server):
 def test_request_exits_with_server_error_text_when_not_ok(fake_server):
     fake_server({"ok": False, "error": "KeyError: 'nope'"})
     with pytest.raises(SystemExit) as e:
-        cli.request("thread.show", {"id": "nope"})
+        cli.request("context.show", {"id": "nope"})
     assert str(e.value) == "error: KeyError: 'nope'"
 
 
@@ -125,8 +125,6 @@ def recorder(monkeypatch):
         return r
 
     monkeypatch.setattr(cli, "request", fake_request)
-    monkeypatch.delenv("HARNESS_TASK_KEY", raising=False)
-    monkeypatch.delenv("HARNESS_THREAD_ID", raising=False)
     return types.SimpleNamespace(calls=calls, replies=replies)
 
 
@@ -159,107 +157,97 @@ def test_json_flag_switches_output_to_json(recorder, capsys):
     assert json.loads(capsys.readouterr().out) == {"pid": 5}
 
 
-def test_thread_spawn_defaults_task_and_parent_from_env(recorder, monkeypatch, capsys):
-    monkeypatch.setenv("HARNESS_TASK_KEY", "ABC-1")
-    monkeypatch.setenv("HARNESS_THREAD_ID", "parent1")
-    recorder.replies["thread.spawn"] = {"id": "t9", "status": "working"}
-    cli.main(["thread", "spawn", "--role", "p", "--prompt", "x"])
-    assert recorder.calls == [("thread.spawn", {"task": "ABC-1", "role": "p", "prompt": "x", "parent": "parent1", "open": False})]
+def test_context_new_forwards_role_prompt_and_title(recorder, capsys):
+    recorder.replies["context.new"] = {"id": "t9", "status": "working"}
+    cli.main(["context", "new", "--role", "p", "--prompt", "x"])
+    assert recorder.calls == [("context.new", {"role": "p", "prompt": "x", "title": "", "open": False})]
     assert capsys.readouterr().out == "t9\n"
 
 
-def test_thread_spawn_no_parent_clears_parent(recorder, monkeypatch):
-    monkeypatch.setenv("HARNESS_THREAD_ID", "parent1")
-    recorder.replies["thread.spawn"] = {"id": "t9", "status": "working"}
-    cli.main(["thread", "spawn", "--role", "p", "--prompt", "x", "--no-parent"])
-    assert recorder.calls[0][1]["parent"] == ""
+def test_context_new_without_prompt_sends_empty_prompt(recorder):
+    recorder.replies["context.new"] = {"id": "t9", "status": "idle"}
+    cli.main(["context", "new", "--role", "p"])
+    assert recorder.calls == [("context.new", {"role": "p", "prompt": "", "title": "", "open": False})]
 
 
-def test_thread_spawn_task_flag_overrides_env(recorder, monkeypatch):
-    monkeypatch.setenv("HARNESS_TASK_KEY", "ABC-1")
-    recorder.replies["thread.spawn"] = {"id": "t9", "status": "working"}
-    cli.main(["thread", "spawn", "--role", "p", "--prompt", "x", "--task", "XYZ-2"])
-    assert recorder.calls[0][1]["task"] == "XYZ-2"
+def test_context_new_title_flag_is_forwarded(recorder):
+    recorder.replies["context.new"] = {"id": "t9", "status": "working"}
+    cli.main(["context", "new", "--role", "p", "--prompt", "x", "--title", "T"])
+    assert recorder.calls[0][1]["title"] == "T"
 
 
-def test_thread_spawn_without_env_sends_empty_task_and_parent(recorder):
-    recorder.replies["thread.spawn"] = {"id": "t9", "status": "working"}
-    cli.main(["thread", "spawn", "--role", "p", "--prompt", "x"])
-    assert recorder.calls[0][1]["task"] == "" and recorder.calls[0][1]["parent"] == ""
-
-
-def test_thread_spawn_open_flag_is_forwarded(recorder):
-    recorder.replies["thread.spawn"] = {"id": "t9", "status": "working"}
-    cli.main(["thread", "spawn", "--role", "p", "--prompt", "x", "--open"])
+def test_context_new_open_flag_is_forwarded(recorder):
+    recorder.replies["context.new"] = {"id": "t9", "status": "working"}
+    cli.main(["context", "new", "--role", "p", "--prompt", "x", "--open"])
     assert recorder.calls[0][1]["open"] is True
 
 
-def test_thread_spawn_wait_polls_show_until_settled_and_prints_last_text(recorder, fake_clock, capsys):
-    recorder.replies["thread.spawn"] = {"id": "t9", "status": "working"}
-    recorder.replies["thread.show"] = deque([{"id": "t9", "status": "working"},
-                                             {"id": "t9", "status": "idle", "lastText": "all done"}])
-    cli.main(["thread", "spawn", "--role", "p", "--prompt", "x", "--wait"])
-    assert recorder.calls == [("thread.spawn", {"task": "", "role": "p", "prompt": "x", "parent": "", "open": False}),
-                              ("thread.show", {"id": "t9"}), ("thread.show", {"id": "t9"})]
+def test_context_new_wait_polls_show_until_settled_and_prints_last_text(recorder, fake_clock, capsys):
+    recorder.replies["context.new"] = {"id": "t9", "status": "working"}
+    recorder.replies["context.show"] = deque([{"id": "t9", "status": "working"},
+                                              {"id": "t9", "status": "idle", "lastText": "all done"}])
+    cli.main(["context", "new", "--role", "p", "--prompt", "x", "--wait"])
+    assert recorder.calls == [("context.new", {"role": "p", "prompt": "x", "title": "", "open": False}),
+                              ("context.show", {"id": "t9"}), ("context.show", {"id": "t9"})]
     assert capsys.readouterr().out == "all done\n"
 
 
-def test_thread_spawn_wait_json_prints_full_summary(recorder, fake_clock, capsys):
-    recorder.replies["thread.spawn"] = {"id": "t9", "status": "working"}
-    recorder.replies["thread.show"] = deque([{"id": "t9", "status": "idle", "lastText": "done"}])
-    cli.main(["--json", "thread", "spawn", "--role", "p", "--prompt", "x", "--wait"])
+def test_context_new_wait_json_prints_full_summary(recorder, fake_clock, capsys):
+    recorder.replies["context.new"] = {"id": "t9", "status": "working"}
+    recorder.replies["context.show"] = deque([{"id": "t9", "status": "idle", "lastText": "done"}])
+    cli.main(["--json", "context", "new", "--role", "p", "--prompt", "x", "--wait"])
     assert json.loads(capsys.readouterr().out) == {"id": "t9", "status": "idle", "lastText": "done"}
 
 
-def test_thread_wait_prints_status_when_settled_without_last_text(recorder, fake_clock, capsys):
-    recorder.replies["thread.show"] = deque([{"id": "t1", "status": "failed"}])
-    cli.main(["thread", "wait", "t1"])
-    assert recorder.calls == [("thread.show", {"id": "t1"})]
+def test_context_wait_prints_status_when_settled_without_last_text(recorder, fake_clock, capsys):
+    recorder.replies["context.show"] = deque([{"id": "t1", "status": "failed"}])
+    cli.main(["context", "wait", "t1"])
+    assert recorder.calls == [("context.show", {"id": "t1"})]
     assert capsys.readouterr().out == "failed\n"
 
 
-def test_thread_wait_times_out_with_system_exit(recorder, fake_clock):
-    recorder.replies["thread.show"] = {"id": "t1", "status": "working"}  # never settles
+def test_context_wait_times_out_with_system_exit(recorder, fake_clock):
+    recorder.replies["context.show"] = {"id": "t1", "status": "working"}  # never settles
     with pytest.raises(SystemExit) as e:
-        cli.main(["thread", "wait", "t1", "--timeout", "2"])
+        cli.main(["context", "wait", "t1", "--timeout", "2"])
     assert str(e.value) == "timeout waiting for t1"
     assert 1 <= len(recorder.calls) <= 5  # 2s / 0.5s polls, driven by the fake clock
 
 
-def test_thread_list_forwards_task_filter(recorder):
-    recorder.replies["thread.list"] = []
-    cli.main(["thread", "list", "--task", "ABC-1"])
-    assert recorder.calls == [("thread.list", {"task": "ABC-1"})]
+def test_context_list_forwards_story_filter(recorder):
+    recorder.replies["context.list"] = []
+    cli.main(["context", "list", "--story", "ABC-1"])
+    assert recorder.calls == [("context.list", {"story": "ABC-1"})]
 
 
-def test_thread_list_without_task_sends_empty_filter(recorder):
-    recorder.replies["thread.list"] = []
-    cli.main(["thread", "list"])
-    assert recorder.calls == [("thread.list", {"task": ""})]
+def test_context_list_without_story_sends_empty_filter(recorder):
+    recorder.replies["context.list"] = []
+    cli.main(["context", "list"])
+    assert recorder.calls == [("context.list", {"story": ""})]
 
 
-def test_thread_show_forwards_transcript_flag(recorder):
-    recorder.replies["thread.show"] = {"id": "t1"}
-    cli.main(["thread", "show", "t1", "--transcript"])
-    assert recorder.calls == [("thread.show", {"id": "t1", "transcript": True})]
+def test_context_show_forwards_transcript_flag(recorder):
+    recorder.replies["context.show"] = {"id": "t1"}
+    cli.main(["context", "show", "t1", "--transcript"])
+    assert recorder.calls == [("context.show", {"id": "t1", "transcript": True})]
 
 
-def test_thread_show_without_flag_sends_transcript_false(recorder):
-    recorder.replies["thread.show"] = {"id": "t1"}
-    cli.main(["thread", "show", "t1"])
-    assert recorder.calls == [("thread.show", {"id": "t1", "transcript": False})]
+def test_context_show_without_flag_sends_transcript_false(recorder):
+    recorder.replies["context.show"] = {"id": "t1"}
+    cli.main(["context", "show", "t1"])
+    assert recorder.calls == [("context.show", {"id": "t1", "transcript": False})]
 
 
-def test_thread_send_forwards_message_as_text(recorder):
-    recorder.replies["thread.send"] = {"id": "t1"}
-    cli.main(["thread", "send", "t1", "--message", "hello there"])
-    assert recorder.calls == [("thread.send", {"id": "t1", "text": "hello there"})]
+def test_context_send_forwards_message_as_text(recorder):
+    recorder.replies["context.send"] = {"id": "t1"}
+    cli.main(["context", "send", "t1", "--message", "hello there"])
+    assert recorder.calls == [("context.send", {"id": "t1", "text": "hello there"})]
 
 
-def test_thread_stop_requests_stop(recorder):
-    recorder.replies["thread.stop"] = {"id": "t1"}
-    cli.main(["thread", "stop", "t1"])
-    assert recorder.calls == [("thread.stop", {"id": "t1"})]
+def test_context_stop_requests_stop(recorder):
+    recorder.replies["context.stop"] = {"id": "t1"}
+    cli.main(["context", "stop", "t1"])
+    assert recorder.calls == [("context.stop", {"id": "t1"})]
 
 
 def test_task_list_requests_task_list(recorder):
@@ -294,6 +282,6 @@ def test_task_create_forwards_description(recorder):
 
 def test_missing_subcommand_is_a_usage_error(recorder):
     with pytest.raises(SystemExit) as e:
-        cli.main(["thread"])
+        cli.main(["context"])
     assert e.value.code == 2
     assert recorder.calls == []

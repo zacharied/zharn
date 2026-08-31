@@ -13,10 +13,12 @@ ContentBase {
             Button { objectName: "welcomeOpenBoard"; text: "Task board"; onClicked: app.layout.showPanel("tasks") }
             Button { objectName: "welcomeNewTask"; text: "New task"
                      onClicked: { var k = app.tasks.create("New task", ""); if (k) app.layout.openContent("task", k, k) } }
-            Button { objectName: "welcomeAgentLog"; text: "Agent log"; onClicked: app.layout.showPanel("agent_log") }
+            Button { objectName: "welcomeContexts"; text: "Contexts"; onClicked: app.layout.showPanel("contexts") }
+            Button { objectName: "welcomeNewContext"; text: "New context"
+                     onClicked: { var id = app.contexts.newBare(""); if (id) app.layout.openContent("context", id, "New context") } }
             Button { objectName: "welcomeReset"; text: "Reset layout"; onClicked: app.layout.resetLayout() }
         }
-        Label { text: "Agents can drive this app too: $HARNESS_CLI thread spawn --role claude-fast --prompt \"...\" --wait"; color: app.theme.textMuted; font.family: app.theme.monoFamily; font.pixelSize: 11; wrapMode: Text.Wrap; Layout.fillWidth: true }
+        Label { text: "Agents can drive this app too: $HARNESS_CLI context new --role claude-fast --prompt \"...\" --wait"; color: app.theme.textMuted; font.family: app.theme.monoFamily; font.pixelSize: 11; wrapMode: Text.Wrap; Layout.fillWidth: true }
         Item { Layout.fillHeight: true }
     }
 }

@@ -3,21 +3,21 @@ import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import ".."
 
-// One agent conversation: streaming transcript + input. tabKey = thread id.
+// One agent conversation: streaming transcript + input. tabKey = context id.
 ContentBase {
     id: view
-    readonly property var thread: app.threads.get(tabKey)
-    readonly property bool busy: thread ? (thread.status === "working" || thread.status === "starting") : false
+    readonly property var context: app.contexts.get(tabKey)
+    readonly property bool busy: context ? (context.status === "working" || context.status === "starting") : false
     readonly property var statusColor: ({ starting: "#f0a732", working: "#3574f0", idle: "#5fb865", failed: "#e5534b", stopped: "#868a91" })
 
     Label {
-        objectName: "threadMissing"; visible: !view.thread
+        objectName: "contextMissing"; visible: !view.context
         anchors.centerIn: parent; width: parent.width - 40; wrapMode: Text.Wrap; horizontalAlignment: Text.AlignHCenter
-        text: "Thread " + tabKey + " not found — it may have been removed, or the tab is stale."; color: app.theme.textMuted
+        text: "Context " + tabKey + " not found — it may have been removed, or the tab is stale."; color: app.theme.textMuted
     }
 
     ColumnLayout {
-        visible: !!view.thread
+        visible: !!view.context
         anchors.fill: parent; spacing: 0
 
         // ---- header
@@ -25,15 +25,15 @@ ContentBase {
             Layout.fillWidth: true; height: 36; color: app.theme.panel
             RowLayout {
                 anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 12; spacing: 10
-                Rectangle { width: 9; height: 9; radius: 5; color: view.thread ? view.statusColor[view.thread.status] || "gray" : "gray"
+                Rectangle { width: 9; height: 9; radius: 5; color: view.context ? view.statusColor[view.context.status] || "gray" : "gray"
                             SequentialAnimation on opacity { running: view.busy; loops: Animation.Infinite; NumberAnimation { to: 0.2; duration: 600 } NumberAnimation { to: 1; duration: 600 } } }
-                Label { objectName: "threadTitle"; text: view.thread ? view.thread.title : ""; color: app.theme.text; font.bold: true; elide: Text.ElideRight; Layout.fillWidth: true }
-                Label { objectName: "threadStatus"; text: view.thread ? view.thread.status : ""; color: app.theme.textMuted; font.pixelSize: 11 }
-                Label { objectName: "threadTaskLink"; text: view.thread && view.thread.taskKey ? view.thread.taskKey : ""; color: app.theme.accent; font.pixelSize: 11
-                        TapHandler { onTapped: app.layout.openContent("task", view.thread.taskKey, view.thread.taskKey) } }
-                Label { text: view.thread ? view.thread.model : ""; color: app.theme.textMuted; font.pixelSize: 11 }
-                Label { text: view.thread ? "$" + view.thread.costUsd.toFixed(3) : ""; color: app.theme.textMuted; font.pixelSize: 11 }
-                Label { objectName: "stopButton"; visible: view.busy; text: "■ stop"; color: app.theme.textMuted; TapHandler { onTapped: view.thread.stop() } }
+                Label { objectName: "contextTitle"; text: view.context ? view.context.title : ""; color: app.theme.text; font.bold: true; elide: Text.ElideRight; Layout.fillWidth: true }
+                Label { objectName: "contextStatus"; text: view.context ? view.context.status : ""; color: app.theme.textMuted; font.pixelSize: 11 }
+                Label { objectName: "contextStoryLink"; text: view.context && view.context.storyKey ? view.context.storyKey : ""; color: app.theme.accent; font.pixelSize: 11
+                        TapHandler { onTapped: app.layout.openContent("task", view.context.storyKey, view.context.storyKey) } }
+                Label { text: view.context ? view.context.model : ""; color: app.theme.textMuted; font.pixelSize: 11 }
+                Label { text: view.context ? "$" + view.context.costUsd.toFixed(3) : ""; color: app.theme.textMuted; font.pixelSize: 11 }
+                Label { objectName: "stopButton"; visible: view.busy; text: "■ stop"; color: app.theme.textMuted; TapHandler { onTapped: view.context.stop() } }
             }
             Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: app.theme.border }
         }
@@ -43,7 +43,7 @@ ContentBase {
             id: list
             objectName: "transcript"
             Layout.fillWidth: true; Layout.fillHeight: true
-            model: view.thread ? view.thread.transcriptModel : null
+            model: view.context ? view.context.transcriptModel : null
             clip: true; spacing: 6
             topMargin: 10; bottomMargin: 10; leftMargin: 12; rightMargin: 12
             ScrollBar.vertical: ScrollBar {}
@@ -126,11 +126,11 @@ ContentBase {
                         color: app.theme.text
                         background: Rectangle { color: app.theme.bg; radius: 4; border.color: prompt.activeFocus ? app.theme.accent : app.theme.border }
                         Keys.onPressed: (e) => { if ((e.key === Qt.Key_Return || e.key === Qt.Key_Enter) && (e.modifiers & Qt.ControlModifier)) { send(); e.accepted = true } }
-                        function send() { if (text.trim().length && view.thread) { view.thread.send(text); text = "" } }
+                        function send() { if (text.trim().length && view.context) { view.context.send(text); text = "" } }
                     }
-                    Button { objectName: "sendButton"; text: "Send"; enabled: !!view.thread && prompt.text.trim().length > 0; onClicked: prompt.send() }
+                    Button { objectName: "sendButton"; text: "Send"; enabled: !!view.context && prompt.text.trim().length > 0; onClicked: prompt.send() }
                 }
-                Label { objectName: "threadError"; visible: !!(view.thread && view.thread.lastError); text: view.thread ? view.thread.lastError : ""; color: "#e5534b"; font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideRight }
+                Label { objectName: "contextError"; visible: !!(view.context && view.context.lastError); text: view.context ? view.context.lastError : ""; color: "#e5534b"; font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideRight }
             }
         }
     }

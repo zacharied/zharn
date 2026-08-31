@@ -1,7 +1,7 @@
 """Agent drivers: run a provider CLI as a child process and turn its event stream into a
 transcript model. Provider = claude-code (`claude -p --output-format stream-json`).
 
-Everything here is hot-reloadable; live processes are QProcess objects owned by Thread objects.
+Everything here is hot-reloadable; live processes are QProcess objects owned by Context objects.
 """
 from __future__ import annotations
 

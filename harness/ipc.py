@@ -1,5 +1,5 @@
-"""Local IPC so agents (child processes) can drive the harness: spawn sibling threads on their
-task, wait on them, list roles. One JSON request per connection, newline-terminated."""
+"""Local IPC so agents (child processes) can drive the harness: spawn new contexts, wait on
+them, list roles. One JSON request per connection, newline-terminated."""
 from __future__ import annotations
 
 import json
@@ -59,43 +59,42 @@ class IpcServer(QObject):
 def make_handler(app_store):
     """Command table. Names mirror the CLI: <noun>.<verb>."""
     def h(cmd: str, a: dict):
-        threads, tasks, roles, layout = app_store.threads, app_store.tasks, app_store.roles, app_store.layout
+        contexts, tasks, roles, layout = app_store.contexts, app_store.tasks, app_store.roles, app_store.layout
         if cmd == "ping":
             return {"pid": os.getpid()}
         if cmd == "role.list":
             return roles.roles
-        if cmd == "thread.list":
-            return [s for s in threads.summaries() if not a.get("task") or s["taskKey"] == a["task"]]
-        if cmd == "thread.show":
-            t = threads.get(a["id"])
-            if t is None:
+        if cmd == "context.list":
+            return [s for s in contexts.summaries() if not a.get("story") or s["storyKey"] == a["story"]]
+        if cmd == "context.show":
+            c = contexts.get(a["id"])
+            if c is None:
                 raise KeyError(a["id"])
-            s = t.summary()
+            s = c.summary()
             if a.get("transcript"):
-                s["transcript"] = [dict(r) for r in t.transcript.rows()]
+                s["transcript"] = [dict(r) for r in c.transcript.rows()]
             return s
-        if cmd == "thread.spawn":
-            task = a.get("task") or ""
-            if task:
-                tid = tasks.dispatch(task, a["role"], a["prompt"], a.get("parent", ""))
+        if cmd == "context.new":
+            if a.get("prompt"):
+                cid = contexts.spawn(a["role"], a["prompt"], title=a.get("title", ""))
             else:
-                tid = threads.spawn("", a["role"], a["prompt"], a.get("parent", ""), a.get("title", ""))
+                cid = contexts.create(a["role"], title=a.get("title") or "New context")
             if a.get("open"):
-                layout.openContent("thread", tid, threads.get(tid).title)
-            return threads.get(tid).summary()
-        if cmd == "thread.send":
-            threads.send(a["id"], a["text"])
-            return threads.get(a["id"]).summary()
-        if cmd == "thread.stop":
-            threads.stop(a["id"])
-            return threads.get(a["id"]).summary()
+                layout.openContent("context", cid, contexts.get(cid).title)
+            return contexts.get(cid).summary()
+        if cmd == "context.send":
+            contexts.send(a["id"], a["text"])
+            return contexts.get(a["id"]).summary()
+        if cmd == "context.stop":
+            contexts.stop(a["id"])
+            return contexts.get(a["id"]).summary()
         if cmd == "task.list":
             return tasks.list()
         if cmd == "task.show":
             t = tasks.get(a["key"])
             if not t:
                 raise KeyError(a["key"])
-            t["threads"] = tasks.threadsFor(a["key"])
+            t["contexts"] = tasks.contextsFor(a["key"])
             return t
         if cmd == "task.status":
             tasks.setStatus(a["key"], a["status"])

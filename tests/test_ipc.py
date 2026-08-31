@@ -28,52 +28,59 @@ class FakeTranscript:
         return self._rows
 
 
-class FakeThread:
-    def __init__(self, id, title="", status="idle", taskKey="", rows=()):
-        self.id, self.title, self.status, self.taskKey = id, title, status, taskKey
+class FakeContext:
+    def __init__(self, id, title="", status="idle", storyKey="", owner="human", rows=()):
+        self.id, self.title, self.status, self.storyKey, self.owner = id, title, status, storyKey, owner
         self.transcript = FakeTranscript(list(rows))
 
     def summary(self):
-        return {"id": self.id, "title": self.title, "status": self.status, "taskKey": self.taskKey}
+        return {"id": self.id, "title": self.title, "status": self.status, "storyKey": self.storyKey, "owner": self.owner}
 
 
-class FakeThreads:
-    def __init__(self, *threads):
-        self._by_id = {t.id: t for t in threads}
+class FakeContexts:
+    def __init__(self, *contexts):
+        self._by_id = {c.id: c for c in contexts}
         self.calls = []
         self._ids = itertools.count(1)
 
     def summaries(self):
-        return [t.summary() for t in self._by_id.values()]
+        return [c.summary() for c in self._by_id.values()]
 
-    def get(self, tid):
-        return self._by_id.get(tid)
+    def get(self, cid):
+        return self._by_id.get(cid)
 
-    def spawn(self, task, role, prompt, parent="", title=""):
-        self.calls.append(("spawn", task, role, prompt, parent, title))
-        tid = f"new{next(self._ids)}"
-        self._by_id[tid] = FakeThread(tid, title=title or prompt, status="working", taskKey=task)
-        return tid
+    def create(self, role, title=""):
+        self.calls.append(("create", role, title))
+        cid = f"new{next(self._ids)}"
+        self._by_id[cid] = FakeContext(cid, title=title, status="idle")
+        return cid
 
-    def send(self, tid, text):
-        self.calls.append(("send", tid, text))
-        self._by_id[tid].status = "working"
+    def spawn(self, role, prompt, **kw):
+        self.calls.append(("spawn", role, prompt, kw))
+        cid = f"new{next(self._ids)}"
+        title = kw.get("title") or prompt
+        self._by_id[cid] = FakeContext(cid, title=title, status="working", storyKey=kw.get("story_key", ""))
+        return cid
 
-    def stop(self, tid):
-        self.calls.append(("stop", tid))
-        self._by_id[tid].status = "stopped"
+    def send(self, cid, text):
+        self.calls.append(("send", cid, text))
+        self._by_id[cid].status = "working"
+
+    def stop(self, cid):
+        self.calls.append(("stop", cid))
+        self._by_id[cid].status = "stopped"
 
 
 class FakeTasks:
-    def __init__(self, threads, tasks=()):
-        self._threads = threads
+    def __init__(self, contexts, tasks=()):
+        self._contexts = contexts
         self._tasks = {t["key"]: dict(t) for t in tasks}
         self.calls = []
         self._keys = itertools.count(100)
 
-    def dispatch(self, task, role, prompt, parent=""):
-        self.calls.append(("dispatch", task, role, prompt, parent))
-        return self._threads.spawn(task, role, prompt, parent, "dispatched")
+    def dispatch(self, task, role, prompt):
+        self.calls.append(("dispatch", task, role, prompt))
+        return self._contexts.spawn(role, prompt, story_key=task, owner="human", title="dispatched")
 
     def list(self):
         return list(self._tasks.values())
@@ -82,8 +89,8 @@ class FakeTasks:
         t = self._tasks.get(key)
         return dict(t) if t else None
 
-    def threadsFor(self, key):
-        return [s for s in self._threads.summaries() if s["taskKey"] == key]
+    def contextsFor(self, key):
+        return [s for s in self._contexts.summaries() if s["storyKey"] == key]
 
     def setStatus(self, key, status):
         self.calls.append(("setStatus", key, status))
@@ -111,13 +118,13 @@ class FakeLayout:
 
 class FakeAppStore:
     def __init__(self):
-        self.threads = FakeThreads(
-            FakeThread("t1", title="first", status="idle", taskKey="ABC-1",
-                       rows=[{"role": "user", "kind": "text", "text": "hi"},
-                             {"role": "assistant", "kind": "text", "text": "hello"}]),
-            FakeThread("t2", title="second", status="working", taskKey="ABC-2"),
+        self.contexts = FakeContexts(
+            FakeContext("t1", title="first", status="idle", storyKey="ABC-1", owner="human",
+                        rows=[{"role": "user", "kind": "text", "text": "hi"},
+                              {"role": "assistant", "kind": "text", "text": "hello"}]),
+            FakeContext("t2", title="second", status="working", storyKey="ABC-2", owner="human"),
         )
-        self.tasks = FakeTasks(self.threads, [
+        self.tasks = FakeTasks(self.contexts, [
             {"key": "ABC-1", "title": "one", "status": "todo"},
             {"key": "ABC-2", "title": "two", "status": "in-progress"},
         ])
@@ -145,67 +152,71 @@ def test_role_list_returns_roles(h, store):
     assert h("role.list", {}) == store.roles.roles
 
 
-def test_thread_list_without_filter_returns_all_summaries(h):
-    assert [s["id"] for s in h("thread.list", {})] == ["t1", "t2"]
+def test_context_list_without_filter_returns_all_summaries(h):
+    assert [s["id"] for s in h("context.list", {})] == ["t1", "t2"]
 
 
-def test_thread_list_with_task_filter_keeps_only_that_task(h):
-    assert [s["id"] for s in h("thread.list", {"task": "ABC-2"})] == ["t2"]
+def test_context_list_with_story_filter_keeps_only_that_story(h):
+    assert [s["id"] for s in h("context.list", {"story": "ABC-2"})] == ["t2"]
 
 
-def test_thread_list_with_empty_task_is_unfiltered(h):
-    assert len(h("thread.list", {"task": ""})) == 2
+def test_context_list_with_empty_story_is_unfiltered(h):
+    assert len(h("context.list", {"story": ""})) == 2
 
 
-def test_thread_show_returns_summary_without_transcript(h):
-    s = h("thread.show", {"id": "t1"})
-    assert s == {"id": "t1", "title": "first", "status": "idle", "taskKey": "ABC-1"}
+def test_context_show_returns_summary_without_transcript(h):
+    s = h("context.show", {"id": "t1"})
+    assert s == {"id": "t1", "title": "first", "status": "idle", "storyKey": "ABC-1", "owner": "human"}
     assert "transcript" not in s
 
 
-def test_thread_show_with_transcript_attaches_row_copies(h, store):
-    s = h("thread.show", {"id": "t1", "transcript": True})
+def test_context_show_with_transcript_attaches_row_copies(h, store):
+    s = h("context.show", {"id": "t1", "transcript": True})
     assert [r["text"] for r in s["transcript"]] == ["hi", "hello"]
-    assert s["transcript"][0] is not store.threads.get("t1").transcript.rows()[0]
+    assert s["transcript"][0] is not store.contexts.get("t1").transcript.rows()[0]
 
 
-def test_thread_show_unknown_id_raises_keyerror(h):
+def test_context_show_unknown_id_raises_keyerror(h):
     with pytest.raises(KeyError):
-        h("thread.show", {"id": "nope"})
+        h("context.show", {"id": "nope"})
 
 
-def test_thread_spawn_with_task_goes_through_tasks_dispatch(h, store):
-    s = h("thread.spawn", {"task": "ABC-1", "role": "claude-fast", "prompt": "do it", "parent": "t1"})
-    assert store.tasks.calls == [("dispatch", "ABC-1", "claude-fast", "do it", "t1")]
-    assert s["id"] == "new1" and s["taskKey"] == "ABC-1" and s["status"] == "working"
+def test_context_new_with_prompt_goes_through_contexts_spawn_with_title(h, store):
+    s = h("context.new", {"role": "claude-deep", "prompt": "p", "title": "titled"})
+    assert store.contexts.calls == [("spawn", "claude-deep", "p", {"title": "titled"})]
+    assert s["title"] == "titled"
 
 
-def test_thread_spawn_without_task_goes_through_threads_spawn_with_title(h, store):
-    s = h("thread.spawn", {"role": "claude-deep", "prompt": "p", "title": "titled"})
-    assert store.tasks.calls == []
-    assert store.threads.calls == [("spawn", "", "claude-deep", "p", "", "titled")]
-    assert s["title"] == "titled" and s["taskKey"] == ""
+def test_context_new_without_prompt_goes_through_contexts_create(h, store):
+    s = h("context.new", {"role": "claude-fast", "title": "bare one"})
+    assert store.contexts.calls == [("create", "claude-fast", "bare one")]
+    assert s["title"] == "bare one"
 
 
-def test_thread_spawn_open_opens_thread_tab_in_layout(h, store):
-    s = h("thread.spawn", {"role": "claude-fast", "prompt": "p", "title": "tab", "open": True})
-    assert store.layout.opened == [("thread", s["id"], "tab")]
+def test_context_new_without_prompt_or_title_defaults_title_to_new_context(h, store):
+    h("context.new", {"role": "claude-fast"})
+    assert store.contexts.calls == [("create", "claude-fast", "New context")]
 
 
-def test_thread_spawn_without_open_does_not_touch_layout(h, store):
-    h("thread.spawn", {"role": "claude-fast", "prompt": "p"})
+def test_context_new_open_opens_context_tab_in_layout(h, store):
+    s = h("context.new", {"role": "claude-fast", "prompt": "p", "title": "tab", "open": True})
+    assert store.layout.opened == [("context", s["id"], "tab")]
+
+
+def test_context_new_without_open_does_not_touch_layout(h, store):
+    h("context.new", {"role": "claude-fast", "prompt": "p"})
     assert store.layout.opened == []
 
 
-def test_thread_send_forwards_text_and_returns_summary(h, store):
-    s = h("thread.send", {"id": "t1", "text": "more"})
-    assert store.threads.calls == [("send", "t1", "more")]
+def test_context_send_forwards_text_and_returns_summary(h, store):
+    s = h("context.send", {"id": "t1", "text": "more"})
+    assert store.contexts.calls == [("send", "t1", "more")]
     assert s["id"] == "t1" and s["status"] == "working"
 
 
-def test_thread_stop_stops_and_returns_summary(h, store):
-    s = h("thread.stop", {"id": "t2"})
-    assert store.threads.calls == [("stop", "t2")]
+def test_context_stop_stops_and_returns_summary(h, store):
+    s = h("context.stop", {"id": "t2"})
+    assert store.contexts.calls == [("stop", "t2")]
     assert s["id"] == "t2" and s["status"] == "stopped"
 
 
@@ -213,10 +224,10 @@ def test_task_list_returns_all_tasks(h):
     assert [t["key"] for t in h("task.list", {})] == ["ABC-1", "ABC-2"]
 
 
-def test_task_show_attaches_threads_for_task(h):
+def test_task_show_attaches_contexts_for_task(h):
     t = h("task.show", {"key": "ABC-1"})
     assert t["title"] == "one"
-    assert [s["id"] for s in t["threads"]] == ["t1"]
+    assert [s["id"] for s in t["contexts"]] == ["t1"]
 
 
 def test_task_show_unknown_key_raises_keyerror(h):

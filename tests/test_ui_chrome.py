@@ -1,4 +1,4 @@
-"""Window chrome: strips, docks, tabs, splits, welcome page, agent log — through the real controls."""
+"""Window chrome: strips, docks, tabs, splits, welcome page, contexts panel — through the real controls."""
 import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
@@ -90,21 +90,32 @@ def test_welcome_open_board_shows_the_task_board(ui):
     assert docks(ui)["left"] == {**docks(ui)["left"], "active": "tasks", "mode": "docked"}
 
 
-def test_welcome_agent_log_opens_the_bottom_panel(ui):
+def test_welcome_contexts_opens_the_bottom_panel(ui):
     ui.store.layout.openContent("welcome", "welcome", "Welcome")
     QTest.qWait(50)
-    ui.click(ui.find("welcomeAgentLog"))
-    assert docks(ui)["bottom"] == {**docks(ui)["bottom"], "active": "agent_log", "mode": "docked"}
+    ui.click(ui.find("welcomeContexts"))
+    assert docks(ui)["bottom"] == {**docks(ui)["bottom"], "active": "contexts", "mode": "docked"}
     assert ui.visible(ui.find("dock_bottom"))
 
 
-def test_agent_log_row_opens_the_thread(ui):
-    tid = ui.store.threads.spawn("ABC-2", "claude-fast", "from the log")
-    ui.store.layout.showPanel("agent_log")
+def test_contexts_row_opens_the_context(ui):
+    cid = ui.store.contexts.spawn("claude-fast", "from the log", story_key="ABC-2")
+    ui.store.layout.showPanel("contexts")
     QTest.qWait(150)
-    ui.click(ui.find(f"agentLogRow_{tid}"))
-    assert ui.has(f"tab_thread_{tid}")
-    assert wait_until(lambda: ui.store.threads.get(tid).status == "idle")
+    ui.click(ui.find(f"contextRow_{cid}"))
+    assert ui.has(f"tab_context_{cid}")
+    assert wait_until(lambda: ui.store.contexts.get(cid).status == "idle")
+
+
+def test_new_context_button_opens_a_bare_context(ui):
+    ui.store.layout.showPanel("contexts")
+    QTest.qWait(150)
+    n = ui.store.contexts.model.count()
+    ui.click(ui.find("newContextButton"))
+    assert ui.store.contexts.model.count() == n + 1
+    cid = ui.store.contexts.model.rows()[-1]["id"]
+    assert ui.store.contexts.get(cid).owner == "human"
+    assert ui.has(f"tab_context_{cid}")
 
 
 def test_welcome_reset_layout_restores_the_default(ui):

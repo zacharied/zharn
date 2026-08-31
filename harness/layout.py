@@ -44,7 +44,7 @@ def default_layout() -> dict:
         "docks": {
             "left": {"panels": ["tasks", "files"], "active": "tasks", "mode": "docked", "size": 280},
             "right": {"panels": ["task_details"], "active": "task_details", "mode": "docked", "size": 320},
-            "bottom": {"panels": ["terminal", "agent_log", "git"], "active": "terminal", "mode": "strip", "size": 220},
+            "bottom": {"panels": ["terminal", "contexts", "git"], "active": "terminal", "mode": "strip", "size": 220},
         },
         "activeGroup": None,
     }

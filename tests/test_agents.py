@@ -1,4 +1,4 @@
-"""Threads, roles, tasks, IPC/CLI and the thread UI — against the fake claude CLI."""
+"""Contexts, roles, tasks, IPC/CLI and the context UI — against the fake claude CLI."""
 import json
 import os
 import shutil
@@ -36,13 +36,13 @@ def harness():
     assert reloader.load(), store.reloadError
     QTest.qWait(100)
     yield app, store, reloader
-    store.threads.shutdown()
+    store.contexts.shutdown()
     reloader.shutdown()
     QTest.qWait(50)
 
 
-def rows(thread):
-    return thread.transcript.rows()
+def rows(context):
+    return context.transcript.rows()
 
 
 def test_roles_and_demo_tasks(harness):
@@ -53,65 +53,65 @@ def test_roles_and_demo_tasks(harness):
     assert store.tasks.model.count() >= 5
     assert store.tasks.get("ABC-1")["title"].startswith("Hot reload")
     with pytest.raises(ValueError):
-        store.threads.spawn("ABC-1", "codex-review", "x")
+        store.contexts.spawn("codex-review", "x", story_key="ABC-1")
 
 
 def test_spawn_streams_and_settles(harness):
     app, store, _ = harness
-    tid = store.threads.spawn("ABC-1", "claude-fast", "hello agent")
-    t = store.threads.get(tid)
-    assert t.status in ("starting", "working")
-    assert wait_until(lambda: t.status == "idle"), (t.status, t.lastError)
-    kinds = [(r["role"], r["kind"]) for r in rows(t)]
+    cid = store.contexts.spawn("claude-fast", "hello agent", story_key="ABC-1")
+    c = store.contexts.get(cid)
+    assert c.status in ("starting", "working")
+    assert wait_until(lambda: c.status == "idle"), (c.status, c.lastError)
+    kinds = [(r["role"], r["kind"]) for r in rows(c)]
     assert kinds == [("user", "text"), ("assistant", "text")]
-    assert rows(t)[1]["text"] == "echo: hello agent" and not rows(t)[1]["streaming"]
-    assert t.sessionId == "fake-session-1" and t.model == "fake-model"
-    assert abs(t.costUsd - 0.0123) < 1e-6 and t.turns == 1
+    assert rows(c)[1]["text"] == "echo: hello agent" and not rows(c)[1]["streaming"]
+    assert c.sessionId == "fake-session-1" and c.model == "fake-model"
+    assert abs(c.costUsd - 0.0123) < 1e-6 and c.turns == 1
     # child process got the harness env
-    records = [json.loads(l) for l in (DATA / "threads" / f"{tid}.jsonl").read_text().splitlines()]
+    records = [json.loads(l) for l in (DATA / "contexts" / f"{cid}.jsonl").read_text().splitlines()]
     assert [r["type"] for r in records[:3]] == ["harness.meta", "harness.user", "system"]
     init = records[2]
-    assert init["harness_env"]["HARNESS_THREAD_ID"] == tid
-    assert init["harness_env"]["HARNESS_TASK_KEY"] == "ABC-1"
-    assert init["harness_env"]["HARNESS_IPC"] == store.ipcPath != ""
+    assert init["harness_env"]["HARNESS_CONTEXT_ID"] == cid
+    assert init["harness_env"]["HARNESS_STORY_KEY"] == "ABC-1"
+    assert init["harness_env"]["HARNESS_WORKSPACE"] == str(ROOT)
     # summary row in the list model
-    assert any(r["id"] == tid and r["status"] == "idle" for r in store.threads.model.rows())
+    assert any(r["id"] == cid and r["status"] == "idle" for r in store.contexts.model.rows())
 
 
 def test_follow_up_reuses_process_and_tools_render(harness):
     app, store, _ = harness
-    t = store.threads.get(store.threads.model.rows()[0]["id"])
-    proc = t._proc
-    t.send("please use a tool")
-    assert t.status == "working"
-    assert wait_until(lambda: t.status == "idle")
-    assert t._proc is proc, "follow-up should go over stdin to the same process"
-    kinds = [(r["role"], r["kind"]) for r in rows(t)]
+    c = store.contexts.get(store.contexts.model.rows()[0]["id"])
+    proc = c._proc
+    c.send("please use a tool")
+    assert c.status == "working"
+    assert wait_until(lambda: c.status == "idle")
+    assert c._proc is proc, "follow-up should go over stdin to the same process"
+    kinds = [(r["role"], r["kind"]) for r in rows(c)]
     assert kinds[-4:] == [("user", "text"), ("assistant", "tool_use"), ("tool", "tool_result"), ("assistant", "text")]
-    tool = rows(t)[-3]
+    tool = rows(c)[-3]
     assert tool["name"] == "Bash" and json.loads(tool["input"])["command"] == "echo hello-from-tool"
-    assert rows(t)[-2]["text"] == "hello-from-tool"
-    assert abs(t.costUsd - 0.0246) < 1e-6
+    assert rows(c)[-2]["text"] == "hello-from-tool"
+    assert abs(c.costUsd - 0.0246) < 1e-6
 
 
 def test_failure_is_surfaced(harness):
     app, store, _ = harness
-    tid = store.threads.spawn("ABC-2", "claude-fast", "please fail")
-    t = store.threads.get(tid)
-    assert wait_until(lambda: t.status == "failed")
-    assert rows(t)[-1]["kind"] == "error" and "simulated failure" in rows(t)[-1]["text"]
+    cid = store.contexts.spawn("claude-fast", "please fail", story_key="ABC-2")
+    c = store.contexts.get(cid)
+    assert wait_until(lambda: c.status == "failed")
+    assert rows(c)[-1]["kind"] == "error" and "simulated failure" in rows(c)[-1]["text"]
 
 
 def test_task_dispatch_sets_in_progress_and_counts(harness):
     app, store, _ = harness
     assert store.tasks.get("ABC-3")["status"] == "todo"
-    tid = store.tasks.dispatch("ABC-3", "claude-fast", "do the thing")
-    t = store.threads.get(tid)
+    cid = store.tasks.dispatch("ABC-3", "claude-fast", "do the thing")
+    c = store.contexts.get(cid)
     assert store.tasks.get("ABC-3")["status"] == "in_progress"
-    assert t.title == "do the thing"
-    assert rows(t)[0]["text"].startswith("# Task ABC-3") and "Report-back contract" in rows(t)[0]["text"]
-    assert wait_until(lambda: t.status == "idle")
-    assert store.tasks.get("ABC-3")["threadCount"] == 1 and store.tasks.get("ABC-3")["workingCount"] == 0
+    assert c.title == "do the thing"
+    assert rows(c)[0]["text"].startswith("# Task ABC-3") and "Report-back contract" in rows(c)[0]["text"]
+    assert wait_until(lambda: c.status == "idle")
+    assert store.tasks.get("ABC-3")["contextCount"] == 1 and store.tasks.get("ABC-3")["workingCount"] == 0
 
 
 def test_cli_over_ipc(harness):
@@ -131,65 +131,39 @@ def test_cli_over_ipc(harness):
     r = cli("role", "list")
     assert "claude-fast" in [p["name"] for p in json.loads(r.stdout)]
     r = cli("task", "show", "ABC-3")
-    assert json.loads(r.stdout)["threads"][0]["status"] == "idle"
-    r = cli("thread", "list", "--task", "ABC-3")
+    assert json.loads(r.stdout)["contexts"][0]["status"] == "idle"
+    r = cli("context", "list", "--story", "ABC-3")
     assert len(json.loads(r.stdout)) == 1
-
-
-def test_agent_spawns_child_on_same_task_and_parent_is_notified(harness):
-    """The fake agent shells out to $HARNESS_CLI to spawn+wait a sibling — the real delegation path."""
-    app, store, _ = harness
-    tid = store.tasks.dispatch("ABC-4", "claude-deep", "spawn-child then report")
-    parent = store.threads.get(tid)
-    assert wait_until(lambda: len(store.threads.threads_for("ABC-4")) == 2, timeout_ms=15000)
-    child = [x for x in store.threads.threads_for("ABC-4") if x.id != tid][0]
-    assert child.parentId == tid and child.taskKey == "ABC-4" and child.roleName == "claude-fast"
-    assert wait_until(lambda: child.status == "idle", timeout_ms=15000)
-    # the parent's tool_result contains the child's last reply (via `thread spawn --wait`)
-    assert wait_until(lambda: parent.status == "idle" and any(r["kind"] == "tool_result" for r in rows(parent)), timeout_ms=15000)
-    tool_result = [r for r in rows(parent) if r["kind"] == "tool_result"][0]
-    assert "echo: child says hi" in tool_result["text"], tool_result
-    # the parent transcript got the lifecycle note; no follow-up turn because the parent was busy (--wait)
-    assert wait_until(lambda: any(r["kind"] == "note" and child.id in r["text"] for r in rows(parent)))
-    assert wait_until(lambda: parent.status == "idle" and rows(parent)[-1]["role"] == "assistant", timeout_ms=15000)
-    assert not any(r["role"] == "user" and r["text"].startswith("[harness] child thread") for r in rows(parent))
-    # fire-and-forget child while the parent is idle → parent is re-prompted with the child's outcome
-    cid = store.threads.spawn("ABC-4", "claude-fast", "background helper", tid)
-    child2 = store.threads.get(cid)
-    assert wait_until(lambda: child2.status == "idle")
-    assert wait_until(lambda: any(r["role"] == "user" and r["text"].startswith("[harness] child thread " + cid) for r in rows(parent)))
-    assert wait_until(lambda: parent.status == "idle" and rows(parent)[-1]["role"] == "assistant")
-    assert rows(parent)[-1]["text"].startswith("echo: [harness] child thread")
 
 
 def test_transcripts_persist_and_replay(harness):
     app, store, _ = harness
-    from harness.threads import ThreadStore
-    fresh = ThreadStore(ROOT, DATA, store.roles)
-    ids = {t.id for t in store.threads.all()}
-    assert {t.id for t in fresh.all()} == ids
-    for t in fresh.all():
-        live = store.threads.get(t.id)
-        assert [(r["role"], r["kind"], r["text"]) for r in rows(t)] == [(r["role"], r["kind"], r["text"]) for r in rows(live)]
-        assert t.status in ("idle", "failed") and t.costUsd == live.costUsd
+    from harness.contexts import ContextStore
+    fresh = ContextStore(ROOT, DATA / "contexts", store.roles, workspace_dir=ROOT)
+    ids = {c.id for c in store.contexts.all()}
+    assert {c.id for c in fresh.all()} == ids
+    for c in fresh.all():
+        live = store.contexts.get(c.id)
+        assert [(r["role"], r["kind"], r["text"]) for r in rows(c)] == [(r["role"], r["kind"], r["text"]) for r in rows(live)]
+        assert c.status in ("idle", "failed") and c.costUsd == live.costUsd
 
 
-def test_thread_tab_renders_and_screenshot(harness):
+def test_context_tab_renders_and_screenshot(harness):
     app, store, reloader = harness
     from test_app import find_all, root
-    t = store.threads.get(store.threads.model.rows()[0]["id"])
+    c = store.contexts.get(store.contexts.model.rows()[0]["id"])
     store.layout.openContent("task", "ABC-1", "ABC-1")
-    store.layout.openContent("thread", t.id, t.title)
+    store.layout.openContent("context", c.id, c.title)
     QTest.qWait(300)
     win = root(reloader)
     win.setWidth(1400); win.setHeight(900)
     lists = find_all(win, "transcript")
-    assert lists and lists[0].property("count") == t.transcript.count()
+    assert lists and lists[0].property("count") == c.transcript.count()
     QTest.qWait(300)
     img = win.grabWindow()
-    assert img.save(str(OUT / "thread.png"))
+    assert img.save(str(OUT / "context.png"))
     # send from the UI path
-    t.send("from the ui")
-    assert wait_until(lambda: t.status == "idle")
-    assert rows(t)[-1]["text"] == "echo: from the ui"
-    assert wait_until(lambda: lists[0].property("count") == t.transcript.count())
+    c.send("from the ui")
+    assert wait_until(lambda: c.status == "idle")
+    assert rows(c)[-1]["text"] == "echo: from the ui"
+    assert wait_until(lambda: lists[0].property("count") == c.transcript.count())
