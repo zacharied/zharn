@@ -38,8 +38,11 @@ ContentBase {
                 spacing: 10
                 Label { text: tabKey; color: app.theme.accent; font.bold: true }
                 Label {
-                    objectName: "storyTitle"; text: view.story.title || ""; color: app.theme.text; font.pixelSize: 18; font.bold: true
-                    Layout.fillWidth: view.started; elide: Text.ElideRight
+                    // Always present (a click target to blur an editor pre-Start), but blank until the story
+                    // starts — storyTitleEdit is the visible title control until then.
+                    objectName: "storyTitle"; text: view.started ? (view.story.title || "") : ""
+                    color: app.theme.text; font.pixelSize: 18; font.bold: true
+                    Layout.fillWidth: true; Layout.preferredHeight: 24; elide: Text.ElideRight
                     TapHandler { onTapped: view.forceActiveFocus() }  // a neutral place to click to blur an editor
                 }
                 TextField {
@@ -73,6 +76,8 @@ ContentBase {
 
             // ---- needs-you banner + action bar (started only)
             Rectangle {
+                // visible is set on both this Rectangle and the inner Label: Qt Quick's visible does not
+                // recursively collapse layout for children, so the Label needs its own binding too.
                 visible: view.mine
                 Layout.fillWidth: true; height: 30; radius: 4; color: "#3a2e14"; border.color: "#f0a732"
                 Label { objectName: "needsYouBanner"; visible: view.mine; anchors.verticalCenter: parent.verticalCenter; x: 10; text: "Waiting on you: " + view.story.flavor; color: "#f0a732"; font.bold: true }
