@@ -1,0 +1,400 @@
+"""The pure state machine: every cell × every action of lifecycle spec §2, per-thread turns, rejections, §2.4 invariants."""
+import copy
+import itertools
+
+import pytest
+
+from harness.lifecycle import (ACTIVE, PHASES, TERMINAL, Approve, BackToPlanning, Cancel, Comment, OpenThread,
+                               Proceed, Recap, Rejected, Reopen, Reply, Start, Story, Thread, Yield,
+                               check_invariants, step)
+
+_ids = itertools.count(1)
+
+
+def cid() -> str:
+    return f"c{next(_ids)}"
+
+
+def run(story, action):
+    """step + invariants, returning (story, comment)."""
+    s2, c = step(story, action, comment_id=cid(), now=1000.0)
+    check_invariants(s2)
+    return s2, c
+
+
+def fresh(phase="todo") -> Story:
+    return Story(key="ZH-1", title="T", description="D", phase=phase)
+
+
+def started() -> Story:
+    s, _ = run(fresh(), Start(thread_id="t1", protagonist="chr1", note="go"))
+    return s
+
+
+def at(phase, ball):
+    """A started story driven to the requested (phase, ball) cell."""
+    s = started()  # (planning, cast)
+    if phase == "planning" and ball == "author":
+        s, _ = run(s, Yield("t1", "chr1", "handoff", "outline"))
+    elif phase == "implementing":
+        s, _ = run(s, Proceed(by="chr1"))
+        if ball == "author":
+            s, _ = run(s, Yield("t1", "chr1", "handoff", "done"))
+    elif phase == "done":
+        s = at("implementing", "author")
+        s, _ = run(s, Approve())
+    elif phase == "canceled":
+        s, _ = run(s, Cancel())
+    assert (s.phase, s.ball) == (phase, ball if phase in ACTIVE else None)
+    return s
+
+
+# ---------------------------------------------------------------- purity, ball, serialization
+
+def test_step_does_not_mutate_input():
+    s = fresh()
+    before = copy.deepcopy(s)
+    step(s, Start(thread_id="t1", protagonist="chr1"), comment_id="c", now=1.0)
+    assert s == before
+
+
+def test_ball_is_derived_from_main_turn_only_while_active():
+    assert fresh("backlog").ball is None and fresh("todo").ball is None
+    s = started()
+    assert s.ball == "cast" and s.main.turn == "cast"
+    s, _ = run(s, Yield("t1", "chr1", "question", "?"))
+    assert s.ball == "author"
+    assert at("done", None).ball is None and at("canceled", None).ball is None
+
+
+def test_to_dict_roundtrip_has_no_ball_key():
+    s = at("planning", "author")
+    d = s.to_dict()
+    assert "ball" not in d
+    assert d["threads"][0] == {"id": "t1", "author": "human", "lead": "chr1", "turn": "author", "pending_yield": d["threads"][0]["pending_yield"]}
+    assert Story.from_dict(d) == s
+
+
+# ---------------------------------------------------------------- Start
+
+@pytest.mark.parametrize("phase", ["backlog", "todo"])
+def test_start_opens_main_thread_casts_protagonist_and_moves_to_planning(phase):
+    s, c = run(fresh(phase), Start(thread_id="t1", protagonist="chr1", note="opening note", role="planner"))
+    assert (s.phase, s.ball) == ("planning", "cast")
+    assert s.protagonist == "chr1" and s.main_thread == "t1"
+    assert s.main == Thread(id="t1", author="human", lead="chr1", turn="cast", pending_yield=None)
+    assert c["kind"] == "text" and c["author"] == "human" and c["body"] == "opening note" and c["thread_id"] == "t1"
+    assert c["reply_to"] is None and c["story_key"] == "ZH-1" and c["created_at"] == 1000.0 and c["id"].startswith("c")
+    assert c["structured"]["transition"] == {"from": [phase, None], "to": ["planning", "cast"]}
+
+
+def test_start_without_note_has_default_body():
+    _, c = run(fresh(), Start(thread_id="t1", protagonist="chr1"))
+    assert c["body"] == "Started."
+
+
+@pytest.mark.parametrize("phase", ["planning", "implementing", "done", "canceled"])
+def test_start_rejected_once_started(phase):
+    s = at(phase, "cast" if phase in ACTIVE else None)
+    with pytest.raises(Rejected, match="already started|terminal"):
+        step(s, Start(thread_id="t9", protagonist="chr9"), comment_id="x", now=1.0)
+
+
+# ---------------------------------------------------------------- Yield
+
+@pytest.mark.parametrize("kind", ["question", "handoff"])
+def test_yield_on_main_flips_ball_to_author_and_records_transition(kind):
+    s = started()
+    s, c = run(s, Yield("t1", "chr1", kind, "body", options=["a", "b"]))
+    assert s.ball == "author" and s.main.pending_yield == c["id"]
+    assert c["kind"] == kind and c["author"] == "chr1" and c["structured"]["options"] == ["a", "b"]
+    assert c["structured"]["transition"] == {"from": ["planning", "cast"], "to": ["planning", "author"]}
+
+
+def test_yield_twice_in_same_thread_is_rejected():
+    s, _ = run(started(), Yield("t1", "chr1", "question", "?"))
+    with pytest.raises(Rejected, match="already waits"):
+        step(s, Yield("t1", "chr1", "question", "again"), comment_id="x", now=1.0)
+
+
+def test_only_protagonist_yields_on_main():
+    with pytest.raises(Rejected, match="protagonist"):
+        step(started(), Yield("t1", "chr2", "question", "?"), comment_id="x", now=1.0)
+
+
+def test_yield_bad_kind_rejected():
+    with pytest.raises(Rejected, match="kind"):
+        step(started(), Yield("t1", "chr1", "status", "x"), comment_id="x", now=1.0)
+
+
+def test_yield_unknown_thread_rejected():
+    with pytest.raises(Rejected, match="thread"):
+        step(started(), Yield("nope", "chr1", "question", "x"), comment_id="x", now=1.0)
+
+
+def test_main_handoff_while_implementing_blocked_by_open_substories():
+    s = at("implementing", "cast")
+    with pytest.raises(Rejected, match="sub-stor"):
+        step(s, Yield("t1", "chr1", "handoff", "done", open_substories=1), comment_id="x", now=1.0)
+    s2, c = run(s, Yield("t1", "chr1", "question", "q", open_substories=1))  # questions are not blocked
+    assert s2.ball == "author"
+
+
+def test_implementing_handoff_carries_checks():
+    s = at("implementing", "cast")
+    checks = [{"repo": "r", "cmd": "pytest", "exit": 0, "output": "ok"}]
+    _, c = run(s, Yield("t1", "chr1", "handoff", "done", checks=checks))
+    assert c["structured"]["checks"] == checks
+
+
+@pytest.mark.parametrize("phase", ["done", "canceled"])
+def test_yield_on_terminal_story_rejected(phase):
+    with pytest.raises(Rejected, match="terminal"):
+        step(at(phase, None), Yield("t1", "chr1", "question", "?"), comment_id="x", now=1.0)
+
+
+# ---------------------------------------------------------------- Reply
+
+@pytest.mark.parametrize("phase", ["planning", "implementing"])
+def test_reply_on_main_answers_the_pending_yield_and_returns_ball(phase):
+    s = at(phase, "author")
+    pending = s.main.pending_yield
+    s, c = run(s, Reply("t1", "here you go"))
+    assert (s.phase, s.ball) == (phase, "cast") and s.main.pending_yield is None
+    assert c["kind"] == "text" and c["author"] == "human" and c["reply_to"] == pending
+    assert c["structured"]["transition"] == {"from": [phase, "author"], "to": [phase, "cast"]}
+
+
+def test_reply_when_thread_not_waiting_is_rejected():
+    with pytest.raises(Rejected, match="not waiting"):
+        step(started(), Reply("t1", "x"), comment_id="x", now=1.0)
+
+
+def test_reply_by_non_author_is_rejected():
+    s = at("planning", "author")
+    with pytest.raises(Rejected, match="author"):
+        step(s, Reply("t1", "x", by="chr1"), comment_id="x", now=1.0)
+
+
+# ---------------------------------------------------------------- Proceed (both sides)
+
+def test_author_proceed_from_planning_author_goes_to_implementing_cast():
+    s = at("planning", "author")
+    s, c = run(s, Proceed(by="human", note="looks good"))
+    assert (s.phase, s.ball) == ("implementing", "cast") and s.main.pending_yield is None
+    assert c["kind"] == "system" and c["author"] == "human" and "outline approved" in c["body"] and "looks good" in c["body"]
+    assert c["structured"]["transition"] == {"from": ["planning", "author"], "to": ["implementing", "cast"]}
+
+
+def test_protagonist_proceed_from_planning_cast_goes_to_implementing_cast():
+    s, c = run(started(), Proceed(by="chr1"))
+    assert (s.phase, s.ball) == ("implementing", "cast")
+    assert c["kind"] == "system" and c["author"] == "chr1"
+    assert c["structured"]["transition"] == {"from": ["planning", "cast"], "to": ["implementing", "cast"]}
+
+
+def test_author_proceed_while_ball_with_cast_is_rejected():
+    with pytest.raises(Rejected):
+        step(started(), Proceed(by="human"), comment_id="x", now=1.0)
+
+
+def test_protagonist_proceed_while_ball_with_author_is_rejected():
+    with pytest.raises(Rejected):
+        step(at("planning", "author"), Proceed(by="chr1"), comment_id="x", now=1.0)
+
+
+def test_stranger_proceed_is_rejected():
+    with pytest.raises(Rejected, match="protagonist|author"):
+        step(started(), Proceed(by="chr9"), comment_id="x", now=1.0)
+
+
+@pytest.mark.parametrize("phase,ball", [("implementing", "cast"), ("implementing", "author"), ("done", None), ("canceled", None), ("todo", None)])
+def test_proceed_outside_planning_is_rejected(phase, ball):
+    s = at(phase, ball) if phase != "todo" else fresh()
+    with pytest.raises(Rejected):
+        step(s, Proceed(by="human"), comment_id="x", now=1.0)
+
+
+# ---------------------------------------------------------------- Approve / Back to planning
+
+def test_approve_from_implementing_author_goes_to_done():
+    s = at("implementing", "author")
+    s, c = run(s, Approve(note="ship it"))
+    assert (s.phase, s.ball) == ("done", None) and s.main.pending_yield is None
+    assert c["kind"] == "system" and "ship it" in c["body"]
+    assert c["structured"]["transition"] == {"from": ["implementing", "author"], "to": ["done", None]}
+
+
+def test_back_to_planning_from_implementing_author():
+    s = at("implementing", "author")
+    s, c = run(s, BackToPlanning(note="rethink"))
+    assert (s.phase, s.ball) == ("planning", "cast")
+    assert c["structured"]["transition"] == {"from": ["implementing", "author"], "to": ["planning", "cast"]}
+
+
+@pytest.mark.parametrize("action", [Approve(), BackToPlanning()])
+@pytest.mark.parametrize("phase,ball", [("planning", "cast"), ("planning", "author"), ("implementing", "cast"), ("done", None), ("canceled", None)])
+def test_approve_and_back_rejected_outside_implementing_author(action, phase, ball):
+    with pytest.raises(Rejected):
+        step(at(phase, ball), action, comment_id="x", now=1.0)
+
+
+def test_approve_by_non_author_rejected():
+    with pytest.raises(Rejected, match="author"):
+        step(at("implementing", "author"), Approve(by="chr1"), comment_id="x", now=1.0)
+
+
+# ---------------------------------------------------------------- Cancel / Reopen
+
+@pytest.mark.parametrize("phase,ball", [("planning", "cast"), ("planning", "author"), ("implementing", "cast"), ("implementing", "author")])
+def test_cancel_from_any_active_cell(phase, ball):
+    s, c = run(at(phase, ball), Cancel(note="nah"))
+    assert (s.phase, s.ball) == ("canceled", None)
+    assert c["structured"]["transition"] == {"from": [phase, ball], "to": ["canceled", None]}
+
+
+def test_cancel_unstarted_story():
+    s, c = run(fresh("backlog"), Cancel())
+    assert s.phase == "canceled" and s.main_thread is None
+    assert c["thread_id"] is None
+
+
+@pytest.mark.parametrize("phase", TERMINAL)
+def test_cancel_terminal_rejected(phase):
+    with pytest.raises(Rejected, match="terminal"):
+        step(at(phase, None), Cancel(), comment_id="x", now=1.0)
+
+
+@pytest.mark.parametrize("phase", TERMINAL)
+def test_reopen_started_story_goes_to_implementing_cast(phase):
+    s, c = run(at(phase, None), Reopen(note="one more thing"))
+    assert (s.phase, s.ball) == ("implementing", "cast")
+    assert "one more thing" in c["body"] and c["thread_id"] == "t1"
+    assert c["structured"]["transition"] == {"from": [phase, None], "to": ["implementing", "cast"]}
+
+
+def test_reopen_never_started_story_goes_back_to_todo():
+    s, _ = run(fresh("backlog"), Cancel())
+    s, c = run(s, Reopen(note="again"))
+    assert s.phase == "todo" and s.protagonist is None
+    assert c["structured"]["transition"] == {"from": ["canceled", None], "to": ["todo", None]}
+
+
+@pytest.mark.parametrize("phase,ball", [("planning", "cast"), ("implementing", "author")])
+def test_reopen_non_terminal_rejected(phase, ball):
+    with pytest.raises(Rejected, match="terminal"):
+        step(at(phase, ball), Reopen(note="x"), comment_id="x", now=1.0)
+
+
+# ---------------------------------------------------------------- Threads beyond main
+
+def test_open_thread_creates_thread_with_author_and_lead_no_transition():
+    s = started()
+    s, c = run(s, OpenThread(thread_id="t2", author="human", lead="chr1", body="why X?"))
+    assert s.thread("t2") == Thread(id="t2", author="human", lead="chr1", turn="cast", pending_yield=None)
+    assert s.ball == "cast" and "transition" not in c["structured"]
+    assert c["kind"] == "text" and c["thread_id"] == "t2" and c["reply_to"] is None
+
+
+def test_open_thread_before_start_or_after_terminal_rejected():
+    with pytest.raises(Rejected):
+        step(fresh(), OpenThread(thread_id="t2", author="human", lead="chr1", body="x"), comment_id="x", now=1.0)
+    with pytest.raises(Rejected):
+        step(at("done", None), OpenThread(thread_id="t2", author="human", lead="chr1", body="x"), comment_id="x", now=1.0)
+
+
+def test_open_thread_duplicate_id_rejected():
+    with pytest.raises(Rejected, match="exists"):
+        step(started(), OpenThread(thread_id="t1", author="human", lead="chr1", body="x"), comment_id="x", now=1.0)
+
+
+def test_side_thread_yield_and_reply_never_touch_the_ball():
+    s, _ = run(started(), OpenThread(thread_id="t2", author="human", lead="chr2", body="review?"))
+    s, c = run(s, Yield("t2", "chr2", "handoff", "LGTM"))
+    assert s.thread("t2").turn == "author" and s.ball == "cast" and "transition" not in c["structured"]
+    s, c = run(s, Reply("t2", "thanks"))
+    assert s.thread("t2").turn == "cast" and s.ball == "cast" and "transition" not in c["structured"]
+
+
+def test_side_thread_yield_by_thread_author_rejected():
+    s, _ = run(started(), OpenThread(thread_id="t2", author="chr1", lead="chr2", body="do it"))
+    with pytest.raises(Rejected, match="author"):
+        step(s, Yield("t2", "chr1", "handoff", "x"), comment_id="x", now=1.0)
+
+
+# ---------------------------------------------------------------- Comment / Recap
+
+def test_comment_in_thread_waiting_on_commenter_is_a_reply():
+    s = at("planning", "author")
+    s, c = run(s, Comment("t1", "human", "answer"))
+    assert s.ball == "cast" and c["reply_to"] is not None
+
+
+def test_comment_otherwise_is_plain_text_with_no_transition():
+    s = started()
+    s2, c = run(s, Comment("t1", "human", "btw"))
+    assert s2 == s and c["kind"] == "text" and c["reply_to"] is None and "transition" not in c["structured"]
+    s3, c = run(s, Comment("t1", "chr1", "working on it"))
+    assert s3 == s and c["author"] == "chr1"
+
+
+def test_comment_unknown_thread_rejected():
+    with pytest.raises(Rejected, match="thread"):
+        step(started(), Comment("zz", "human", "x"), comment_id="x", now=1.0)
+
+
+def test_recap_posts_on_main_without_state_change():
+    s = at("implementing", "cast")
+    s2, c = run(s, Recap(by="chr1", body="done: a; next: b"))
+    assert s2 == s and c["kind"] == "recap" and c["thread_id"] == "t1" and c["author"] == "chr1"
+
+
+def test_recap_before_start_rejected():
+    with pytest.raises(Rejected, match="started"):
+        step(fresh(), Recap(by="chr1", body="x"), comment_id="x", now=1.0)
+
+
+# ---------------------------------------------------------------- invariants
+
+def test_invariants_catch_turn_without_pending_yield():
+    s = started()
+    s.main.turn = "author"
+    with pytest.raises(AssertionError):
+        check_invariants(s)
+
+
+def test_invariants_catch_pending_yield_without_turn():
+    s = started()
+    s.main.pending_yield = "c9"
+    with pytest.raises(AssertionError):
+        check_invariants(s)
+
+
+def test_invariants_catch_active_phase_without_main_thread():
+    s = fresh()
+    s.phase = "planning"
+    with pytest.raises(AssertionError):
+        check_invariants(s)
+
+
+def test_invariants_catch_bad_phase():
+    s = fresh()
+    s.phase = "in_progress"
+    with pytest.raises(AssertionError):
+        check_invariants(s)
+
+
+def test_every_phase_transition_has_exactly_one_causing_comment():
+    """Walk a full life; count transitions in comments == number of phase/ball changes."""
+    s = fresh()
+    log = []
+    for a in [Start(thread_id="t1", protagonist="chr1"), Comment("t1", "chr1", "hi"),
+              Yield("t1", "chr1", "question", "?"), Reply("t1", "a"), Yield("t1", "chr1", "handoff", "plan"),
+              Proceed(by="human"), Recap(by="chr1", body="r"), Yield("t1", "chr1", "handoff", "built"),
+              BackToPlanning(), Proceed(by="chr1"), Yield("t1", "chr1", "handoff", "built2"), Approve(), Reopen(note="x"), Cancel()]:
+        before = (s.phase, s.ball)
+        s, c = run(s, a)
+        after = (s.phase, s.ball)
+        log.append((before != after, "transition" in c["structured"]))
+    assert all(changed == recorded for changed, recorded in log), log
+    assert sum(1 for changed, _ in log if changed) == 12  # every action above except Comment and Recap
