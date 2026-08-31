@@ -35,49 +35,50 @@ generation running.
 overrides; it is gitignored, so `git pull` never touches it and new upstream settings still flow
 through. Everything else is yours too — fork it.
 
-## Agents
+## Stories, characters, contexts
 
 > **Experimental — no backward compatibility** (DESIGN.md §0): on-disk formats, module names,
 > env vars and CLI verbs change without migration until further notice.
->
-> **Mid-rework.** The task/context model below is what currently runs; it is being reworked into
-> the **Story model** — stories with a cast of characters, comment threads with turns, attention-
-> based delivery, recap/recast — per [docs/AGENT-MODEL.md](docs/AGENT-MODEL.md) and the
-> [lifecycle spec](docs/superpowers/specs/2026-08-28-story-lifecycle-design.md). In that model
-> tasks become stories, and `task status` disappears (nobody sets status).
 
-A **context** is one agent conversation: `claude -p --output-format stream-json
---input-format stream-json` as a child process (one process per context, follow-ups over stdin,
-`--resume` after a restart). A context is either *bare* (owned by the human, no story) or attached
-to a task's story key; dispatch from a task tab with a role (`harness/config_def.py: DEFAULT_ROLES`).
-Transcripts persist as JSONL under `<workspace>/.harness/contexts/<id>.jsonl`, indexed by
-`.harness/contexts/index.json`.
+Work is a **story** ([docs/AGENT-MODEL.md](docs/AGENT-MODEL.md)); you are its author, agents are its
+cast. Write a story on the board, press **Start**: the harness casts a **protagonist** from a role
+(`harness/config_def.py: DEFAULT_ROLES`) on a fresh **context** (one `claude -p --output-format
+stream-json` process) and hands it the brief. The story's state is `(phase, ball)`: phase moves only
+through the actions on the story page (Proceed, Approve, Back to planning, Cancel, Reopen) and the
+protagonist's `yield`/`proceed`; nobody sets a status. When the ball is yours the board says why.
 
-Agents get `HARNESS_CONTEXT_ID`, `HARNESS_STORY_KEY`, `HARNESS_WORKSPACE`, `HARNESS_ROOT`,
-`HARNESS_IPC` and `HARNESS_CLI` and can drive the harness over a local socket — bb's `BB_CLI` idea:
+Inside a character `HARNESS_CLI`, `HARNESS_CONTEXT_ID`, `HARNESS_STORY_KEY`, `HARNESS_CHARACTER_ID`,
+`HARNESS_WORKSPACE` and `HARNESS_IPC` are set:
 
-```sh
-$HARNESS_CLI context new --role claude-fast --prompt "write the tests" --wait   # a fresh bare context
-$HARNESS_CLI context list --story ABC-12 | role list | task status ABC-12 in_review
-```
+    $HARNESS_CLI story yield --question --body "pg or sqlite?" --options pg,sqlite   # ball → author
+    $HARNESS_CLI story yield --handoff --body "what changed / how verified / where to look"
+    $HARNESS_CLI story proceed | recap --body … | comment --body … | show
 
-Point `HARNESS_CLAUDE_CMD` at another CLI to substitute the provider (the tests use
-`tests/fake_claude.py`, which speaks the same protocol).
+The current slice drives the main thread only. Friends, minions, sub-stories, inbox delivery,
+auto-yield, recap/recast and repo checks are the next plan
+([docs/superpowers/plans/](docs/superpowers/plans/)); the full mechanics are in the
+[lifecycle spec](docs/superpowers/specs/2026-08-28-story-lifecycle-design.md).
+
+**Where things live.** The checkout you run from is opened as a **workspace**
+([spec](docs/superpowers/specs/2026-08-31-workspace-model-design.md)): `.zharn/workspace.toml`
+(id, prefix, repos), `.zharn/stories/<key>/{story.json,threads.jsonl}` (the durable record), and
+`.zharn/local/` (contexts, characters, session — machine-local). Set `HARNESS_WORKSPACE` to open a
+different directory. Point `HARNESS_CLAUDE_CMD` at another CLI to substitute the provider
+(`tests/fake_claude.py` speaks the protocol).
 
 ## Test
 
 ```sh
 pip install -e .[dev]
-QT_QPA_PLATFORM=offscreen python -m pytest      # ~265 tests, ~30 s, no display needed
+QT_QPA_PLATFORM=offscreen python -m pytest      # ~354 tests, ~30 s, no display needed
 ```
 
 Three layers, all offscreen:
 
-* `tests/test_<module>.py` — unit tests per Python module (stream interpreter, models, tasks, roles,
-  IPC, CLI, watcher, layout, notifier, process wrapper).
+* `tests/test_<module>.py` — unit tests per Python module (workspace, lifecycle, stories, contexts, roles, stream interpreter, models, IPC, CLI, watcher, layout, notifier, process wrapper).
 * `tests/test_ui_*.py` — **drive the real QML** through `tests/ui.py`: find a control by `objectName`,
   click it, type into it, assert the store changed. Every interactive control in `qml/` has a stable
-  `objectName` (`dispatchButton`, `card_ABC-3`, `stripButton_tasks`, `tabClose_<kind>_<key>` …) — keep
+  `objectName` (`startButton`, `card_ZHAR-3`, `stripButton_board`, `optionButton_<comment>_<i>` …) — keep
   that up when you add one, it is how the tests (and agents editing the UI) reach it.
 * `tests/test_app.py`, `tests/test_agents.py` — end-to-end: hot reload, fake-agent conversations, IPC.
 
@@ -85,5 +86,5 @@ Anything a QML button calls is an `@intent` (`harness/notify.py`): if it raises,
 the status bar (`app.notify.lastError`) instead of silently doing nothing.
 
 Smoke-test a real window: `HARNESS_EXIT_AFTER_MS=3000 HARNESS_SCREENSHOT=shot.png python -m harness`;
-add `HARNESS_SMOKE_PROMPT="say pong"` to dispatch a real agent on the first task and exit when it settles.
+add `HARNESS_SMOKE_PROMPT="say pong"` to start a story on the checkout's workspace and exit when it settles.
 On WSL without WSLg, run it from a Windows Python (see docs/DESIGN.md §7).

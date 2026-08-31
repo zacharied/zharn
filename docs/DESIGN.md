@@ -244,6 +244,7 @@ Virtual Keyboard, Timeline).
 
 ## 8. Next steps
 
+Status 2026-08-31: foundation shipped per docs/superpowers/plans/2026-08-31-story-foundation.md — workspace storage (.zharn/), lifecycle state machine, stories/characters/contexts/roles stores, zharn story verbs, board + story + context UI over the main thread; the old task/thread/preset model is gone (§0).
 Status 2026-08-28: the UI is driven by tests (`tests/ui.py`, ~265 tests); every QML-facing slot is an `@intent` that reports failures to the status bar; the kanban wraps its columns when docked narrow.
 Status 2026-08-27: steps 1–2 and 4 done (agent driver over claude-code stream-json, roles,
 task dispatch with report-back contract, IPC + `harness.cli` for agent-spawns-agent on the same task,
@@ -258,7 +259,7 @@ Known churn: every intent re-parses the whole tree and rebuilds all groups (fine
    pure state machine with per-thread turns, thread/comment store, attention + inbox delivery,
    characters/friends/minions, `zharn story …` verbs, per-thread auto-yield, recap/recast
    ladder, `AskUserQuestion` interception, phase-aware system prompts. Migrate tasks → stories,
-   code `Thread` → `Context`.
+   code `Thread` → `Context`. **Partly done (main thread; characters/delivery next).**
 4. **Skills**: vendor superpowers' discipline skills into `harness/skills/`, write
    `being-a-character` + the phase skills, `tests/skills/` runner with `verbs_log` assertions.
 5. **Story tab + board rework**: threads with per-cell action bars, option buttons, `@`/`/call`,
@@ -268,7 +269,7 @@ Known churn: every intent re-parses the whole tree and rebuilds all groups (fine
    layout, start screen (Scratch, recents, open folder), repo registration (author + `zharn repo
    add`), lazy managed worktrees (`zharn env open`), per-repo checks at handoff, story move with
    aliases; migrate `.harness/` → `.zharn/`. What Approve does to a story's environments
-   (merge/PR/cleanup) gets its own spec; git status + filesystem panels.
+   (merge/PR/cleanup) gets its own spec; git status + filesystem panels. **Partly done (workspace storage; start screen, repos, worktrees next).**
 7. `pyte`-backed terminal panel.
 8. Self-hosting: open Scratch, start a story against the pre-registered zharn repo, and have the
    cast edit the UI.
