@@ -11,3 +11,5 @@ qml/Theme.qml
 tests/_out/
 # agent scratch (SDD ledgers, briefs, reports)
 .superpowers/
+# rendered design mockups (regenerate with docs/design/mockups/build.py + headless Chrome)
+docs/design/mockups/shots/
