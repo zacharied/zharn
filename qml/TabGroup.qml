@@ -1,6 +1,8 @@
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
+import "ui"
+import "ui/Theme.js" as T
 
 // Main Content Container: a tab group. Tabs can be dragged to other groups (reorder/move)
 // or onto the edges of a group's content area (split). All of that is sent as intents.
@@ -12,6 +14,16 @@ Rectangle {
     readonly property int tabCount: node ? node.tabs.length : 0
     objectName: "group_" + groupId
     color: app.theme.bg
+
+    // story tabs show a live dot while their cast is working
+    property var working: ({})
+    function refreshWorking() {
+        var w = {}, rows = app.stories.list()
+        for (var i = 0; i < rows.length; i++) if (rows[i].workingCount > 0) w[rows[i].key] = true
+        working = w
+    }
+    Component.onCompleted: refreshWorking()
+    Connections { target: app.stories; function onStoriesChanged() { group.refreshWorking() } }
 
     Component {
         id: ghostComp
@@ -33,7 +45,7 @@ Rectangle {
         // ---- tab bar
         Rectangle {
             id: bar
-            Layout.fillWidth: true; height: 34; color: app.theme.panel
+            Layout.fillWidth: true; height: app.theme.tabHeight; color: app.theme.panel
             Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: app.theme.border }
 
             Row {
@@ -46,23 +58,30 @@ Rectangle {
                         required property int index
                         required property var modelData
                         readonly property bool current: index === group.node.active
+                        readonly property bool live: modelData.kind === "story" && !!group.working[modelData.key]
                         objectName: "tab_" + modelData.kind + "_" + modelData.key
-                        width: tLabel.implicitWidth + 44; height: bar.height
-                        color: current ? app.theme.tabActive : (tabHover.hovered ? app.theme.border : "transparent")
+                        width: Math.min(tLabel.implicitWidth, 220) + 62 + (live ? 12 : 0); height: bar.height
+                        color: current ? app.theme.tabActive : (tabHover.hovered ? app.theme.hover : "transparent")
                         Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 2
                                     color: current && group.isActive ? app.theme.accent : "transparent" }
                         Rectangle { anchors.right: parent.right; width: 1; height: parent.height; color: app.theme.border }
+                        Icon { id: tIcon; x: 12; anchors.verticalCenter: parent.verticalCenter; size: 14
+                               name: app.content.iconFor(tabItem.modelData.kind); color: tabItem.current ? app.theme.text : app.theme.textMuted }
                         Text {
-                            id: tLabel; x: 12; anchors.verticalCenter: parent.verticalCenter
-                            text: app.content.iconFor(modelData.kind) + "  " + modelData.title
-                            color: current ? app.theme.text : app.theme.textMuted
+                            id: tLabel; x: 33; anchors.verticalCenter: parent.verticalCenter
+                            width: Math.min(implicitWidth, 220); elide: Text.ElideRight
+                            text: tabItem.modelData.title
+                            color: tabItem.current ? app.theme.text : app.theme.textMuted
                         }
-                        Text {
-                            objectName: "tabClose_" + modelData.kind + "_" + modelData.key
-                            text: "×"; anchors.right: parent.right; anchors.rightMargin: 10; anchors.verticalCenter: parent.verticalCenter
-                            color: closeHover.hovered ? app.theme.text : app.theme.textMuted; font.pixelSize: 15
-                            HoverHandler { id: closeHover }
-                            TapHandler { onTapped: app.layout.closeTab(group.groupId, tabItem.index) }
+                        StatusDot { visible: tabItem.live; status: "working"; size: 6; anchors.verticalCenter: parent.verticalCenter; x: tLabel.x + tLabel.width + 8 }
+                        IconButton {
+                            objectName: "tabClose_" + tabItem.modelData.kind + "_" + tabItem.modelData.key
+                            icon: "close"; iconSize: 12; size: 16
+                            anchors.right: parent.right; anchors.rightMargin: 8; anchors.verticalCenter: parent.verticalCenter
+                            iconColor: hovered_ ? app.theme.text : app.theme.textDim
+                            property bool hovered_: false
+                            HoverHandler { onHoveredChanged: parent.hovered_ = hovered }
+                            onClicked: app.layout.closeTab(group.groupId, tabItem.index)
                         }
                         HoverHandler { id: tabHover }
                         MouseArea {
@@ -113,16 +132,8 @@ Rectangle {
             Row {
                 anchors { right: parent.right; verticalCenter: parent.verticalCenter; rightMargin: 6 }
                 spacing: 2
-                Repeater {
-                    model: [{ t: "◧", o: "horizontal", tip: "Split right", name: "splitRight" }, { t: "⬒", o: "vertical", tip: "Split down", name: "splitDown" }]
-                    delegate: Label {
-                        objectName: modelData.name + "_" + group.groupId
-                        text: modelData.t; padding: 4; color: sh.hovered ? app.theme.text : app.theme.textMuted
-                        HoverHandler { id: sh }
-                        TapHandler { onTapped: app.layout.splitGroup(group.groupId, modelData.o) }
-                        ToolTip.visible: sh.hovered; ToolTip.text: modelData.tip
-                    }
-                }
+                IconButton { objectName: "splitRight_" + group.groupId; icon: "splitv"; tip: "Split right"; onClicked: app.layout.splitGroup(group.groupId, "horizontal") }
+                IconButton { objectName: "splitDown_" + group.groupId; icon: "splith"; tip: "Split down"; onClicked: app.layout.splitGroup(group.groupId, "vertical") }
             }
         }
 

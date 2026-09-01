@@ -3,22 +3,57 @@
 followed by your overrides. config.py is YOURS (gitignored); new upstream keys flow through.
 """
 
-# JetBrains "Darcula"-ish palette
+# JetBrains New UI (dark) — chrome colors, then the semantic layer the story model needs.
+# Rule of thumb: phases get a soft color each; only *turns* (amber = needs you) and *liveness*
+# (blue = a character mid-turn) get saturated color. Everything else is grey.
 THEME = {
-    "bg": "#1e1f22",         # editor / window background
-    "panel": "#2b2d30",      # tool windows, tab bars
+    # chrome
+    "bg": "#1e1f22",         # editor area / window
+    "panel": "#2b2d30",      # tool windows, tab bars, toolbar, status bar
     "strip": "#2b2d30",      # tool-window strips
     "border": "#393b40",
+    "hover": "#393b40",
+    "selection": "#2e436e",
     "text": "#dfe1e5",
     "textMuted": "#868a91",
+    "textDim": "#6c707a",
     "accent": "#3574f0",
+    "accentHover": "#4a88ff",
     "accentSoft": "#2e436e",
+    "buttonBorder": "#5a5d63",
     "tabActive": "#1e1f22",
     "tabInactive": "#2b2d30",
     "dropHint": "#3574f055",
-    "fontFamily": "Segoe UI",
+    # semantic
+    "needsYou": "#d6ae58",       # ball with you: badges, needs-you rows, the action bar's edge
+    "needsYouSoft": "#d6ae5824",
+    "live": "#3574f0",           # a character mid-turn
+    "settled": "#5fad65",        # handoffs, done, idle-ok
+    "danger": "#f75464",         # failed checks, errors, Cancel
+    "dangerSoft": "#f7546420",
+    "warning": "#f0a732",        # hot-reload warnings
+    # phases (soft keys; canceled is grey)
+    "phaseTodo": "#7fb5aa",      # backlog + todo
+    "phasePlanning": "#b893ea",
+    "phaseImplementing": "#7da7ff",
+    "phaseDone": "#7cc47f",
+    "phaseCanceled": "#868a91",
+    # type: qml/fonts/ ships Inter + JetBrains Mono (OFL); the fallbacks are what the OS has
+    "fontFamily": "Inter",
     "fontSize": 13,
-    "monoFamily": "JetBrains Mono, Cascadia Mono, Consolas, monospace",
+    "fontSizeSmall": 11,
+    "monoFamily": "JetBrains Mono",
+    "monoSize": 12,
+    # metrics (New UI defaults, 4px grid)
+    "stripWidth": 40,
+    "toolbarHeight": 40,
+    "tabHeight": 36,
+    "headerHeight": 36,
+    "statusHeight": 26,
+    "rowHeight": 24,
+    "controlHeight": 28,
+    "radius": 4,
+    "radiusLarge": 6,
 }
 
 # File-watcher poll interval when inotify is unavailable (WSL drvfs, exhausted watches)

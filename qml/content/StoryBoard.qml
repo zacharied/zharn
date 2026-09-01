@@ -27,10 +27,6 @@ ContentBase {
                 color: board.needsYouCount > 0 ? "#f0a732" : app.theme.textMuted; font.bold: board.needsYouCount > 0
             }
             Item { Layout.fillWidth: true }
-            Label {
-                objectName: "newStoryButton"; text: "+ new story"; color: app.theme.accent
-                TapHandler { onTapped: { var k = app.stories.create("New story", ""); if (k) app.layout.openContent("story", k, k) } }
-            }
         }
         Flickable {
             id: flick

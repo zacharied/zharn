@@ -22,7 +22,7 @@ from PySide6.QtQml import QQmlApplicationEngine
 ROOT = Path(__file__).resolve().parent.parent
 QML_DIR = ROOT / "qml"
 PKG_DIR = ROOT / "harness"
-RELOADABLE = ["harness.config_def", "harness.config", "harness.notify", "harness.layout", "harness.content", "harness.qmodels",
+RELOADABLE = ["harness.config_def", "harness.config", "harness.notify", "harness.icons", "harness.layout", "harness.content", "harness.qmodels",
               "harness.fsutil", "harness.workspace", "harness.lifecycle", "harness.agents", "harness.roles", "harness.contexts",
               "harness.stories", "harness.ipc", "harness.store"]  # dependency order
 WATCH_EXT = {".py", ".qml", ".js", ".mjs"}
@@ -206,6 +206,8 @@ class Reloader(QObject):
         t0 = time.perf_counter()
         engine = QQmlApplicationEngine()
         engine.addImportPath(str(QML_DIR))
+        from harness.icons import IconProvider  # reloadable; a fresh provider (and cache) per generation
+        engine.addImageProvider("icon", IconProvider())
         engine.rootContext().setContextProperty("app", self.app_store)
         engine.setOutputWarningsToStandardError(True)
         warnings = []

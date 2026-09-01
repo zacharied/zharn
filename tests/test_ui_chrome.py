@@ -32,12 +32,21 @@ def test_dock_hide_button_collapses_it_to_the_strip(ui):
     ui.click(ui.find("stripButton_board"))
 
 
-def test_dock_panel_switcher_changes_active_panel(ui):
-    ui.click(ui.find("dockPanel_files"))
-    assert docks(ui)["left"]["active"] == "files"
+def test_strip_button_of_another_panel_switches_the_dock_to_it(ui):
+    ui.click(ui.find("stripButton_files"))
+    assert docks(ui)["left"]["active"] == "files" and docks(ui)["left"]["mode"] == "docked"
     assert ui.find("dockContent_left").property("source").endswith("Files.qml")
-    ui.click(ui.find("dockPanel_board"))
+    ui.click(ui.find("stripButton_board"))
     assert docks(ui)["left"]["active"] == "board"
+
+
+def test_bottom_panels_live_on_the_left_strip_and_open_the_bottom_dock(ui):
+    assert not ui.find("dock_bottom").isVisible()
+    ui.click(ui.find("stripButton_contexts"))
+    assert docks(ui)["bottom"] == {**docks(ui)["bottom"], "active": "contexts", "mode": "docked"}
+    assert ui.visible(ui.find("dock_bottom"))
+    ui.click(ui.find("stripButton_contexts"))
+    assert not ui.find("dock_bottom").isVisible()
 
 
 def test_clicking_a_tab_activates_it(ui):
@@ -90,12 +99,13 @@ def test_welcome_open_board_shows_the_story_board(ui):
     assert docks(ui)["left"] == {**docks(ui)["left"], "active": "board", "mode": "docked"}
 
 
-def test_welcome_contexts_opens_the_right_panel(ui):
+def test_welcome_contexts_opens_the_bottom_panel(ui):
     ui.store.layout.openContent("welcome", "welcome", "Welcome")
     QTest.qWait(50)
     ui.click(ui.find("welcomeContexts"))
-    assert docks(ui)["right"] == {**docks(ui)["right"], "active": "contexts", "mode": "docked"}
-    assert ui.visible(ui.find("dock_right"))
+    assert docks(ui)["bottom"] == {**docks(ui)["bottom"], "active": "contexts", "mode": "docked"}
+    assert ui.visible(ui.find("dock_bottom"))
+    ui.store.layout.setDockMode("bottom", "strip")
 
 
 def test_contexts_row_opens_the_context(ui):
