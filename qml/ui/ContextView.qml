@@ -64,6 +64,7 @@ Item {
                 ColumnLayout {
                     id: col; width: parent.width; spacing: 3
                     RowLayout {
+                        visible: row.kind !== "text" || row.isUser   // plain assistant prose needs no label
                         spacing: 6
                         Icon { visible: row.kind === "tool_use"; name: "terminal"; size: 12; color: app.theme.textDim }
                         Text { text: row.label; color: row.isError ? app.theme.danger : (row.isUser ? app.theme.text : app.theme.textMuted)

@@ -147,7 +147,7 @@ def test_context_tab_renders_and_screenshot(harness):
     QTest.qWait(300)
     win = root(reloader)
     win.setWidth(1400); win.setHeight(900)
-    lists = find_all(win, "transcript")
+    lists = [l for l in find_all(win, "transcript") if l.property("visible") and l.width() > 0]  # the Contexts pane has a hidden one
     assert lists and lists[0].property("count") == c.transcript.count()
     QTest.qWait(300)
     img = win.grabWindow()
