@@ -147,7 +147,9 @@ class StoryStore(QObject):
                 "ball": s.ball or "", "needsYou": bool(flavor), "flavor": flavor, "author": s.author,
                 "protagonist": s.protagonist or "", "castCount": len(cast),
                 "workingCount": sum(1 for c in live if c is not None and c.status in WORKING),
-                "createdAt": self._created.get(key, 0)}
+                "createdAt": self._created.get(key, 0), "mainThread": s.main_thread or "",
+                "threads": [{"id": t.id, "n": i + 1, "isMain": t.id == s.main_thread, "author": t.author, "lead": t.lead,
+                             "turn": t.turn, "pendingYield": t.pending_yield or ""} for i, t in enumerate(s.threads)]}
 
     def _refresh(self):
         self._model.reset([self._row(k) for k in self._stories])
@@ -385,10 +387,11 @@ class StoryStore(QObject):
         ch = self._characters[character_id]  # KeyError for unknown characters
         return ch["story_key"], ch
 
-    def cast_yield(self, character_id, kind, body, options=(), thread_id="") -> dict:
+    def cast_yield(self, character_id, kind, body, options=(), thread_id="", checks=()) -> dict:
         key, ch = self._char(character_id)
         tid = thread_id or ch.get("attention") or self._stories[key].main_thread
-        return self._apply(key, lc.Yield(thread_id=tid, by=character_id, kind=kind, body=body, options=list(options)))
+        return self._apply(key, lc.Yield(thread_id=tid, by=character_id, kind=kind, body=body, options=list(options),
+                                         checks=[dict(c) for c in checks]))
 
     def cast_proceed(self, character_id, note="") -> dict:
         key, ch = self._char(character_id)

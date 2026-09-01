@@ -12,8 +12,8 @@ Rectangle {
     color: app.theme.panel
     objectName: "dock_" + side
 
-    // The active panel may contribute header actions by setting `headerActions` on its root
-    // (a Component); `headerSubtitle` likewise. Both are optional.
+    // The active panel may contribute to the header by declaring `headerBadge` / `headerActions`
+    // (Components) and `headerSubtitle` (string) on its root. All optional.
     readonly property var panelItem: content.item
 
     ColumnLayout {
@@ -22,6 +22,7 @@ Rectangle {
             Layout.fillWidth: true
             title: dockItem.dock.active ? app.content.titleFor(dockItem.dock.active) : ""
             subtitle: dockItem.panelItem && dockItem.panelItem.headerSubtitle !== undefined ? dockItem.panelItem.headerSubtitle : ""
+            badge: dockItem.panelItem && dockItem.panelItem.headerBadge !== undefined ? dockItem.panelItem.headerBadge : null
             Loader { sourceComponent: dockItem.panelItem && dockItem.panelItem.headerActions !== undefined ? dockItem.panelItem.headerActions : null }
             IconButton { objectName: "dockHide_" + dockItem.side; icon: "hide"; tip: "Hide"; onClicked: app.layout.setDockMode(dockItem.side, "strip") }
         }

@@ -6,12 +6,14 @@ Rectangle {
     id: h
     property string title
     property string subtitle: ""
+    property Component badge: null          // e.g. the Stories "2 need you" chip, right after the title
     default property alias actions: actionRow.data
     height: app.theme.headerHeight; color: app.theme.panel
     RowLayout {
         anchors { fill: parent; leftMargin: 12; rightMargin: 6 }
         spacing: 8
         Text { text: h.title; color: app.theme.text; font.weight: Font.DemiBold; font.pixelSize: app.theme.fontSize }
+        Loader { sourceComponent: h.badge; visible: !!h.badge }
         Text { visible: !!h.subtitle; text: h.subtitle; color: app.theme.textMuted; font.pixelSize: app.theme.fontSize; elide: Text.ElideRight; Layout.maximumWidth: 160 }
         Item { Layout.fillWidth: true }
         Row { id: actionRow; spacing: 2 }

@@ -441,3 +441,22 @@ def test_needs_you_flavor():
     assert needs_you_flavor(s, [c0]) == ""
     s2, c1 = step(s, Yield("t1", "c", "question", "?"), comment_id="c1", now=2)
     assert needs_you_flavor(s2, [c0, c1]) == "question"
+
+
+def test_row_lists_threads_with_turns(store):
+    key = store.create("Threads", "")
+    assert store.get(key)["threads"] == [] and store.get(key)["mainThread"] == ""
+    chr_id = store.start(key, "", "protagonist")
+    (t,) = store.get(key)["threads"]
+    assert t == {"id": store.get(key)["mainThread"], "n": 1, "isMain": True, "author": "human", "lead": chr_id, "turn": "cast", "pendingYield": ""}
+    c = store.cast_yield(chr_id, "question", "a or b?", options=["a", "b"])
+    (t,) = store.get(key)["threads"]
+    assert t["turn"] == "author" and t["pendingYield"] == c["id"]
+
+
+def test_handoff_carries_checks(store):
+    key = store.create("Checks", "")
+    chr_id = store.start(key, "", "protagonist")
+    c = store.cast_yield(chr_id, "handoff", "built", checks=[{"repo": "zharn", "cmd": "pytest -q", "exit": 0, "output": "ok"}])
+    assert c["structured"]["checks"] == [{"repo": "zharn", "cmd": "pytest -q", "exit": 0, "output": "ok"}]
+    assert store.comments(key)[-1]["structured"]["checks"][0]["repo"] == "zharn"

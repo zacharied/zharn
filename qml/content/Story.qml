@@ -152,24 +152,6 @@ ContentBase {
                 Button { objectName: "replyButton"; text: view.mine ? "Reply" : "Comment"; enabled: reply.text.trim().length > 0; onClicked: reply.post() }
             }
 
-            // ---- cast
-            Label { visible: view.cast.length > 0; text: "Cast"; color: app.theme.text; font.bold: true; Layout.topMargin: 8 }
-            Repeater {
-                model: view.cast
-                delegate: Rectangle {
-                    required property var modelData
-                    objectName: "castRow_" + modelData.id
-                    Layout.fillWidth: true; height: 34; radius: 4; color: app.theme.panel; border.color: app.theme.border
-                    RowLayout {
-                        anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 10; spacing: 8
-                        Rectangle { width: 8; height: 8; radius: 4; color: view.statusColor[modelData.contextStatus] || "gray" }
-                        Label { text: modelData.name + (modelData.id === view.story.protagonist ? "  · protagonist" : ""); color: app.theme.text; Layout.fillWidth: true }
-                        Label { text: modelData.role; color: app.theme.textMuted; font.pixelSize: 11 }
-                        Label { text: modelData.contextStatus; color: app.theme.textMuted; font.pixelSize: 11 }
-                    }
-                    TapHandler { onTapped: if (modelData.live_context) app.layout.openContent("context", modelData.live_context, tabKey + " · " + modelData.name) }
-                }
-            }
         }
     }
 }

@@ -140,3 +140,26 @@ def test_unknown_story_tab_explains_itself(ui):
     open_story(ui, "ZZZ-999")
     assert "not found" in ui.find("storyMissing").property("text").lower()
     assert not ui.has("startButton") or not ui.visible(ui.find("startButton"))
+
+
+def test_tree_groups_count_stories_by_phase(ui):
+    before = ui.find("treeGroup_planning").property("count")
+    key = ui.store.stories.create("Grouped", "")
+    ui.store.stories.start(key, "", "protagonist")
+    QTest.qWait(80)
+    assert ui.find("treeGroup_planning").property("count") == before + 1
+    assert ui.visible(ui.find(f"card_{key}"))
+
+
+def test_cast_panel_follows_the_active_story_tab(ui):
+    a = ui.store.stories.create("A", "")
+    b = ui.store.stories.create("B", "")
+    ca = ui.store.stories.start(a, "", "protagonist")
+    cb = ui.store.stories.start(b, "", "protagonist")
+    open_story(ui, a)
+    assert ui.visible(ui.find(f"castRow_{ca}")) and not ui.has(f"castRow_{cb}")
+    open_story(ui, b)
+    assert ui.visible(ui.find(f"castRow_{cb}")) and not ui.has(f"castRow_{ca}")
+    ui.store.layout.openContent("welcome", "welcome", "Welcome")  # non-story tab: the cast stays on B
+    QTest.qWait(80)
+    assert ui.has(f"castRow_{cb}")
