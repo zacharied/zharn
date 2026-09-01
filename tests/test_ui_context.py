@@ -77,7 +77,7 @@ def test_unknown_context_tab_explains_itself(ui):
     ui.store.layout.openContent("context", "ctx_nope", "gone")
     QTest.qWait(100)
     assert "not found" in ui.find("contextMissing").property("text").lower()
-    assert not ui.has("sendButton") or not ui.visible(ui.find("sendButton"))
+    assert not any(r.isVisible() for r in ui.find_all("sendButton"))  # the panel's pane has one too, hidden
 
 
 def test_story_link_in_header_opens_the_story(ui):

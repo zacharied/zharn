@@ -2,23 +2,26 @@ import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import ".."
+import "../ui"
 
 ContentBase {
     ColumnLayout {
-        anchors.fill: parent; anchors.margins: 14; spacing: 8
-        Label { text: "Welcome to zharn" + (tabKey && tabKey !== "welcome" ? " · " + tabKey : ""); color: app.theme.text; font.pixelSize: 16; font.bold: true }
-        Label { text: "Native Qt. Your fork is your config. Edit qml/ or harness/ and watch it reload."; color: app.theme.textMuted; wrapMode: Text.Wrap; Layout.fillWidth: true }
-        Label { text: "Work is a story. Open the board, write one, press Start, and answer the protagonist when the ball is yours."; color: app.theme.textMuted; wrapMode: Text.Wrap; Layout.fillWidth: true }
-        Row { spacing: 8
-            Button { objectName: "welcomeOpenBoard"; text: "Board"; onClicked: app.layout.showPanel("board") }
-            Button { objectName: "welcomeNewStory"; text: "New story"
-                     onClicked: { var k = app.stories.create("New story", ""); if (k) app.layout.openContent("story", k, k) } }
-            Button { objectName: "welcomeContexts"; text: "Contexts"; onClicked: app.layout.showPanel("contexts") }
-            Button { objectName: "welcomeNewContext"; text: "New context"
-                     onClicked: { var id = app.contexts.newBare(""); if (id) app.layout.openContent("context", id, "New context") } }
-            Button { objectName: "welcomeReset"; text: "Reset layout"; onClicked: app.layout.resetLayout() }
+        anchors { left: parent.left; top: parent.top; margins: 28 }
+        width: Math.min(parent.width - 56, 640); spacing: 10
+        Text { text: "zharn"; color: app.theme.text; font.pixelSize: 22; font.weight: Font.DemiBold }
+        Text { text: "Work is a story. Write one, press Start, and answer the protagonist when the ball is yours."; color: app.theme.textMuted; wrapMode: Text.Wrap; Layout.fillWidth: true; lineHeight: 1.3 }
+        Text { text: "Your fork is your config: edit qml/ or harness/ while it runs and watch it reload."; color: app.theme.textMuted; wrapMode: Text.Wrap; Layout.fillWidth: true; lineHeight: 1.3 }
+        Flow { spacing: 8; Layout.fillWidth: true; Layout.topMargin: 6
+            Btn { objectName: "welcomeNewStory"; primary: true; icon_: "play"; text: "New story"
+                  onClicked: { var k = app.stories.create("New story", ""); if (k) app.layout.openContent("story", k, k) } }
+            Btn { objectName: "welcomeOpenBoard"; icon_: "stories"; text: "Stories"; onClicked: app.layout.showPanel("board") }
+            Btn { objectName: "welcomeContexts"; icon_: "contexts"; text: "Contexts"; onClicked: app.layout.showPanel("contexts") }
+            Btn { objectName: "welcomeNewContext"; icon_: "context"; text: "New context"
+                  onClicked: { var id = app.contexts.newBare(""); if (id) app.layout.openContent("context", id, "New context") } }
+            Btn { objectName: "welcomeReset"; quiet: true; text: "Reset layout"; onClicked: app.layout.resetLayout() }
         }
-        Label { text: "Agents can drive this app too: $HARNESS_CLI context new --role claude-fast --prompt \"...\" --wait"; color: app.theme.textMuted; font.family: app.theme.monoFamily; font.pixelSize: 11; wrapMode: Text.Wrap; Layout.fillWidth: true }
-        Item { Layout.fillHeight: true }
+        Text { Layout.topMargin: 10; Layout.fillWidth: true; wrapMode: Text.Wrap
+               text: "Agents drive this app too:  $HARNESS_CLI context new --role claude-fast --prompt \"...\" --wait"
+               color: app.theme.textDim; font.family: app.theme.monoFamily; font.pixelSize: app.theme.fontSizeSmall }
     }
 }

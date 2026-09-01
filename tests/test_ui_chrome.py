@@ -112,9 +112,12 @@ def test_contexts_row_opens_the_context(ui):
     cid = ui.store.contexts.spawn("claude-fast", "from the log", story_key="ABC-2")
     ui.store.layout.showPanel("contexts")
     QTest.qWait(150)
-    ui.click(ui.find(f"contextRow_{cid}"))
+    ui.click(ui.find(f"contextRow_{cid}"))            # selects: the pane shows it
+    assert ui.find("paneContextTitle").property("text") == "from the log"
+    ui.click(ui.find("contextOpenInTab"))               # and this opens the editor tab
     assert ui.has(f"tab_context_{cid}")
     assert wait_until(lambda: ui.store.contexts.get(cid).status == "idle")
+    ui.store.layout.setDockMode("bottom", "strip")
 
 
 def test_new_context_button_opens_a_bare_context(ui):
