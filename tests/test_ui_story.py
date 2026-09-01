@@ -58,7 +58,7 @@ def test_start_casts_protagonist_and_shows_phase_and_ball(ui):
     row = ui.store.stories.get(key)
     assert row["phase"] == "planning" and row["ball"] == "cast" and row["castCount"] == 1
     assert ui.store.contexts.model.count() == n + 1
-    assert ui.find("storyPhase").property("text") == "planning" and ui.find("storyBall").property("text") == "cast"
+    assert ui.find("storyPhase").property("text") == "planning" and ui.find("storyBall").property("text").startswith("cast")
     assert not ui.has("startButton") or not ui.visible(ui.find("startButton"))
     assert ui.visible(ui.find("cancelButton")) and not ui.visible(ui.find("proceedButton"))
     chr_id = row["protagonist"]

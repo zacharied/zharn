@@ -72,7 +72,8 @@ ContentBase {
                                StatusDot { visible: !m.asksYou; anchors.centerIn: parent; status: m.status; size: 10 } }
                         Row { spacing: 6
                               Text { text: m.modelData.name; color: app.theme.text; font.weight: Font.Medium }
-                              Text { text: m.modelData.role + (m.ctx && m.ctx.model ? " · " + m.ctx.model : ""); color: app.theme.textMuted } }
+                              Text { readonly property string role: m.modelData.role !== m.modelData.name ? m.modelData.role : ""
+                                     text: [role, m.ctx ? m.ctx.model : ""].filter(function (x) { return x }).join(" · "); color: app.theme.textMuted } }
                         Item { width: 16; height: 1 }
                         Text {
                             Layout.fillWidth: true; elide: Text.ElideRight; font.pixelSize: app.theme.fontSizeSmall
