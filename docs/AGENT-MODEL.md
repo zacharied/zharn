@@ -25,12 +25,15 @@ collapse into the same thing, the model is wrong.
 **Thread** — *what*: a root comment and its replies; one topic on a story. A thread has an
 **author** (whoever opened it), a **lead** (the character its root comment addressed), and a
 **turn** — whether the thread currently waits on its author, waits on its cast, or is
-**resolved**: topic closed, nothing pending.
+**resolved**: topic closed, nothing pending. The lead is the only character that yields in a
+thread; anyone else taking part is a **guest**.
 
 **Character** — *who*: a role instantiated on a story. A named participant with an inbox and an
 attention, who posts comments *as itself* (e.g. "Reviewer · opus"), leads many threads over its
 life, and holds exactly one **live context** at a time — recast replaces the context; the
-character, its name, its threads, and its pending obligations all survive.
+character, its name, its threads, and its pending obligations all survive. A character **owes**
+the threads it leads that wait on the cast, and **awaits** the threads and sub-stories it opened
+that wait on theirs.
 
 **Context** — *memory*: one agent conversation — system prompt, turns, tool calls — resumable,
 forkable, viewable. What bb calls a thread. A context is owned by a character, by a minion, or
@@ -54,7 +57,14 @@ the work, decides who else to bring in, and is the only character that can yield
 thread — and therefore the only one that can move the story between phases or hand it back.
 
 **Friend** — any other character, cast by a character or by the author opening a thread with a
-role. Peers of the protagonist in every respect except the main thread.
+role. Peers of the protagonist in every respect except the main thread. A friend may be a
+**fork**: cast from another character's role with a copy of that character's memory at the
+moment of casting — a second opinion, or an answer to a side question, from someone who already
+knows everything the original knows, without touching the original's attention. A fork cannot
+change the original's plan; it can only tell it.
+
+**Guest** — a character taking part in a thread it neither leads nor opened, because it was
+mentioned or simply commented. Guests owe nothing there.
 
 **Minion** — a short-lived helper: a context with no character. No name, no comments; its result
 returns to whoever dispatched it, and it may be *forked* from its dispatcher's context so it
@@ -75,12 +85,17 @@ on the main thread, that is the ball moving.
 answer a pending yield, but a reply hands the thread back to its cast while a resolve closes it,
 waking nobody. A comment in a resolved thread reopens it.
 
-**Inbox / attention** — a character attends one thread at a time; everything else addressed to
-it queues in its inbox until it comes up for air. Nobody can hijack a character's attention —
-but anyone can join the thread it is already attending.
+**Inbox / attention** — a character attends one thread at a time: the thread of whatever was
+last delivered to it. Everything else addressed to it queues in its inbox until it comes up for
+air. Nobody can hijack a character's attention — but anyone can join the thread it is already
+attending.
 
-**Recap** — a comment summarizing the state of the story — done, in flight, gotchas, next —
-posted by a character before its context is replaced.
+**Waiting / quiet** — a character that has a friend out or a sub-story open is **waiting** when
+it stops: their yields will wake it. A character that stops while it still owes a thread and
+awaits nothing has **gone quiet**, and the harness yields that thread for it, saying so.
+
+**Recap** — a comment summarizing the state of the character's work — done, in flight, gotchas,
+next — posted in the thread it is attending before its context is replaced.
 
 **Recast** — replacing a character's live context with a fresh one built from the story record
 and the latest recap. How a story survives a full context, a wedged session, or a mid-story
@@ -125,11 +140,13 @@ Cancel · Reopen · open a new thread
 thread · **Recast** any character (optionally onto a new role or model) · start a bare context ·
 promote a bare context into a story.
 
-**Any character** can: yield in a thread it is engaged in · comment · open a thread · resolve a
-thread it authored that waits on it · call in a friend · send out minions · create a sub-story ·
-post a recap · wait for a character to yield to it or a sub-story to come back.
+**Any character** can: yield in a thread it leads · comment · open a thread · resolve a
+thread it authored that waits on it · call in a friend, fresh or forked from itself · send out
+minions · create a sub-story · post a recap · wait — stop for now while a friend or a sub-story is
+out.
 
-**Only the protagonist** can: yield on the main thread — questions, handoffs — and Proceed.
+**Only a thread's lead** yields in it. The protagonist leads the main thread, so it alone moves
+the story between phases or hands it back, and it alone Proceeds.
 
 ## 5. How a story unfolds
 
@@ -143,10 +160,12 @@ post a recap · wait for a character to yield to it or a sub-story to come back.
 4. Implementing. The protagonist decides how the work gets done: itself, minions, friends,
    sub-stories (§6). A typical shape: a swarm of minions investigates; `call` opens a thread to
    an **Implementor** friend; the protagonist keeps working, then *waits*. The Implementor's
-   handoff flips their thread back to the protagonist, who calls a **Reviewer** into that same
-   thread; the review lands as a reply beneath the result. Fixes go round once more.
+   handoff wakes the protagonist, who calls a **Reviewer** into a thread of its own — "review
+   #2" — and waits again. The review comes back; the protagonist replies in the Implementor's
+   thread with what to fix. Fixes go round once more.
 5. Meanwhile the author may open a side thread to the protagonist — "why X and not Y?" — which
-   waits in its inbox and gets answered between turns, without derailing the build; the author
+   waits in its inbox and gets answered between turns, without derailing the build; or the
+   author asks a **fork** of the protagonist instead and gets the answer now. The author
    replies, or resolves the thread if the answer settles it. If the
    protagonist's context runs low, the harness tells it to recap, and the author (or the
    harness) recasts it: same character, fresh memory, the story record as its brief.
@@ -175,11 +194,13 @@ rarely needed.
 
 * Everything anyone says on a story is a comment in a thread, shown with its author.
 * A root comment that addresses nobody opens a thread to the protagonist; `@Name` opens one to
-  that character; opening with a role casts a fresh friend to lead it. A reply with no mention
-  goes to the thread's lead; a reply to a yield goes to whoever yielded.
-* Delivery follows attention: replies in a character's attended thread arrive immediately (even
-  interrupting a `wait`, with a note saying so); everything else queues in its inbox, oldest
-  first, delivered when the character is waiting or idle.
+  that character; opening with a role casts a fresh friend to lead it; opening with a fork of
+  `@Name` casts a forked friend to lead it. A reply with no mention goes to the thread's lead; a
+  reply to a yield goes to whoever yielded (to the lead, when the harness yielded for it).
+  `@Name` anywhere brings Name in as a guest.
+* Delivery follows attention: comments in a character's attended thread reach it immediately,
+  even mid-turn; everything else queues in its inbox, oldest first, one per turn, delivered when
+  the character stops. A waiting or idle character is woken by whatever arrives.
 * An author's comment in a thread that is waiting on them **is** the reply — there is exactly
   one pending yield there, so there is nothing else it could mean. The turn flips back.
 * A resolved thread is not locked: any comment in it reopens it. But once a story is done or
@@ -195,13 +216,15 @@ rarely needed.
 
 The harness owns the process, the tools the cast uses, and the words each character wakes up
 with. **Anything that can be enforced mechanically is; skills exist only for judgment.**
-Mechanically: status cannot be set; a thread whose lead goes quiet without yielding is yielded
-by the harness, which says so; main-thread handoffs while a sub-story is open are blocked;
+Mechanically: status cannot be set; a character that goes quiet — stops owing a thread while
+awaiting nothing — has that thread yielded by the harness, which says so; main-thread handoffs
+while a sub-story is open are blocked;
 a handoff in the implementing phase always carries the project's own checks, run by the harness;
 delivery and inboxes are the harness's bookkeeping; a context running low triggers a recap
 warning, and a character that can no longer be resumed — or whose author presses Recast — gets a
 fresh context built from the story record and its latest recap, falling back gracefully when no
-recap exists.
+recap exists. A done or canceled story retires its cast: Cancel stops every context now,
+Approve lets each finish the turn it is in.
 
 For judgment, every character wakes up with a short set of iron laws and the skill for the phase
 it is in — how to plan, how to implement, how to yield, how to delegate — and can reach the
@@ -223,10 +246,11 @@ context loses only residue. A recap carries the rest, and it too is just a comme
 * **A story page**: description and Start until it begins; then the current phase, whose turn it
   is, and the actions you have right now. Below, the threads — every character's contributions
   under their name, choices as buttons, handoffs with their evidence, resolved threads folded to
-  their root and yields. Beside it, the cast with live status — attending what, inbox depth,
-  context meter, a Recast button — and the sub-stories with their own phase and ball.
+  their root and yields. Beside it, the cast with live status — working on which thread,
+  waiting, idle, or retired; inbox depth, context meter, a Recast button — and the sub-stories
+  with their own phase and ball.
 * **A composer** in every thread, and one for opening new ones — steering, answering, calling in
-  a friend. Never the center of the work.
+  a friend or a fork. Never the center of the work.
 * **Contexts**: a list of every conversation — characters' (with their recast lineage), bare
   ones, minions' under their dispatcher — and a **New Context** button for a story-less chat.
   Every context view is interactive except a minion's; a character's input box is the comment

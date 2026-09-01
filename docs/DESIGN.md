@@ -273,9 +273,11 @@ Known churn: every intent re-parses the whole tree and rebuilds all groups (fine
 2. ~~Layout tree + recursive QML renderer~~ (done).
 3. **Story lifecycle** per the 2026-08-28 spec (reworked 2026-08-30): `harness/lifecycle.py`
    pure state machine with per-thread turns, thread/comment store, attention + inbox delivery,
-   characters/friends/minions, `zharn story …` verbs, per-thread auto-yield, recap/recast
-   ladder, `AskUserQuestion` interception, phase-aware system prompts. Migrate tasks → stories,
-   code `Thread` → `Context`. **Partly done (main thread; characters/delivery next).**
+   characters/friends (fresh or forked), `zharn story …` verbs, the quiet check, recap/recast
+   ladder, phase-aware system prompts. Minions are Claude's native `Agent` tool for now;
+   `AskUserQuestion` does not exist under `-p`, so `yield --question` is the only way to ask.
+   Migrate tasks → stories, code `Thread` → `Context`. **Partly done (main thread; characters
+   and delivery spec'd 2026-08-31, implementation next).**
 4. **Skills**: vendor superpowers' discipline skills into `harness/skills/`, write
    `being-a-character` + the phase skills, `tests/skills/` runner with `verbs_log` assertions.
 5. **Story tab + board rework**: threads with per-cell action bars, option buttons, `@`/`/call`,
