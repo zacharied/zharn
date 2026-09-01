@@ -114,6 +114,19 @@ No sidebar. The window is:
   or out to float. Empty MCCs collapse.
 * Content types register in `harness/content.py` (`kind` → QML component + Python controller),
   so adding a new panel/document type is one Python dict entry + one QML file — fork-as-config.
+* **Look: JetBrains New UI (dark), by convention.** Main toolbar (workspace widget, New story);
+  40px icon strips — the left strip carries the left dock's panels at the top and the bottom
+  dock's at the bottom, the right strip the right dock's; 36px tool-window headers and editor
+  tabs; a 26px status bar. Default layout: left Stories · Files · Git, right Cast (follows the
+  active story tab), bottom Contexts · Terminal. Tokens live in `config_def.THEME` (chrome,
+  semantic: needsYou/live/settled/danger, one soft color per phase, type, metrics); components in
+  `qml/ui/` (Icon, IconButton, Btn, Chip, StatusDot, Ball, Meter, ToolWindowHeader, TextBox,
+  Field, Combo, ContextView); icons are monochrome SVGs in `qml/icons/` recolored on request by
+  `harness/icons.py` (`image://icon/<name>/<rrggbb>`); Inter + JetBrains Mono ship in `qml/fonts/`.
+  The story page is typeset as a script (speakers in small mono caps, system comments as stage
+  directions, yields as labeled rules). Design mockups: `docs/design/mockups/` (run `build.py`).
+  Rule of thumb for color: phases get a soft key each; only *turns* (amber = needs you) and
+  *liveness* (blue = a character mid-turn) get saturated color.
 
 **Implementation decision: homegrown, over a Python-owned layout tree.** Research result:
 KDDockWidgets 2.4 has a QtQuick frontend but *no auto-hide/strip support* (#634: "not supported for
@@ -228,7 +241,8 @@ which wins over this section and over the code. In brief:
 
 ## 6. Licensing
 
-Qt & PySide6 are LGPLv3 → app can be anything. Every embeddable terminal in Qt-land is GPL-2+,
+Qt & PySide6 are LGPLv3 → app can be anything. Bundled fonts (Inter, JetBrains Mono) are OFL 1.1
+(licenses alongside them in `qml/fonts/`). Every embeddable terminal in Qt-land is GPL-2+,
 and QScintilla/PyQt are GPL. **Recommend GPLv3-or-later** for the harness and stop thinking about
 it. Avoid GPL-only Qt add-ons only if you ever want to relicense (Charts/Graphs, Quick 3D,
 Virtual Keyboard, Timeline).
@@ -244,6 +258,8 @@ Virtual Keyboard, Timeline).
 
 ## 8. Next steps
 
+Status 2026-08-31 (later): UI on JetBrains New UI conventions — toolbar, icon strips, Stories tree,
+Cast and Contexts tool windows, the story page as a script (§3a); 396 tests.
 Status 2026-08-31: foundation shipped per docs/superpowers/plans/2026-08-31-story-foundation.md — workspace storage (.zharn/), lifecycle state machine, stories/characters/contexts/roles stores, zharn story verbs, board + story + context UI over the main thread; the old task/thread/preset model is gone (§0).
 Status 2026-08-28: the UI is driven by tests (`tests/ui.py`, ~265 tests); every QML-facing slot is an `@intent` that reports failures to the status bar; the kanban wraps its columns when docked narrow.
 Status 2026-08-27: steps 1–2 and 4 done (agent driver over claude-code stream-json, roles,

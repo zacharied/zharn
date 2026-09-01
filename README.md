@@ -25,6 +25,10 @@ Windows: works natively (PySide6 wheels, no WSL needed). For real agents the `cl
 on PATH for the *same* OS the harness runs on; set `CLAUDE_CMD` in `harness/config.py` if it lives
 elsewhere (e.g. `["wsl", "claude"]` to drive the WSL install from a Windows harness).
 
+The UI follows JetBrains' New UI conventions (DESIGN.md §3a): tool windows on icon strips, editor
+tabs in the middle, a Stories tree on the left, the Cast of the focused story on the right, Contexts
+at the bottom. Tokens are in `harness/config_def.py: THEME`; reusable pieces in `qml/ui/`.
+
 Edit anything under `qml/` or `harness/` while it runs: QML re-renders as a new generation
 (state lives in Python, so tabs/docks/layout survive); Python method bodies are swapped into the
 live classes. Adding a `Signal`/`Property` to a live class shows a "restart" button in the status
