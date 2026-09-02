@@ -15,7 +15,8 @@ recruiting more cast.
 Chat itself is not the enemy — chat as the *center of work* is. zharn keeps exactly one chat:
 a **bare context**, a scratch conversation for questions ("what does this module do?") with no
 story, no phases, no cast. The lab bench, not the workshop. The moment a chat drifts into real
-work, it is promoted into a story. Work never lives in a chat.
+work, it is promoted into a story. Work never lives in a chat. (An **aside** is the same lab
+bench with borrowed memory: a bare context pinned to one comment — §2.)
 
 ## 2. Vocabulary
 
@@ -100,6 +101,12 @@ next — posted in the thread it is attending before its context is replaced.
 **Recast** — replacing a character's live context with a fresh one built from the story record
 and the latest recap. How a story survives a full context, a wedged session, or a mid-story
 change of role or model. The character persists; only its memory is rebuilt.
+
+**Aside** — a private chat pinned to one comment: a bare context forked from the memory that
+wrote it, for the author's clarifying questions about that one message. True to its name, nobody
+on the story hears it — an aside has no character, no thread, and no turn; it cannot speak or
+act on the story, and nothing said in it enters the record. What should reach the story goes
+into the author's reply.
 
 ## 3. Phases, the ball, and turns
 
@@ -207,6 +214,9 @@ rarely needed.
   canceled its threads are read-only — Reopen the story first.
 * Cast talk never moves the ball; only main-thread yields and replies do.
 * A question that offers choices is shown as choices; picking one answers it.
+* A comment's author can be questioned privately: an **aside** on the comment forks its memory
+  into a bare chat with the author, costing the character nothing. Clarify in the aside; answer
+  on the thread — the reply is the only record.
 * A character's context is viewable — thinking, tool calls, minions, and every predecessor
   context it had before a recast. Typing into a character's context view posts a comment into
   the thread it is attending: the same channel, a different skin. There is no hidden way to talk
@@ -245,14 +255,15 @@ context loses only residue. A recap carries the rest, and it too is just a comme
   live activity.
 * **A story page**: description and Start until it begins; then the current phase, whose turn it
   is, and the actions you have right now. Below, the threads — every character's contributions
-  under their name, choices as buttons, handoffs with their evidence, resolved threads folded to
-  their root and yields. Beside it, the cast with live status — working on which thread,
+  under their name, choices as buttons, handoffs with their evidence, an aside on any
+  character's comment, resolved threads folded to their root and yields. Beside it, the cast with live status — working on which thread,
   waiting, idle, or retired; inbox depth, context meter, a Recast button — and the sub-stories
   with their own phase and ball.
 * **A composer** in every thread, and one for opening new ones — steering, answering, calling in
   a friend or a fork. Never the center of the work.
 * **Contexts**: a list of every conversation — characters' (with their recast lineage), bare
-  ones, minions' under their dispatcher — and a **New Context** button for a story-less chat.
+  ones and asides (pinned to their comment, listed under their story), minions' under their
+  dispatcher — and a **New Context** button for a story-less chat.
   Every context view is interactive except a minion's; a character's input box is the comment
   channel in disguise (§7). A bare context that turns into work has a **Promote to story**
   button: the chat becomes the protagonist's context, and the work gets a story.

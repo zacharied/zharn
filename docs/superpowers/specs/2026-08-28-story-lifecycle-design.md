@@ -23,7 +23,8 @@ Character { id, story_key, role, name, live_context: <context_id>,
             recaps: [<comment_id>] }
 Context   { id, owner: <character_id> | <minion of character_id> | "human",
             session_id, predecessor: <context_id> | null,   # recast lineage
-            forked_from: <context_id> | null }              # forked friends (and minions)
+            forked_from: <context_id> | null,               # forked friends, asides (and minions)
+            about: {story_key, comment_id} | null }         # asides: the pinned comment
 
 Derived per character, never stored:
   owes    = threads it leads with turn = cast
@@ -184,6 +185,28 @@ boundary (a waiting character is at one already); old context becomes `predecess
 context's first message is the brief with its situation line (§3.1); then the ordinary delivery
 loop continues — nothing bespoke.
 
+### 3.5 Asides
+
+One UI intent, `stories.aside(key, comment_id) → context_id`, idempotent: a second press reopens
+the comment's existing aside. Precondition: the comment's author is a character. The aside is a
+**bare context** (`owner = "human"`) with `about = {story_key, comment_id}`, forked from the
+memory that wrote the comment — `comment.context` if still resumable, else the character's live
+context, else the button is disabled. Also disabled while the source is `working`: a mid-turn
+session file may hold a dangling tool call (a spike may relax this).
+
+`ContextStore.fork(source, *, owner, about=None)` is shared with `call --fork`: the first spawn
+uses `--resume <source session> --fork-session` (verified 2026-08-31 — the fork gets its own
+session id from `init`, and the source transcript is untouched); later turns resume the fork's
+own id.
+
+An aside has the bare-context permission ceiling (explore/read) regardless of the source's role,
+and no `HARNESS_CHARACTER_ID`, so every `zharn story` verb is rejected mechanically. Its system
+prompt says what it is: an aside — a private copy of <Name> as of its last turn, discussing its
+quoted comment in #t; nobody on the story hears it; anything that should change the story
+belongs in the author's reply. Asides are the human's: never recast, never retired, untouched by
+Approve and Cancel, and absent from the story record — they are found by scanning contexts for
+`about`.
+
 ## 4. Comments and threads
 
 ```
@@ -191,6 +214,7 @@ Comment
   id, story_key, thread_id,
   reply_to: comment_id | null,                    # null ⇔ root; replies nest one level
   author: "human" | <character_id> | "system",
+  context: <context_id> | null,                   # the live context that wrote it (characters only)
   kind:   text | question | handoff | recap | system,
   body:   markdown,
   mentions: [character_id],
@@ -269,13 +293,15 @@ baseline failure first (writing-skills).
 * **Story tab** (`qml/content/Story.qml`): header (key, title, editable description while
   unstarted, role picker + Start with note | phase chip + main action bar); threads with
   replies, option buttons, handoff evidence, resolved threads folded to root + yields + closing
-  note; a composer per thread and
+  note; an aside button on any character comment (opens or reopens its aside; disabled while
+  the source is working); a composer per thread and
   one for new threads, `@` autocomplete over the cast, `/call <role> [note]` and
   `/fork @Name [note]`; side panel: cast (status: working on #n / waiting / idle / retired ·
   forked from · inbox depth · context meter · Recast button → role/model dialog), sub-stories
   (phase+ball → open).
 * **Contexts** (`qml/content/Contexts.qml` + `ContextView.qml`): list of all contexts —
-  characters' with recast lineage, bare, minions under dispatcher — and **New Context**. Views
+  characters' with recast lineage, bare and asides (titled "aside on #t · <Name>", under their
+  story), minions under dispatcher — and **New Context**. Views
   per §3.3. Bare contexts carry **Promote to story**: dialog (title, description) → story in
   `planning` with this context cast as protagonist; brief injected on promote.
 * **Notifications**: needs-you transitions on human-authored stories and threads raise
@@ -310,6 +336,9 @@ Presets are renamed roles (`harness/presets.py` → `harness/roles.py`), gaining
   the quiet check at turn end (normal end, crash, Stop), retirement on Approve/Cancel,
   `call --fork` and `/fork`, recap in the attended thread, recast ladder rungs 1–3 with the
   situation line, cross-story sub-story delivery.
+* Asides: intent idempotency, the fork-source rule (`comment.context` → live context → disabled,
+  and disabled while working), the read ceiling, verb rejection without `HARNESS_CHARACTER_ID`,
+  survival across recast and Approve/Cancel, absence from the story record.
 * `tests/test_ui_story.py`, `test_ui_board.py`, `test_ui_contexts.py` via `tests/ui.py`: action
   bars per cell and per waiting thread, option buttons, needs-you sort/count, `@` and `/call`,
   context-view input posting comments, New Context, Promote.
@@ -320,8 +349,9 @@ Presets are renamed roles (`harness/presets.py` → `harness/roles.py`), gaining
 Approve's effect on the environment (merge/PR/worktree); workspaces, repos and environments
 themselves (own spec, 2026-08-31); roles beyond `outline_first` and `instructions`; multi-machine
 execution; harness-spawned minions (`minion`, `minion --fork` — Claude's native `Agent` tool
-serves for now); a mechanical cap on guest mention loops; provider-side compaction (recast
-supersedes it).
+serves for now); a mechanical cap on guest mention loops; escalating an aside into a thread (a
+thread led by a forked friend is the manual path); provider-side compaction (recast supersedes
+it).
 
 ## Appendix — vocabulary map
 
