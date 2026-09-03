@@ -43,7 +43,9 @@ def main():
     global SESSION
     if "--resume" in args:
         SESSION = args[args.index("--resume") + 1]
-    emit({"type": "system", "subtype": "init", "cwd": os.getcwd(), "model": "fake-model", "tools": ["Bash"],
+        if "--fork-session" in args:  # a fork gets a fresh id; the source session is untouched
+            SESSION = "fork-of-" + SESSION
+    emit({"type": "system", "subtype": "init", "cwd": os.getcwd(), "model": "fake-model", "tools": ["Bash"], "argv": args,
           "harness_env": {k: os.environ[k] for k in ("HARNESS_CONTEXT_ID", "HARNESS_STORY_KEY", "HARNESS_CHARACTER_ID", "HARNESS_WORKSPACE") if k in os.environ}})
     for line in sys.stdin:
         line = line.strip()

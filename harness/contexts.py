@@ -94,6 +94,7 @@ class Context(QObject):
                 "roleName": self.roleName, "costUsd": round(self._interp.cost_usd, 4), "turns": self._interp.turns,
                 "createdAt": self.meta.get("createdAt", 0), "sessionId": self._interp.session_id, "model": self.model,
                 "predecessor": self.meta.get("predecessor"), "forkedFrom": self.meta.get("forkedFrom"),
+                "about": self.meta.get("about"),
                 "lastText": self.last_assistant_text()}
 
     # ---------------------------------------------------------------- lifecycle
@@ -126,6 +127,8 @@ class Context(QObject):
     def _spawn(self, resume: str = ""):
         role = self.meta.get("roleConfig", {})
         extra = list(getattr(cfg, "EFFORT_FLAGS", {}).get(role.get("reasoning", ""), []))
+        if not resume and self.meta.get("forkSession"):
+            resume, extra = self.meta["forkSession"], extra + ["--fork-session"]  # first turn of a fork only
         self._proc = ClaudeCodeProcess(cwd=self.meta.get("cwd") or str(self._store.root), env=self._env(),
                                        model=role.get("model", ""), permission=role.get("permission", "auto"),
                                        resume=resume, system_prompt=self._system_prompt(), extra_args=extra)
@@ -246,7 +249,8 @@ class ContextStore(QObject):
         return [c for c in self.all() if c.storyKey == story_key]
 
     def create(self, role_name: str, *, story_key: str = "", owner: str = "human", title: str = "", system_prompt: str = "",
-               env: dict | None = None, cwd: str = "", predecessor: str | None = None, forked_from: str | None = None) -> str:
+               env: dict | None = None, cwd: str = "", predecessor: str | None = None, forked_from: str | None = None,
+               about: dict | None = None, fork_session: str = "") -> str:
         role = self.roles.get(role_name)
         if not role:
             raise ValueError(f"unknown role {role_name!r}")
@@ -254,6 +258,7 @@ class ContextStore(QObject):
             raise ValueError(f"provider {role['provider']!r} not implemented yet")
         meta = {"id": new_context_id(), "title": title or role["name"], "storyKey": story_key, "owner": owner,
                 "role": role["name"], "roleConfig": role, "predecessor": predecessor, "forkedFrom": forked_from,
+                "forkSession": fork_session, "about": dict(about) if about else None,
                 "cwd": cwd or str(self.workspace_dir), "env": dict(env or {}), "systemPrompt": system_prompt,
                 "createdAt": time.time(), "status": "idle"}
         c = Context(self, meta)
@@ -270,6 +275,22 @@ class ContextStore(QObject):
         cid = self.create(role_name, **create_kwargs)
         self._contexts[cid].send(prompt)
         return cid
+
+    def fork(self, source_id: str, *, role_name: str, owner: str = "human", story_key: str = "", title: str = "",
+             system_prompt: str = "", env: dict | None = None, about: dict | None = None) -> str:
+        """A context that starts knowing everything `source_id` knows (lifecycle spec §3.5): its first turn
+        resumes the source's session with --fork-session, later turns resume its own. Shared by asides and
+        `call --fork`. The source keeps running on its own session, untouched."""
+        src = self._contexts.get(source_id)
+        if src is None:
+            raise KeyError(source_id)
+        if not src.sessionId:
+            raise ValueError(f"{source_id} has never run; nothing to fork")
+        if src.status in ("starting", "working"):
+            raise ValueError(f"{source_id} is working; fork it when it stops")
+        return self.create(role_name, story_key=story_key, owner=owner, title=title or f"fork of {src.title}",
+                           system_prompt=system_prompt, env=env, cwd=src.meta.get("cwd", ""),
+                           forked_from=source_id, fork_session=src.sessionId, about=about)
 
     @Slot(str, result=str)
     @intent

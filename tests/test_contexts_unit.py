@@ -112,3 +112,57 @@ def test_transcripts_persist_and_replay(store, tmp_path):
     c = fresh.get(cid)
     assert c.owner == "chr9" and c.storyKey == "ZH-3" and c.status == "idle"
     assert [(r["role"], r["text"]) for r in c.transcript.rows()] == [("user", "persist me"), ("assistant", "echo: persist me")]
+
+
+def inits(tmp_path, cid):
+    return [json.loads(l) for l in (tmp_path / "contexts" / f"{cid}.jsonl").read_text().splitlines() if '"init"' in l]
+
+
+def test_fork_resumes_the_source_once_then_runs_on_its_own_session(store, tmp_path):
+    src = store.get(store.spawn("claude-fast", "hello", story_key="ZH-1", owner="chr1", env={"HARNESS_CHARACTER_ID": "chr1"}))
+    assert wait_until(lambda: src.status == "idle") and src.sessionId == "fake-session-1"
+    fid = store.fork(src.id, role_name="claude-default", title="aside", system_prompt="you are an aside",
+                     about={"story_key": "ZH-1", "comment_id": "cmt_1"})
+    f = store.get(fid)
+    assert (f.meta["forkedFrom"], f.meta["forkSession"], f.owner, f.storyKey, f.roleName) == (src.id, "fake-session-1", "human", "", "claude-default")
+    assert f.summary()["about"] == {"story_key": "ZH-1", "comment_id": "cmt_1"} and f.status == "idle" and f._proc is None
+    f.send("what was said?")
+    assert wait_until(lambda: f.status == "idle"), (f.status, f.lastError)
+    first = inits(tmp_path, fid)[0]
+    assert first["argv"][first["argv"].index("--resume") + 1] == "fake-session-1" and "--fork-session" in first["argv"]
+    assert "HARNESS_CHARACTER_ID" not in first["harness_env"] and not first["harness_env"].get("HARNESS_STORY_KEY")
+    assert f.sessionId == "fork-of-fake-session-1" and src.sessionId == "fake-session-1"
+    f.stop()
+    assert wait_until(lambda: f._proc is None)
+    f.send("again")
+    assert wait_until(lambda: f.status == "idle"), (f.status, f.lastError)
+    second = inits(tmp_path, fid)[1]
+    assert second["argv"][second["argv"].index("--resume") + 1] == "fork-of-fake-session-1" and "--fork-session" not in second["argv"]
+
+
+def test_fork_survives_a_restart_on_its_own_session(store, tmp_path):
+    src = store.get(store.spawn("claude-fast", "hello"))
+    assert wait_until(lambda: src.status == "idle")
+    fid = store.fork(src.id, role_name="claude-default")
+    store.get(fid).send("first")
+    assert wait_until(lambda: store.get(fid).status == "idle")
+    store.shutdown()
+    again = ContextStore(ROOT, tmp_path / "contexts", RoleStore(tmp_path), workspace_dir=tmp_path)
+    f = again.get(fid)
+    assert f.sessionId == "fork-of-fake-session-1" and f.meta["forkedFrom"] == src.id
+    f.send("second")
+    assert wait_until(lambda: f.status == "idle")
+    assert "--fork-session" not in inits(tmp_path, fid)[-1]["argv"]
+    again.shutdown()
+
+
+def test_fork_rejects_a_source_that_never_ran_or_is_working(store):
+    never = store.create("claude-fast")
+    with pytest.raises(ValueError, match="never run"):
+        store.fork(never, role_name="claude-default")
+    busy = store.get(store.spawn("claude-fast", "slow reply"))
+    assert wait_until(lambda: busy.status == "working")
+    with pytest.raises(ValueError, match="working"):
+        store.fork(busy.id, role_name="claude-default")
+    with pytest.raises(KeyError):
+        store.fork("ctx_nope", role_name="claude-default")
