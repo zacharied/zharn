@@ -163,3 +163,33 @@ def test_cast_panel_follows_the_active_story_tab(ui):
     ui.store.layout.openContent("welcome", "welcome", "Welcome")  # non-story tab: the cast stays on B
     QTest.qWait(80)
     assert ui.has(f"castRow_{cb}")
+
+
+def test_aside_button_opens_a_private_context_and_reopens_it(ui):
+    key = ui.store.stories.create("Aside me", "")
+    chr_id = ui.store.stories.start(key, "", "protagonist")
+    ctx = ui.store.contexts.get(ui.store.stories.character(chr_id)["live_context"])
+    assert wait_until(lambda: ctx.status == "idle")
+    c = ui.store.stories.cast_yield(chr_id, "question", "which way?")
+    open_story(ui, key)
+    name = f"asideButton_{c['id']}"
+    assert not ui.find_all(name)[0].isVisible()          # ghost: nothing until hover
+    ui.hover(ui.find(f"comment_{c['id']}"))
+    ui.click(ui.find(name))
+    aside_id = next(r for r in ui.store.stories.comments(key) if r["id"] == c["id"])["asideId"]
+    assert aside_id
+    a = ui.store.contexts.get(aside_id)
+    assert a.owner == "human" and a.storyKey == "" and a.title == "aside on #1 · protagonist"
+    import json
+    docks = json.loads(ui.store.layout.layoutJson)["docks"]
+    assert docks["bottom"] == {**docks["bottom"], "active": "contexts", "mode": "docked"}
+    assert ui.find("paneContextTitle").property("text") == a.title
+    assert ui.has(f"contextRow_{aside_id}")              # listed under its story, not under Bare
+    ui.hover(ui.find("storyTitle"))                      # pointer away: the pill persists once an aside exists
+    btn = ui.find(name)
+    assert ui.visible(btn)
+    n = ui.store.contexts.model.count()
+    ui.click(btn)                                        # idempotent: reopens, creates nothing
+    assert ui.store.contexts.model.count() == n
+    assert next(r for r in ui.store.stories.comments(key) if r["id"] == c["id"])["asideId"] == aside_id
+    ui.store.layout.setDockMode("bottom", "strip")

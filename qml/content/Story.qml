@@ -22,6 +22,7 @@ ContentBase {
     readonly property var mainThread: threads.length ? threads[0] : null
     function refresh() { story = app.stories.get(tabKey); comments = app.stories.comments(tabKey); cast = app.stories.cast(tabKey) }
     Connections { target: app.stories; function onStoriesChanged() { view.refresh() } }
+    Connections { target: app.contexts; function onContextsChanged() { view.refresh() } }   // asideEnabled follows source status
 
     // ---- lookups
     function character(id) { for (var i = 0; i < cast.length; i++) if (cast[i].id === id) return cast[i]; return null }
@@ -71,6 +72,13 @@ ContentBase {
         case "ready for review": return protagonistName() + " handed off — Approve, reply with changes, or send it back to planning."
         default: return "Waiting on you."
         }
+    }
+
+    function openAside(commentId) {
+        var cid = app.stories.aside(tabKey, commentId)   // idempotent; rejections land in the status bar
+        if (!cid) return
+        app.layout.showPanel("contexts")
+        app.contexts.reveal(cid)
     }
 
     Label {
@@ -223,7 +231,9 @@ ContentBase {
                                 readonly property var checks: (modelData.structured && modelData.structured.checks) ? modelData.structured.checks : []
                                 readonly property string picked: options.length ? view.pickedOption(modelData) : ""
                                 readonly property bool answerable: options.length > 0 && pending && th.waitsOnYou
+                                readonly property bool isCharacter: !!view.character(modelData.author)
                                 objectName: "comment_" + modelData.id
+                                HoverHandler { id: lineHover }
                                 Layout.fillWidth: true; Layout.topMargin: isSystem ? 12 : 14; Layout.leftMargin: isReply ? 14 : 0
                                 spacing: 0
 
@@ -242,6 +252,32 @@ ContentBase {
                                            font.family: app.theme.monoFamily; font.pixelSize: app.theme.fontSizeSmall; font.letterSpacing: 1; font.capitalization: Font.AllUppercase }
                                     Item { Layout.fillWidth: true }
                                     Text { text: view.when(line.modelData.created_at); color: app.theme.textDim; font.pixelSize: app.theme.fontSizeSmall }
+                                    Rectangle {
+                                        // Aside: a private chat with a copy of whoever wrote this comment (spec §3.5).
+                                        // Ghost (icon only) while hovering the comment; a labeled pill once one exists.
+                                        id: asideBtn
+                                        objectName: "asideButton_" + line.modelData.id
+                                        readonly property bool hasAside: line.modelData.asideId !== ""
+                                        readonly property bool canUse: line.modelData.asideEnabled
+                                        visible: line.isCharacter && (hasAside || lineHover.hovered)
+                                        width: asideRow.implicitWidth + 16; height: 22; radius: 11
+                                        color: hasAside ? app.theme.panel : app.theme.bg
+                                        border.color: abHover.hovered && canUse ? app.theme.buttonBorder : app.theme.border
+                                        opacity: canUse ? 1 : 0.4
+                                        Row {
+                                            id: asideRow; anchors.centerIn: parent; spacing: 5
+                                            Icon { name: "aside"; size: 13; anchors.verticalCenter: parent.verticalCenter
+                                                   color: abHover.hovered && asideBtn.canUse ? app.theme.text : app.theme.textMuted }
+                                            Text { visible: asideBtn.hasAside; text: "aside"; font.pixelSize: app.theme.fontSizeSmall
+                                                   color: abHover.hovered ? app.theme.text : app.theme.textMuted; anchors.verticalCenter: parent.verticalCenter }
+                                        }
+                                        HoverHandler { id: abHover }
+                                        TapHandler { enabled: asideBtn.canUse; onTapped: view.openAside(line.modelData.id) }
+                                        ToolTip.visible: abHover.hovered; ToolTip.delay: 600
+                                        ToolTip.text: !asideBtn.canUse ? view.speaker(line.modelData) + " is working or its memory is gone — try when it stops"
+                                                    : asideBtn.hasAside ? "Reopen the aside on this comment"
+                                                    : "Aside: ask a private copy of " + view.speaker(line.modelData) + " about this comment"
+                                    }
                                 }
                                 // —— Question / Handoff ——
                                 RowLayout {

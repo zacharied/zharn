@@ -160,6 +160,11 @@ class Harness:
                 QCoreApplication.sendEvent(self.win, QKeyEvent(kind, key, Qt.KeyboardModifier.NoModifier, ch))
         QTest.qWait(10)
 
+    def hover(self, item: Ref):
+        """Move the pointer over an item (HoverHandlers react to plain moves)."""
+        QTest.mouseMove(self.win, item.center())
+        QTest.qWait(40)
+
     def key(self, key: Qt.Key, modifier=Qt.KeyboardModifier.NoModifier):
         QTest.keyClick(self.win, key, modifier)
         QTest.qWait(30)

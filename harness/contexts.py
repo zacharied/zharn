@@ -77,6 +77,9 @@ class Context(QObject):
     @Property(str, notify=changed)
     def lastError(self): return self._last_error
 
+    @Property("QVariantMap", constant=True)
+    def about(self): return self.meta.get("about") or {}   # asides: {story_key, comment_id}
+
     @Property(QObject, constant=True)
     def transcriptModel(self): return self.transcript
 
@@ -211,10 +214,12 @@ class Context(QObject):
 class ContextStore(QObject):
     contextsChanged = Signal()
     contextSettled = Signal(str)
+    revealChanged = Signal()   # the Contexts panel should select revealTarget (e.g. a fresh aside)
     notifier = None
 
     def __init__(self, root: Path, data_dir: Path, roles, workspace_dir: Path | None = None, parent=None):
         super().__init__(parent)
+        self._reveal = ""
         self.root = root
         self.data_dir = Path(data_dir)
         self.workspace_dir = Path(workspace_dir) if workspace_dir else root
@@ -325,6 +330,15 @@ class ContextStore(QObject):
                     c._status = "idle"
                     c.meta["status"] = "idle"
         self._persist_index()
+
+    @Property(str, notify=revealChanged)
+    def revealTarget(self): return self._reveal
+
+    @Slot(str)
+    def reveal(self, cid: str):
+        """Ask the Contexts panel to select a context (empty = consumed). UI plumbing, not state."""
+        self._reveal = cid
+        self.revealChanged.emit()
 
     @Slot(result="QVariantList")
     def summaries(self):

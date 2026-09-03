@@ -20,7 +20,9 @@ Item {
         for (var i = 0; i < story.threads.length; i++) if (story.threads[i].id === character.attention) return story.threads[i].n
         return 0
     }
-    readonly property string inputLabel: isCharacter ? (attendedThread ? "Comment in #" + attendedThread : "Comment") : "Message"
+    readonly property bool isAside: !!context && !!context.about && !!context.about.story_key
+    readonly property string inputLabel: isAside ? "Aside — private" : isCharacter ? (attendedThread ? "Comment in #" + attendedThread : "Comment") : "Message"
+    function focusInput() { prompt.forceActiveFocus() }
     function post(text) {
         if (!context) return
         if (isCharacter && story) app.stories.comment(context.storyKey, text, character && character.attention ? character.attention : "")
@@ -118,7 +120,8 @@ Item {
                         objectName: "promptInput"
                         Layout.fillWidth: true; Layout.preferredHeight: 60
                         label: cv.inputLabel
-                        placeholderText: cv.isCharacter ? "Posted in the thread " + (cv.character ? cv.character.name : "it") + " is attending  (Ctrl+Enter)"
+                        placeholderText: cv.isAside ? "Nobody on the story hears this; what should change the story goes in your reply  (Ctrl+Enter)"
+                                       : cv.isCharacter ? "Posted in the thread " + (cv.character ? cv.character.name : "it") + " is attending  (Ctrl+Enter)"
                                        : cv.busy ? "Working — a follow-up is queued  (Ctrl+Enter)" : "Ctrl+Enter to send"
                         onSubmitted: send()
                         function send() { if (text.trim().length && cv.context) { cv.post(text); text = "" } }

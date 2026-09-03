@@ -32,19 +32,28 @@ ContentBase {
             if (preds[r.id]) continue                       // shown under its successor
             var lineage = [], p = r.predecessor
             while (p && byId[p]) { lineage.push(byId[p]); p = byId[p].predecessor }
-            var entry = { ctx: r, lineage: lineage }
-            if (!r.storyKey && r.owner === "human") { bare.push(entry); continue }
-            var k = r.storyKey || "—"
-            if (!gs[k]) { var s = k !== "—" ? app.stories.get(k) : null; gs[k] = { story: k, title: s && s.title ? s.title : "", contexts: [] }; order.push(k) }
-            gs[k].contexts.push(entry)
+            var entry = { ctx: r, lineage: lineage, aside: !!(r.about && r.about.story_key) }
+            var k = entry.aside ? r.about.story_key : r.storyKey
+            if (!k && r.owner === "human") { bare.push(entry); continue }
+            k = k || "—"
+            if (!gs[k]) { var s = k !== "—" ? app.stories.get(k) : null; gs[k] = { story: k, title: s && s.title ? s.title : "", contexts: [], asides: [] }; order.push(k) }
+            (entry.aside ? gs[k].asides : gs[k].contexts).push(entry)
         }
-        var out = order.map(function (k) { return gs[k] })
+        var out = order.map(function (k) { gs[k].contexts = gs[k].contexts.concat(gs[k].asides); return gs[k] })   // asides sit after the cast
         if (bare.length) out.push({ story: "", title: "Bare", contexts: bare })
         return out
     }
+    function consumeReveal() {
+        var t = app.contexts.revealTarget
+        if (!t) return
+        selected = t
+        app.contexts.reveal("")
+        paneView.focusInput()
+    }
     function refresh() { rows = app.contexts.summaries() }
-    Component.onCompleted: refresh()
-    Connections { target: app.contexts; function onContextsChanged() { panel.refresh() } }
+    Component.onCompleted: { refresh(); consumeReveal() }
+    Connections { target: app.contexts; function onContextsChanged() { panel.refresh() }
+                  function onRevealChanged() { panel.consumeReveal() } }
     Connections { target: app.stories; function onStoriesChanged() { panel.refresh() } }
 
     SplitView {
@@ -79,6 +88,7 @@ ContentBase {
                                     id: cr
                                     property var ctx
                                     property bool lineageRow: false
+                                    property bool asideRow: false
                                     readonly property bool sel: panel.selected === ctx.id
                                     readonly property bool isCharacter: String(ctx.owner).indexOf("chr_") === 0
                                     readonly property string display: {
@@ -92,15 +102,16 @@ ContentBase {
                                     RowLayout {
                                         anchors { fill: parent; leftMargin: lineageRow ? 46 : 28; rightMargin: 10 }
                                         spacing: 8
-                                        StatusDot { visible: !cr.lineageRow; status: cr.ctx.status; size: 8 }
+                                        StatusDot { visible: !cr.lineageRow && !cr.asideRow; status: cr.ctx.status; size: 8 }
+                                        Icon { visible: cr.asideRow; name: "aside"; size: 13; color: app.theme.textMuted }
                                         Text { text: cr.display; color: cr.lineageRow ? app.theme.textMuted : app.theme.text; font.italic: cr.lineageRow; elide: Text.ElideRight; Layout.fillWidth: true }
                                         Text { visible: !cr.lineageRow && !!cr.ctx.roleName && cr.ctx.roleName !== cr.display; text: cr.ctx.roleName; color: app.theme.textMuted; font.pixelSize: app.theme.fontSizeSmall }
-                                        Text { text: cr.lineageRow ? "read-only" : cr.ctx.turns + "t · $" + Number(cr.ctx.costUsd).toFixed(2); color: app.theme.textDim; font.pixelSize: app.theme.fontSizeSmall }
+                                        Text { text: cr.lineageRow ? "read-only" : cr.asideRow ? "yours" : cr.ctx.turns + "t · $" + Number(cr.ctx.costUsd).toFixed(2); color: app.theme.textDim; font.pixelSize: app.theme.fontSizeSmall }
                                     }
                                     HoverHandler { id: rh }
                                     TapHandler { onTapped: panel.selected = cr.ctx.id }
                                 }
-                                CtxRow { ctx: entry.modelData.ctx }
+                                CtxRow { ctx: entry.modelData.ctx; asideRow: !!entry.modelData.aside }
                                 Repeater { model: entry.modelData.lineage; delegate: CtxRow { required property var modelData; ctx: modelData; lineageRow: true } }
                             }
                         }
@@ -129,7 +140,7 @@ ContentBase {
                 }
                 Divider { anchors.bottom: parent.bottom; width: parent.width }
             }
-            ContextView { Layout.fillWidth: true; Layout.fillHeight: true; context: panel.selectedContext; showInput: !!panel.selectedContext }
+            ContextView { id: paneView; Layout.fillWidth: true; Layout.fillHeight: true; context: panel.selectedContext; showInput: !!panel.selectedContext }
         }
     }
 }
