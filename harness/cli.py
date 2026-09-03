@@ -50,7 +50,7 @@ def out(value, as_json: bool):
     elif isinstance(value, list):
         for row in value:
             if isinstance(row, dict):
-                print("  ".join(f"{k}={row[k]}" for k in ("id", "key", "name", "phase", "ball", "status", "title", "storyKey", "owner", "kind", "model", "repo", "path", "branch") if k in row))
+                print("  ".join(f"{k}={row[k]}" for k in ("id", "key", "name", "phase", "ball", "status", "title", "storyKey", "owner", "kind", "model", "repo", "path", "branch", "checks") if k in row))
             else:
                 print(row)
     elif isinstance(value, dict):

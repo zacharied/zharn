@@ -5,6 +5,7 @@ workspace's local dir."""
 from __future__ import annotations
 
 import json
+import os
 import random
 import string
 import sys
@@ -135,7 +136,7 @@ class Context(QObject):
         # (an editable install elsewhere, in a worktree) rather than the code this app is actually running.
         env = {"HARNESS_CONTEXT_ID": self.id, "HARNESS_STORY_KEY": self.storyKey, "HARNESS_ROOT": str(self._store.root),
                "HARNESS_WORKSPACE": str(self._store.workspace_dir), "HARNESS_CLI": f"{sys.executable} -m harness.cli",
-               "PYTHONPATH": str(self._store.root)}
+               "PYTHONPATH": os.pathsep.join(p for p in (str(self._store.root), os.environ.get("PYTHONPATH", "")) if p)}
         env.update(self.meta.get("env") or {})
         env.update(extra or {})
         env.update(self._store.extra_env())

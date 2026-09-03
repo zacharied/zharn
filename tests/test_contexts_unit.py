@@ -1,6 +1,7 @@
 # tests/test_contexts_unit.py
 """Context lifecycle without the UI: a context must always settle and say why; bare contexts; env."""
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -54,6 +55,19 @@ def test_spawn_sends_env_and_settles(store, tmp_path):
     assert init["harness_env"] == {"HARNESS_CONTEXT_ID": cid, "HARNESS_STORY_KEY": "ZH-1", "HARNESS_CHARACTER_ID": "chr1",
                                    "HARNESS_WORKSPACE": str(tmp_path)}
     assert c.transcript.rows()[-1]["text"] == "echo: hello agent"
+
+
+def test_env_prepends_root_to_an_inherited_pythonpath(store, monkeypatch):
+    monkeypatch.setenv("PYTHONPATH", "/somewhere/else")
+    c = store.get(store.create("claude-fast"))
+    pp = c._env()["PYTHONPATH"]
+    assert pp.startswith(str(ROOT)) and pp.endswith("/somewhere/else") and pp == os.pathsep.join([str(ROOT), "/somewhere/else"])
+
+
+def test_env_pythonpath_is_just_root_when_none_was_inherited(store, monkeypatch):
+    monkeypatch.delenv("PYTHONPATH", raising=False)
+    c = store.get(store.create("claude-fast"))
+    assert c._env()["PYTHONPATH"] == str(ROOT)
 
 
 def test_new_bare_has_human_owner_and_no_story(store):
