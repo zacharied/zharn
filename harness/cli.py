@@ -93,8 +93,15 @@ def main(argv=None):
     y = stp.add_parser("yield"); y.add_argument("--question", action="store_true"); y.add_argument("--handoff", action="store_true")
     y.add_argument("--body", required=True); y.add_argument("--options", default=""); y.add_argument("--thread", default="")
     pr = stp.add_parser("proceed"); pr.add_argument("key", nargs="?", default=""); pr.add_argument("--note", default="")
-    stp.add_parser("recap").add_argument("--body", required=True)
+    rc = stp.add_parser("recap"); rc.add_argument("--body", required=True); rc.add_argument("--thread", default="")
     cm = stp.add_parser("comment"); cm.add_argument("--body", required=True); cm.add_argument("--thread", default=""); cm.add_argument("--story", default=os.environ.get("HARNESS_STORY_KEY", ""))
+    cm.add_argument("--to", action="append", default=[], help="@Name — deliver to Name too; with no --thread, open a thread to Name")
+    cl = stp.add_parser("call", help="Cast a friend on its own thread"); cl.add_argument("--role", required=True)
+    cl.add_argument("--as", dest="as_name", default=""); cl.add_argument("--fork", action="store_true", help="the friend starts with a copy of your memory")
+    cl.add_argument("--note", required=True)
+    stp.add_parser("wait", help="List what you await; then end your turn")
+    stp.add_parser("inbox", help="Comments waiting for you")
+    stp.add_parser("cast", help="The cast of a story").add_argument("key", nargs="?", default="")
     rp = stp.add_parser("reply"); rp.add_argument("key"); rp.add_argument("--body", required=True); rp.add_argument("--thread", default="")
     rv = stp.add_parser("resolve", help="Close a side thread waiting on you; nobody is resumed")
     rv.add_argument("key", nargs="?", default=""); rv.add_argument("--thread", required=True); rv.add_argument("--note", default="")
@@ -150,12 +157,16 @@ def main(argv=None):
             opts = [o.strip() for o in a.options.split(",") if o.strip()]
             out(request("story.yield", {"character": character(), "kind": "question" if a.question else "handoff",
                                         "body": a.body, "options": opts, "thread": a.thread}), a.json)
-        elif a.verb == "recap": out(request("story.recap", {"character": character(), "body": a.body}), a.json)
+        elif a.verb == "recap": out(request("story.recap", {"character": character(), "body": a.body, "thread": a.thread}), a.json)
+        elif a.verb == "call": out(request("story.call", {"character": character(), "role": a.role, "note": a.note, "as": a.as_name, "fork": a.fork}), a.json)
+        elif a.verb == "wait": out(request("story.wait", {"character": character()}), a.json)
+        elif a.verb == "inbox": out(request("story.inbox", {"character": character()}), a.json)
+        elif a.verb == "cast": out(request("story.cast", {"key": a.key, **({"character": ch} if ch else {})}), a.json)
         elif a.verb == "proceed":
             args = {"character": ch, "note": a.note} if ch and not a.key else {"key": a.key, "note": a.note}
             out(request("story.proceed", args), a.json)
         elif a.verb == "comment":
-            args = {"character": ch, "body": a.body, "thread": a.thread} if ch else {"key": a.story, "body": a.body, "thread": a.thread}
+            args = {"character": ch, "body": a.body, "thread": a.thread, "to": a.to} if ch else {"key": a.story, "body": a.body, "thread": a.thread}
             out(request("story.comment", args), a.json)
         elif a.verb == "reply": out(request("story.comment", {"key": a.key, "body": a.body, "thread": a.thread}), a.json)
         elif a.verb == "resolve":

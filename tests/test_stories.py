@@ -762,3 +762,77 @@ def test_retired_characters_get_no_turn_end_processing(store, contexts):
     n = len(store.comments(key))
     settle(store, contexts, chr_id)
     assert len(store.comments(key)) == n
+
+
+# ---------------------------------------------------------------- cast verbs (characters plan, Task 6)
+
+def test_cast_call_opens_a_thread_led_by_a_fresh_friend(store, contexts):
+    key, chr_id = started(store)
+    r = store.cast_call(chr_id, "claude-fast", "build the screen model", as_name="Implementor")
+    t = store.story(key).thread(r["thread"])
+    assert (t.author, t.lead, r["name"]) == (chr_id, r["character"], "Implementor")
+    friend = store.character(r["character"])
+    assert contexts.get(friend["live_context"]).sent[0].rstrip().endswith("build the screen model") and friend["attention"] == r["thread"]
+    assert store.awaits(store.character(chr_id)) == [r["thread"]]
+
+
+def test_cast_call_fork_clones_the_caller(store, contexts):
+    key, chr_id = started(store)
+    contexts.get(store.character(chr_id)["live_context"]).status = "idle"
+    r = store.cast_call(chr_id, "claude-fast", "review my work so far", fork=True)
+    assert store.character(r["character"])["forked_from"] == chr_id and contexts.forked[0][0] == store.character(chr_id)["live_context"]
+    assert "a fork of protagonist" in contexts.get(store.character(r["character"])["live_context"]).sent[0]
+
+
+def test_cast_wait_is_a_guard(store, contexts):
+    key, chr_id = started(store)
+    with pytest.raises(Rejected, match="you await nothing and owe #"):
+        store.cast_wait(chr_id)
+    r = store.cast_call(chr_id, "claude-fast", "build")
+    w = store.cast_wait(chr_id)
+    assert w["awaits"] == [{"thread": r["thread"], "lead": "claude-fast"}] and "end your turn" in w["message"]
+
+
+def test_cast_recap_defaults_to_the_attended_thread(store, contexts):
+    key, chr_id = started(store)
+    side = store.openThread(key, "btw")
+    contexts.get(store.character(chr_id)["live_context"]).status = "idle"
+    store.comment(key, "still there?", side)                       # attention moves to side
+    c = store.cast_recap(chr_id, "cleared A, B open")
+    assert c["thread_id"] == side and store.character(chr_id)["recaps"] == [c["id"]]
+    assert store.cast_recap(chr_id, "on main", thread_id=store.get(key)["mainThread"])["thread_id"] == store.get(key)["mainThread"]
+
+
+def test_cast_comment_to_opens_a_root_thread_when_no_thread_is_given(store, contexts):
+    key, chr_id = started(store)
+    r = store.cast_call(chr_id, "claude-fast", "build")
+    c = store.cast_comment(chr_id, "one more thing", to=["@claude-fast"])
+    t = store.story(key).thread(c["thread_id"])
+    assert (t.author, t.lead) == (chr_id, r["character"]) and c["thread_id"] != r["thread"]
+    c2 = store.cast_comment(chr_id, "fyi", thread_id=r["thread"], to=["@claude-fast"])
+    assert c2["thread_id"] == r["thread"] and store.addressees(key, c2) == [r["character"]]
+
+
+def test_cast_inbox_lists_waiting_comments(store, contexts):
+    key, chr_id = started(store)
+    a = store.openThread(key, "first btw")
+    rows = store.cast_inbox(chr_id)
+    assert [r["thread_id"] for r in rows] == [a] and rows[0]["body"] == "first btw"
+
+
+def test_speak_posts_into_the_attended_thread_or_opens_one(store, contexts):
+    key, chr_id = started(store)
+    main = store.get(key)["mainThread"]
+    c = store.speak(chr_id, "typed in the context view")
+    assert (c["author"], c["thread_id"]) == ("human", main)
+    store._characters[chr_id]["attention"] = None
+    c2 = store.speak(chr_id, "while it attends nothing")
+    assert c2["thread_id"] != main and store.story(key).thread(c2["thread_id"]).lead == chr_id
+
+
+def test_cast_yield_reaches_the_threads_author(store, contexts):
+    key, chr_id = started(store)
+    live = contexts.get(store.character(chr_id)["live_context"]); live.status = "idle"
+    r = store.cast_call(chr_id, "claude-fast", "build")
+    store.cast_yield(r["character"], "handoff", "built it")
+    assert live.sent[-1].startswith(f"[claude-fast] handoff in #{r['thread']}: built it")

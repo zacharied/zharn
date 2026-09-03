@@ -171,6 +171,8 @@ def test_aside_button_opens_a_private_context_and_reopens_it(ui):
     key = ui.store.stories.create("Aside me", "")
     chr_id = ui.store.stories.start(key, "yield-question", "protagonist")   # the fake protagonist asks, then idles
     ctx = ui.store.contexts.get(ui.store.stories.character(chr_id)["live_context"])
+    assert wait_until(lambda: any(r["kind"] == "question" for r in ui.store.stories.comments(key))), \
+        [(r["role"], r["kind"], (r.get("text") or "")[:200]) for r in ctx.transcript.rows()]
     assert wait_until(lambda: ctx.status == "idle")
     c = next(r for r in ui.store.stories.comments(key) if r["kind"] == "question")
     open_story(ui, key)

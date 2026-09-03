@@ -478,7 +478,9 @@ class StoryStore(QObject):
         rule = getattr(cfg, "OUTLINE_RULE_REQUIRED", "") if role_cfg.get("outline_first") else getattr(cfg, "OUTLINE_RULE_OPTIONAL", "")
         return getattr(cfg, "CHARACTER_SYSTEM_PROMPT", "").format(
             name=ch["name"], character_id=ch["id"], story_key=s.key, title=s.title, phase=s.phase,
-            thread_id=s.main_thread or "", outline_rule=rule)
+            thread_id=s.main_thread or "", attention=ch.get("attention") or s.main_thread or "",
+            owes=", ".join("#" + t for t in self.owes(ch)) or "nothing",
+            awaits=", ".join("#" + t for t in self.awaits(ch)) or "nothing", outline_rule=rule)
 
     def _author_action(self, key, action, *, resume: bool):
         key = self._key(key)
@@ -631,8 +633,68 @@ class StoryStore(QObject):
     def cast_yield(self, character_id, kind, body, options=(), thread_id="", checks=()) -> dict:
         key, ch = self._char(character_id)
         tid = thread_id or ch.get("attention") or self._stories[key].main_thread
-        return self._apply(key, lc.Yield(thread_id=tid, by=character_id, kind=kind, body=body, options=list(options),
-                                         checks=[dict(c) for c in checks]))
+        c = self._apply(key, lc.Yield(thread_id=tid, by=character_id, kind=kind, body=body, options=list(options),
+                                      checks=[dict(c) for c in checks]))
+        self._route(key, c)
+        return c
+
+    def cast_call(self, character_id, role, note, as_name="", fork=False) -> dict:
+        """Spec §2.2 call: a friend on its own thread, authored by the caller; --fork copies the caller's memory."""
+        key, ch = self._char(character_id)
+        if self._stories[key].phase in lc.TERMINAL:
+            raise lc.Rejected(f"{key} is terminal")
+        role_cfg = self._roles.get(role)
+        if not role_cfg:
+            raise ValueError(f"unknown role {role!r}")
+        if not note:
+            raise lc.Rejected("call needs a --note: the friend's call-in note is the root of its thread")
+        chr_id, thread_id = new_id("chr_"), new_id("thr_")
+        prev_story, prev_comments = self._stories[key], list(self._comments.get(key, []))
+        self._apply(key, lc.OpenThread(thread_id=thread_id, author=character_id, lead=chr_id, body=note))
+        try:
+            friend = self._cast(key, role_cfg, chr_id=chr_id, thread_id=thread_id, author=character_id, note=note,
+                                name=as_name, fork_from=character_id if fork else None)
+        except Exception:
+            self._stories[key], self._comments[key] = prev_story, prev_comments
+            self._save_story(key)
+            self._refresh()
+            raise
+        self._refresh()
+        return {"thread": thread_id, "character": friend["id"], "name": friend["name"]}
+
+    def cast_wait(self, character_id) -> dict:
+        """Spec §2.2 wait: a guard, not a block — what the caller awaits, or why it must not stop."""
+        key, ch = self._char(character_id)
+        awaits = self.awaits(ch)
+        if not awaits:
+            owed = self.owes(ch)
+            what = f"owe #{owed[0]}" if owed else "owe nothing either"
+            raise lc.Rejected(f"you await nothing and {what} — " + ("yield instead" if owed else "just end your turn"))
+        s = self._stories[key]
+        rows = []
+        for item in awaits:
+            t = next((t for t in s.threads if t.id == item), None)
+            rows.append({"thread": item, "lead": author_name(t.lead, self._characters)} if t else {"story": item})
+        return {"awaits": rows, "message": "end your turn now; you will be woken when any of these yields to you"}
+
+    def cast_inbox(self, character_id) -> list[dict]:
+        key, ch = self._char(character_id)
+        return [dict(c) for i in ch.get("inbox", []) if (c := self._comment_by_id(i)) is not None]
+
+    @Slot(str, str, result="QVariantMap")
+    @intent
+    def speak(self, character_id, text):
+        """Spec §2.3: typing in a character's context view is a human comment in its attended thread — the
+        same channel, a different skin; a root thread to it when it attends nothing."""
+        key, ch = self._char(character_id)
+        if ch.get("attention"):
+            skey, _ = self._thread_anywhere(ch["attention"])
+            if skey is not None:
+                return self._author_action(skey, lc.Comment(thread_id=ch["attention"], by="human", body=text), resume=True)
+        tid = new_id("thr_")
+        c = self._apply(key, lc.OpenThread(thread_id=tid, author="human", lead=character_id, body=text))
+        self._route(key, c)
+        return c
 
     def cast_proceed(self, character_id, note="") -> dict:
         key, ch = self._char(character_id)
@@ -662,17 +724,28 @@ class StoryStore(QObject):
             ch["attention"] = None
             self._save_characters()
 
-    def cast_recap(self, character_id, body) -> dict:
+    def cast_recap(self, character_id, body, thread_id="") -> dict:
         key, ch = self._char(character_id)
-        c = self._apply(key, lc.Recap(by=character_id, body=body))
+        tid = thread_id or ch.get("attention") or self._stories[key].main_thread
+        c = self._apply(key, lc.Recap(by=character_id, body=body, thread_id=tid))
         ch.setdefault("recaps", []).append(c["id"])
+        ctx = self._contexts.get(ch["live_context"]) if ch.get("live_context") else None
+        ch["recap_turns"] = getattr(ctx, "turns", 0) if ctx is not None else 0
         self._save_characters()
         return c
 
-    def cast_comment(self, character_id, body, thread_id="") -> dict:
+    def cast_comment(self, character_id, body, thread_id="", to=()) -> dict:
         key, ch = self._char(character_id)
-        tid = thread_id or ch.get("attention") or self._stories[key].main_thread
-        return self._apply(key, lc.Comment(thread_id=tid, by=character_id, body=body))
+        mentions = " ".join(m if m.startswith("@") else "@" + m for m in to)
+        if not thread_id and to:
+            lead = self._by_name(key, mentions.split()[0].lstrip("@"))["id"]
+            tid = new_id("thr_")
+            c = self._apply(key, lc.OpenThread(thread_id=tid, author=character_id, lead=lead, body=body))
+        else:
+            tid = thread_id or ch.get("attention") or self._stories[key].main_thread
+            c = self._apply(key, lc.Comment(thread_id=tid, by=character_id, body=body + (" " + mentions if mentions else "")))
+        self._route(key, c)
+        return c
 
     def log_verb(self, character_id, verb, args: dict, ok: bool, error: str = ""):
         ch = self._characters.get(character_id)

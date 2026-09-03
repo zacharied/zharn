@@ -300,8 +300,8 @@ def test_story_proceed_recap_comment_inside_a_character(recorder, monkeypatch):
     for cmd in ("story.proceed", "story.recap", "story.comment"):
         recorder.replies[cmd] = {"id": "c"}
     cli.main(["story", "proceed", "--note", "bounded"]); cli.main(["story", "recap", "--body", "r"]); cli.main(["story", "comment", "--body", "c"])
-    assert recorder.calls == [("story.proceed", {"character": "chr1", "note": "bounded"}), ("story.recap", {"character": "chr1", "body": "r"}),
-                              ("story.comment", {"character": "chr1", "body": "c", "thread": ""})]
+    assert recorder.calls == [("story.proceed", {"character": "chr1", "note": "bounded"}), ("story.recap", {"character": "chr1", "body": "r", "thread": ""}),
+                              ("story.comment", {"character": "chr1", "body": "c", "thread": "", "to": []})]
 
 
 def test_story_author_verbs_outside_a_character(recorder):
@@ -323,3 +323,23 @@ def test_story_resolve_inside_and_outside_a_character(recorder, monkeypatch):
     cli.main(["story", "resolve", "--thread", "t2"])
     assert recorder.calls == [("story.resolve", {"key": "ABC-1", "thread": "t2", "note": "n"}),
                               ("story.resolve", {"character": "chr1", "thread": "t2", "note": ""})]
+
+
+def test_story_call_wait_inbox_cast_recap_comment_args(recorder, monkeypatch):
+    monkeypatch.setenv("HARNESS_CHARACTER_ID", "chr1")
+    recorder.replies["story.call"] = {"thread": "thr_x", "character": "chr2", "name": "Impl"}
+    recorder.replies["story.wait"] = {"awaits": [], "message": "end your turn"}
+    cli.main(["story", "call", "--role", "claude-fast", "--as", "Impl", "--fork", "--note", "build it"])
+    cli.main(["story", "wait"])
+    cli.main(["story", "inbox"])
+    cli.main(["story", "cast"])
+    cli.main(["story", "recap", "--body", "r", "--thread", "thr_x"])
+    cli.main(["story", "comment", "--body", "b", "--to", "@Impl", "--to", "@Rev"])
+    assert recorder.calls == [
+        ("story.call", {"character": "chr1", "role": "claude-fast", "note": "build it", "as": "Impl", "fork": True}),
+        ("story.wait", {"character": "chr1"}),
+        ("story.inbox", {"character": "chr1"}),
+        ("story.cast", {"key": "", "character": "chr1"}),
+        ("story.recap", {"character": "chr1", "body": "r", "thread": "thr_x"}),
+        ("story.comment", {"character": "chr1", "body": "b", "thread": "", "to": ["@Impl", "@Rev"]}),
+    ]

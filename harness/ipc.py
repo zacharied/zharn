@@ -76,13 +76,21 @@ def make_handler(app_store):
             chr_id = stories.start(a["key"], a.get("note", ""), a.get("role", ""))
             return {**stories.get(a["key"]), "character": chr_id}
         ch = a.get("character", "")
+        if verb == "cast":
+            return stories.cast(a.get("key") or stories.character(ch)["story_key"])
+        if verb == "inbox":
+            return stories.cast_inbox(ch)
+        if verb == "call":
+            return stories.cast_call(ch, a["role"], a.get("note", ""), a.get("as", ""), bool(a.get("fork")))
+        if verb == "wait":
+            return stories.cast_wait(ch)
         if verb == "yield":
             return stories.cast_yield(ch, a["kind"], a["body"], a.get("options") or [], a.get("thread", ""))
         if verb == "recap":
-            return stories.cast_recap(ch, a["body"])
+            return stories.cast_recap(ch, a["body"], a.get("thread", ""))
         if verb == "comment":
             if ch:
-                return stories.cast_comment(ch, a["body"], a.get("thread", ""))
+                return stories.cast_comment(ch, a["body"], a.get("thread", ""), a.get("to") or [])
             return stories.comment(a["key"], a["body"], a.get("thread", ""))
         if verb == "proceed":
             if ch:

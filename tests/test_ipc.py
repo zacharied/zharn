@@ -110,8 +110,13 @@ class FakeStories:
             raise Rejected("thread already waits on its author")
         return {"id": "c5", "kind": kind}
     def cast_proceed(self, character_id, note=""): self.calls.append(("cast_proceed", character_id, note)); return {"id": "c6", "kind": "system"}
-    def cast_recap(self, character_id, body): self.calls.append(("cast_recap", character_id, body)); return {"id": "c7", "kind": "recap"}
-    def cast_comment(self, character_id, body, thread_id=""): self.calls.append(("cast_comment", character_id, body, thread_id)); return {"id": "c8", "kind": "text"}
+    def cast_recap(self, character_id, body, thread_id=""): self.calls.append(("cast_recap", character_id, body, thread_id)); return {"id": "c7", "kind": "recap"}
+    def cast_comment(self, character_id, body, thread_id="", to=()): self.calls.append(("cast_comment", character_id, body, thread_id, list(to))); return {"id": "c8", "kind": "text"}
+    def cast_call(self, character_id, role, note, as_name="", fork=False):
+        self.calls.append(("cast_call", character_id, role, note, as_name, fork)); return {"thread": "thr_x", "character": "chr2", "name": as_name or role}
+    def cast_wait(self, character_id): self.calls.append(("cast_wait", character_id)); return {"awaits": [], "message": "end your turn"}
+    def cast_inbox(self, character_id): return []
+    def character(self, character_id): return {"id": character_id, "story_key": "ABC-1"}
     def resolve(self, key, thread_id, note=""): self.calls.append(("resolve", key, thread_id, note)); return {"id": "c10", "kind": "system"}
     def cast_resolve(self, character_id, thread_id, note=""): self.calls.append(("cast_resolve", character_id, thread_id, note)); return {"id": "c11", "kind": "system"}
     def log_verb(self, character_id, verb, args, ok, error=""): self.verbs.append((character_id, verb, dict(args), ok, error))
@@ -262,7 +267,7 @@ def test_story_cast_verbs_forward_and_log(h, store):
     h("story.recap", {"character": "chr1", "body": "r"})
     h("story.comment", {"character": "chr1", "body": "c", "thread": "t2"})
     assert store.stories.calls == [("cast_yield", "chr1", "question", "q", ["a", "b"], ""), ("cast_proceed", "chr1", "bounded"),
-                                   ("cast_recap", "chr1", "r"), ("cast_comment", "chr1", "c", "t2")]
+                                   ("cast_recap", "chr1", "r", ""), ("cast_comment", "chr1", "c", "t2", [])]
     assert [(v[1], v[3]) for v in store.stories.verbs] == [("yield", True), ("proceed", True), ("recap", True), ("comment", True)]
     assert "character" not in store.stories.verbs[0][2]
 
@@ -409,3 +414,15 @@ def test_new_server_replaces_stale_server_of_same_name():
     finally:
         fresh.server.close()
         stale.server.close()
+
+
+def test_story_call_wait_inbox_cast_forward_and_log(h, store):
+    assert h("story.call", {"character": "chr1", "role": "claude-fast", "note": "build", "as": "Impl", "fork": True}) == {"thread": "thr_x", "character": "chr2", "name": "Impl"}
+    assert h("story.wait", {"character": "chr1"}) == {"awaits": [], "message": "end your turn"}
+    assert h("story.inbox", {"character": "chr1"}) == []
+    assert h("story.cast", {"key": "ABC-1"})[0]["name"] == "protagonist"
+    assert h("story.cast", {"character": "chr1"})[0]["name"] == "protagonist"     # a character's own story
+    assert h("story.recap", {"character": "chr1", "body": "r", "thread": "thr_x"}) == {"id": "c7", "kind": "recap"}
+    assert h("story.comment", {"character": "chr1", "body": "b", "thread": "", "to": ["@x"]}) == {"id": "c8", "kind": "text"}
+    assert [v[1] for v in store.stories.verbs] == ["call", "wait", "inbox", "cast", "recap", "comment"]
+    assert store.stories.calls[-2:] == [("cast_recap", "chr1", "r", "thr_x"), ("cast_comment", "chr1", "b", "", ["@x"])]
