@@ -397,6 +397,9 @@ class StoryStore(QObject):
         ch = self._character_by_context(context_id)
         if ch is None:
             return
+        ctx = self._contexts.get(context_id)
+        if ctx is not None and getattr(ctx, "proc_cwd", None) not in (None, self._placement(ctx)[0]):
+            ctx.recycle()   # its environment changed this turn: the next turn spawns there (§4.5)
         key = ch["story_key"]
         s = self._stories[key]
         if s.phase in lc.TERMINAL:
@@ -405,7 +408,6 @@ class StoryStore(QObject):
             pending = ch.pop("recast_pending")
             self._recast_now(ch, pending.get("role", ""), pending.get("model", ""))
             return
-        ctx = self._contexts.get(context_id)
         if not self.awaits(ch):
             status = getattr(ctx, "status", "idle")
             why = {"failed": "crashed", "stopped": "was stopped"}.get(status, "went quiet")

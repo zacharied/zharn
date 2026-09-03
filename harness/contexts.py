@@ -49,6 +49,7 @@ class Context(QObject):
         self._interp = StreamInterpreter(self.transcript)
         self._interp.session_id = meta.get("sessionId", "")
         self._proc: ClaudeCodeProcess | None = None
+        self._proc_cwd: str | None = None
         self._unacked = 0  # messages pushed to the process that claude has not echoed (consumed) yet
         self._log_path = store.data_dir / f"{meta['id']}.jsonl"
 
@@ -95,6 +96,10 @@ class Context(QObject):
     @property
     def notifier(self): return getattr(self._store, "notifier", None)
 
+    @property
+    def proc_cwd(self) -> str | None:
+        return self._proc_cwd if self._proc is not None else None
+
     def last_assistant_text(self) -> str:
         for row in reversed(self.transcript.rows()):
             if row["role"] == "assistant" and row["kind"] == "text" and row["text"].strip():
@@ -124,10 +129,11 @@ class Context(QObject):
         with self._log_path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(record) + "\n")
 
-    def _env(self) -> dict:
+    def _env(self, extra: dict | None = None) -> dict:
         env = {"HARNESS_CONTEXT_ID": self.id, "HARNESS_STORY_KEY": self.storyKey, "HARNESS_ROOT": str(self._store.root),
                "HARNESS_WORKSPACE": str(self._store.workspace_dir), "HARNESS_CLI": f"{sys.executable} -m harness.cli"}
         env.update(self.meta.get("env") or {})
+        env.update(extra or {})
         env.update(self._store.extra_env())
         return env
 
@@ -141,7 +147,9 @@ class Context(QObject):
         extra = list(getattr(cfg, "EFFORT_FLAGS", {}).get(role.get("reasoning", ""), []))
         if not resume and self.meta.get("forkSession"):
             resume, extra = self.meta["forkSession"], extra + ["--fork-session"]  # first turn of a fork only
-        self._proc = ClaudeCodeProcess(cwd=self.meta.get("cwd") or str(self._store.root), env=self._env(),
+        cwd, place_env = self._store.placement(self)   # decided at every spawn, not at creation (workspace spec §4.5)
+        self._proc_cwd = cwd
+        self._proc = ClaudeCodeProcess(cwd=cwd, env=self._env(place_env),
                                        model=role.get("model", ""), permission=role.get("permission", "auto"),
                                        resume=resume, system_prompt=self._system_prompt(), extra_args=extra)
         self._proc.event.connect(self._on_event)
@@ -173,6 +181,20 @@ class Context(QObject):
             self._proc.stop()
             self._unacked = 0
             self._set_status("stopped")
+
+    def recycle(self):
+        """Drop an idle process so the next send resumes the session in a fresh one — the way a character
+        changes working directory between turns. A working process is left alone."""
+        if self._proc is None or self._status in ("starting", "working"):
+            return
+        old, self._proc = self._proc, None
+        for sig, slot in ((old.event, self._on_event), (old.stderrText, self._on_stderr), (old.finished, self._on_finished)):
+            try:
+                sig.disconnect(slot)
+            except (RuntimeError, TypeError):
+                pass
+        old.shutdown()
+        self.changed.emit()
 
     def _on_event(self, ev: dict):
         self._log(ev)
@@ -241,6 +263,7 @@ class ContextStore(QObject):
         self.workspace_dir = Path(workspace_dir) if workspace_dir else root
         self.roles = roles
         self.extra_env = lambda: {}
+        self.placement = lambda c: (c.meta.get("cwd") or str(self.workspace_dir), {})   # StoryStore overrides (spec §4.5)
         self._contexts: dict[str, Context] = {}
         self._model = DictListModel(CONTEXT_ROLES, self)
         self._load()

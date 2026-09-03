@@ -176,3 +176,67 @@ def test_parents_later_commits_do_not_move_the_substory(ws, repo):
     sub = es.open("ZH-2", "client")
     commit_file(Path(parent["path"]), "later.txt")
     assert not (Path(sub["path"]) / "later.txt").exists()     # plain git: a branch, not a view
+
+
+# ---------------------------------------------------------------- end to end: cwd at spawn (§4.5)
+import os
+import shutil
+from PySide6.QtTest import QTest
+from harness.__main__ import ROOT, build
+
+OUT = ROOT / "tests" / "_out"
+WS = OUT / "env-ws"
+
+
+def wait_until(cond, timeout_ms=8000, step=25):
+    import time
+    t0 = time.time()
+    while time.time() - t0 < timeout_ms / 1000:
+        QTest.qWait(step)
+        if cond():
+            return True
+    return False
+
+
+@pytest.fixture(scope="module")
+def app_store():
+    shutil.rmtree(WS, ignore_errors=True)
+    os.environ["HARNESS_WORKSPACE"] = str(WS)
+    os.environ["HARNESS_SESSION"] = str(OUT / "env-session.json")
+    os.environ["HARNESS_CLAUDE_CMD"] = f"{sys.executable} {ROOT / 'tests' / 'fake_claude.py'}"
+    (OUT / "env-session.json").unlink(missing_ok=True)
+    app, store, reloader = build(force_poll=True)
+    assert reloader.load(), store.reloadError
+    make_repo(WS / "client")
+    register_repo(store.stories.workspace, str(WS / "client"), checks="test -f ok.txt")
+    QTest.qWait(50)
+    yield store
+    store.contexts.shutdown()
+    reloader.shutdown()
+    QTest.qWait(50)
+
+
+def _inits(store, cid):
+    return [json.loads(l) for l in (store.contexts.data_dir / f"{cid}.jsonl").read_text().splitlines() if '"init"' in l]
+
+
+def test_character_moves_into_its_worktree_at_the_next_turn(app_store):
+    st = app_store.stories
+    key = st.create("E2E", "")
+    chr_id = st.start(key, "go", "protagonist")
+    ctx = app_store.contexts.get(st.character(chr_id)["live_context"])
+    assert wait_until(lambda: ctx.status == "idle"), ctx.lastError
+    assert Path(_inits(app_store, ctx.id)[0]["cwd"]).resolve() == WS.resolve()
+    # the first turn ended with the harness yielding for the protagonist (it owed the main thread): ball is the author's,
+    # so each comment below is a Reply that resumes it.
+    assert st.get(key)["ball"] == "author"
+    d = st.cast_env_open(chr_id, "client")
+    st.comment(key, "now in the worktree?")          # delivery → turn → turn end recycles the stale process
+    assert wait_until(lambda: ctx.status == "idle")
+    assert wait_until(lambda: ctx.proc_cwd is None)  # recycled at turn end because placement changed
+    st.comment(key, "and now?")
+    assert wait_until(lambda: ctx.status == "idle")
+    init = _inits(app_store, ctx.id)[-1]
+    assert Path(init["cwd"]).resolve() == Path(d["path"]).resolve()
+    assert init["harness_env"]["HARNESS_REPO"] == "client" and init["harness_env"]["HARNESS_ENV"] == d["path"]
+    assert d["path"] in ctx.meta["systemPrompt"]

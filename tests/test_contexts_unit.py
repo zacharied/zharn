@@ -3,6 +3,7 @@
 import json
 import sys
 import time
+from pathlib import Path
 
 import pytest
 from PySide6.QtTest import QTest
@@ -187,3 +188,38 @@ def test_a_stop_settles_regardless_of_unechoed_pushes(store):
     c.send("never echoed")
     c.stop()
     assert wait_until(lambda: c.status == "stopped") and c._unacked == 0
+
+
+def test_placement_decides_cwd_and_extra_env_at_every_spawn(store, tmp_path):
+    a, b = tmp_path / "a", tmp_path / "b"
+    a.mkdir(); b.mkdir()
+    target = {"cwd": str(a)}
+    store.placement = lambda c: (target["cwd"], {"HARNESS_REPO": "r", "HARNESS_ENV": target["cwd"]})
+    cid = store.spawn("claude-fast", "hello")
+    c = store.get(cid)
+    assert wait_until(lambda: c.status == "idle"), c.lastError
+    assert c.proc_cwd == str(a)
+    init = next(r for r in (json.loads(l) for l in (store.data_dir / f"{cid}.jsonl").read_text().splitlines()) if r.get("subtype") == "init")
+    assert Path(init["cwd"]).resolve() == a.resolve() and init["harness_env"]["HARNESS_REPO"] == "r" and init["harness_env"]["HARNESS_ENV"] == str(a)
+    target["cwd"] = str(b)
+    c.send("again")                      # same process: cwd unchanged until recycled
+    assert wait_until(lambda: c.status == "idle")
+    assert c.proc_cwd == str(a)
+    c.recycle()
+    assert c.proc_cwd is None and c.status == "idle"
+    c.send("after recycle")
+    assert wait_until(lambda: c.status == "idle")
+    assert c.proc_cwd == str(b)
+    inits = [r for r in (json.loads(l) for l in (store.data_dir / f"{cid}.jsonl").read_text().splitlines()) if r.get("subtype") == "init"]
+    assert len(inits) == 2 and Path(inits[-1]["cwd"]).resolve() == b.resolve()
+    assert "--resume" in inits[-1]["argv"]   # the session carried over
+
+
+def test_recycle_is_a_no_op_while_working(store):
+    cid = store.spawn("claude-fast", "slow please")
+    c = store.get(cid)
+    assert c.status in ("starting", "working")
+    proc = c._proc
+    c.recycle()
+    assert c._proc is proc
+    assert wait_until(lambda: c.status == "idle")
