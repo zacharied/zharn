@@ -297,7 +297,9 @@ Known churn: every intent re-parses the whole tree and rebuilds all groups (fine
    and worktree, cut from its parent environment's branch; friends share a tree, stories get a branch — lazy
    managed worktrees, context placement at spawn, checks at implementing handoffs run by the CLI (`HANDOFF_CHECKS` gate/attach),
    Scratch under appdata as the default workspace. **Next:** start screen, workspace page (Relocate/Unregister),
-   story move (§5.3), environments on the story page and cast panel (UI thread).
+   story move (§5.3), environments on the story page and cast panel (UI thread); clone/setup still run in the
+   harness process (bounded by GIT_TIMEOUT_S/SETUP_TIMEOUT_S); moving them into the character's turn like
+   checks is the follow-up.
 7. `pyte`-backed terminal panel.
 8. Self-hosting: open Scratch, start a story against the pre-registered zharn repo, and have the
    cast edit the UI.

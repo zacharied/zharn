@@ -62,6 +62,8 @@ being moved (§5.3).
 Scratch is the workspace zharn opens when `HARNESS_WORKSPACE` is unset. `<appdata>` is the
 platform application-data directory (`%APPDATA%` on Windows, `$XDG_DATA_HOME` or
 `~/.local/share` elsewhere); `ZHARN_APPDATA` overrides it, which is how tests keep it in a temp dir.
+`ZHARN_APPDATA` names zharn's own data directory (there is no wider "appdata" concept it plugs
+into); Scratch lives at `$ZHARN_APPDATA/scratch`.
 
 ## 3. Repos
 
@@ -77,7 +79,9 @@ base   = "main"            # branch managed worktrees are created from; default:
 ```
 
 `checks` replaces `config.CHECK_CMD` in the lifecycle spec: checks are per repo, run per
-environment (§4.4).
+environment (§4.4). Both `checks` and `setup` run through the platform shell — `sh` on POSIX,
+`cmd.exe` on Windows — the same way a terminal would run them; a multi-command line needs that
+shell's syntax (`&&`, `;`, …).
 
 ### 3.2 Who registers
 
@@ -162,7 +166,8 @@ whole cast, so a reviewer friend sees the implementor's work. The command prints
 environment's path and records the environment on the calling character (§4.5).
 
 * A worktree record whose directory is gone (deleted by hand) is pruned with `git worktree
-  prune` and re-added on its existing branch.
+  prune` and re-added on its existing branch. A re-added worktree is a new worktree: `setup`
+  runs again.
 * A failed `setup` leaves the worktree in place, returns the error to the caller, and is retried
   on the next `env open`; `setup_done` records success.
 * A missing repo (§3.3) fails with the missing message and creates nothing.
