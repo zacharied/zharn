@@ -920,3 +920,44 @@ def test_cancel_cascades_to_open_sub_stories(store, contexts):
     sub = store.cast_create(chr_id, "part", start=True, role="claude-fast")
     store.cancel(key)
     assert store.story(sub).phase == "canceled" and store.cast(sub)[0]["status"] == "retired"
+
+
+# ---------------------------------------------------------------- recast (characters plan, Task 9)
+
+def test_recast_replaces_the_live_context_and_hands_it_the_situation(store, contexts):
+    key, chr_id = started(store)
+    old = store.character(chr_id)["live_context"]
+    contexts.get(old).status = "idle"; contexts.get(old).turns = 3
+    side = store.openThread(key, "btw")                          # pushed: the stub goes "working" again
+    store.cast_recap(chr_id, "done: outline; next: build")
+    contexts.get(old).status = "idle"                             # ...and its turn ends
+    new = store.recast(key, chr_id, role="claude-fast")
+    ch = store.character(chr_id)
+    assert ch["live_context"] == new and ch["role"] == "claude-fast" and contexts.get(old).stopped
+    assert contexts.get(new).meta["predecessor"] == old and contexts.get(new).meta["owner"] == chr_id
+    first = contexts.get(new).sent[0]
+    assert "you are a recast of protagonist" in first and "done: outline; next: build" in first and f"attending #{side}" in first
+    note = store.comments(key)[-1]
+    assert note["author"] == "system" and note["body"] == "recast protagonist as claude-fast (rung 1: fresh recap)"
+    assert store.cast(key)[0]["status"] == "working"
+
+
+def test_recast_without_a_fresh_recap_is_rung_3(store, contexts, monkeypatch):
+    monkeypatch.setattr(cfg, "RECAP_STALE_TURNS", 2, raising=False)
+    key, chr_id = started(store)
+    old = store.character(chr_id)["live_context"]
+    contexts.get(old).status = "idle"; contexts.get(old).turns = 1
+    store.cast_recap(chr_id, "early recap")
+    contexts.get(old).turns = 10
+    store.recast(key, chr_id)
+    assert store.comments(key)[-1]["body"].endswith("(rung 3: no fresh recap)")
+
+
+def test_recast_of_a_working_character_waits_for_the_turn_boundary(store, contexts):
+    key, chr_id = started(store)
+    old = store.character(chr_id)["live_context"]
+    assert store.recast(key, chr_id, model="claude-opus-5") == "" and store.character(chr_id)["recast_pending"] == {"role": "", "model": "claude-opus-5"}
+    settle(store, contexts, chr_id)
+    ch = store.character(chr_id)
+    assert ch["live_context"] != old and "recast_pending" not in ch
+    assert contexts.get(ch["live_context"]).meta["role"] == "protagonist" and contexts.get(ch["live_context"]).meta["roleConfig"]["model"] == "claude-opus-5"

@@ -76,9 +76,12 @@ def render_brief(story: lc.Story, comments: list[dict], characters: dict[str, di
                 if opts:
                     out.append(f"  - options: {', '.join(opts)}")
             out.append("")
-    recaps = [c for c in comments if c["kind"] == "recap"]
-    if recaps:
-        out += ["## Latest recap", "", recaps[-1]["body"], ""]
+    latest = {}
+    for c in comments:
+        if c["kind"] == "recap":
+            latest[c["author"]] = c
+    if latest:
+        out += ["## Recaps (latest per character)", ""] + [f"**{author_name(a, characters)}**: {c['body']}" for a, c in latest.items()] + [""]
     cast = [ch for ch in characters.values() if ch["story_key"] == story.key]
     if cast:
         out += ["## Cast", ""] + [f"- {ch['name']} — {ch['role']}" + (" (protagonist)" if ch["id"] == story.protagonist else "") for ch in cast] + [""]
@@ -371,6 +374,10 @@ class StoryStore(QObject):
         s = self._stories[key]
         if s.phase in lc.TERMINAL:
             return  # retired
+        if ch.get("recast_pending") is not None:  # a recast waited for this boundary
+            pending = ch.pop("recast_pending")
+            self._recast_now(ch, pending.get("role", ""), pending.get("model", ""))
+            return
         ctx = self._contexts.get(context_id)
         if not self.awaits(ch):
             status = getattr(ctx, "status", "idle")
@@ -600,6 +607,57 @@ class StoryStore(QObject):
         comment = self._apply(key, lc.OpenThread(thread_id=thread_id, author="human", lead=lead, body=body))
         self._route(key, comment)
         return thread_id
+
+    # ---------------------------------------------------------------- recast (spec §2.1, §3.4)
+    @Slot(str, str, str, str, result=str)
+    @intent
+    def recast(self, key, character_id, role="", model=""):
+        """Replace a character's live context — same character, fresh memory — at its next turn boundary.
+        Returns the new context id, or "" when deferred until the current turn ends."""
+        key = self._key(key)
+        ch = self._characters[character_id]
+        if ch["story_key"] != key:
+            raise lc.Rejected(f"{ch['name']} is not on {key}")
+        ctx = self._contexts.get(ch["live_context"]) if ch.get("live_context") else None
+        if ctx is not None and ctx.status in WORKING:
+            ch["recast_pending"] = {"role": role, "model": model}
+            self._save_characters()
+            return ""
+        return self._recast_now(ch, role, model)
+
+    def _recast_now(self, ch: dict, role: str = "", model: str = "") -> str:
+        key = ch["story_key"]
+        s = self._stories[key]
+        role_cfg = dict(self._roles.get(role or ch["role"]) or {})
+        if not role_cfg:
+            raise ValueError(f"unknown role {role!r}")
+        if model:
+            role_cfg["model"] = model
+        old_id = ch.get("live_context")
+        old = self._contexts.get(old_id) if old_id else None
+        recap = self._comment_by_id(ch["recaps"][-1]) if ch.get("recaps") else None
+        fresh = (recap is not None and old is not None
+                 and getattr(old, "turns", 0) - ch.get("recap_turns", 0) <= getattr(cfg, "RECAP_STALE_TURNS", 20))
+        rung = "rung 1: fresh recap" if fresh else "rung 3: no fresh recap"
+        ch["role"] = role_cfg["name"]
+        situation = (f"you are a recast of {ch['name']}; your predecessor's recap is above. "
+                     f"You were attending #{ch.get('attention') or s.main_thread}; {len(ch.get('inbox', []))} items wait in your inbox; "
+                     f"you await {', '.join(self.awaits(ch)) or 'nothing'} and owe {', '.join('#' + t for t in self.owes(ch)) or 'nothing'}.")
+        cid = self._contexts.create(role_cfg["name"], story_key=key, owner=ch["id"], title=f"{key} · {ch['name']}",
+                                    system_prompt=self._system_prompt(s, ch, role_cfg), env={"HARNESS_CHARACTER_ID": ch["id"]},
+                                    predecessor=old_id)
+        if model:
+            self._contexts.get(cid).meta.setdefault("roleConfig", {})["model"] = model
+        ch["live_context"] = cid
+        ch.pop("recast_pending", None)
+        self._save_characters()
+        if old is not None:
+            old.stop()
+        self._apply(key, lc.Note(thread_id=s.main_thread, body=f"recast {ch['name']} as {role_cfg['name']} ({rung})"))
+        self._contexts.get(cid).send(render_brief(s, self._comments[key], self._characters, role_cfg, "",
+                                                  substories=self._substories(key), situation=situation))
+        self._refresh()
+        return cid
 
     # ---------------------------------------------------------------- asides (spec §3.5)
     def _aside_for(self, comment_id: str) -> str:

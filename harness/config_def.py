@@ -89,6 +89,9 @@ Nobody on the story hears this conversation and none of it enters the story reco
 FORK_NOTE = ("You are {name}, a fork of {source}: a new character with a copy of its memory as of now. You cannot change "
              "{source}'s plan; if something must reach it, say `@{source}` in a comment. Your call-in note follows.\n\n")
 
+# A recap older than this many turns of its context is stale: recast falls from rung 1 to rung 3 (spec §3.4).
+RECAP_STALE_TURNS = 20
+
 # Roles: what a character is cast from. `outline_first` = must get an outline approved before implementing.
 DEFAULT_ROLES = [
     {"name": "protagonist", "provider": "claude-code", "model": "", "reasoning": "high", "permission": "auto", "outline_first": True,

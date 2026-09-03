@@ -108,6 +108,8 @@ def make_handler(app_store):
             if ch:
                 return stories.cast_resolve(ch, a.get("thread", ""), a.get("note", ""))
             return stories.resolve(a["key"], a.get("thread", ""), a.get("note", ""))
+        if verb == "recast":
+            return {"context": stories.recast(a["key"], a["target"], a.get("role", ""), a.get("model", ""))}
         author = {"approve": stories.approve, "back": stories.backToPlanning, "cancel": stories.cancel, "reopen": stories.reopen}.get(verb)
         if author is not None:
             author(a["key"], a.get("note", ""))

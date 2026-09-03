@@ -109,6 +109,8 @@ def main(argv=None):
     for v in ("approve", "back", "cancel", "reopen"):
         x = stp.add_parser(v); x.add_argument("key"); x.add_argument("--note", default="")
 
+    rcst = stp.add_parser("recast", help="Replace a character's context: same character, fresh memory")
+    rcst.add_argument("key"); rcst.add_argument("target", help="character id"); rcst.add_argument("--role", default=""); rcst.add_argument("--model", default="")
     sub.add_parser("ping")
     a = p.parse_args(argv)
 
@@ -181,6 +183,8 @@ def main(argv=None):
         elif a.verb == "resolve":
             args = {"character": ch, "thread": a.thread, "note": a.note} if ch and not a.key else {"key": a.key, "thread": a.thread, "note": a.note, **({"character": ch} if ch else {})}
             out(request("story.resolve", args), a.json)
+        elif a.verb == "recast":
+            out(request("story.recast", {"key": a.key, "target": a.target, "role": a.role, "model": a.model, **({"character": ch} if ch else {})}), a.json)
         else: out(request(f"story.{a.verb}", {"key": a.key, "note": a.note, **({"character": ch} if ch else {})}), a.json)
 
 
