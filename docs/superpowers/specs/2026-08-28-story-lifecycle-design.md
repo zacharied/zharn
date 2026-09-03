@@ -190,9 +190,10 @@ loop continues — nothing bespoke.
 One UI intent, `stories.aside(key, comment_id) → context_id`, idempotent: a second press reopens
 the comment's existing aside. Precondition: the comment's author is a character. The aside is a
 **bare context** (`owner = "human"`) with `about = {story_key, comment_id}`, forked from the
-memory that wrote the comment — `comment.context` if still resumable, else the character's live
-context, else the button is disabled. Also disabled while the source is `working`: a mid-turn
-session file may hold a dangling tool call (a spike may relax this).
+memory that wrote the comment: `comment.context`, and nothing else — after a recast the live
+context is a different mind that knows the comment only from the brief, so it is never
+substituted. The button is disabled when that context is gone or never ran, and while it is
+`working` (a mid-turn session file may hold a dangling tool call; a spike may relax this).
 
 `ContextStore.fork(source, *, owner, about=None)` is shared with `call --fork`: the first spawn
 uses `--resume <source session> --fork-session` (verified 2026-08-31 — the fork gets its own
@@ -336,8 +337,8 @@ Presets are renamed roles (`harness/presets.py` → `harness/roles.py`), gaining
   the quiet check at turn end (normal end, crash, Stop), retirement on Approve/Cancel,
   `call --fork` and `/fork`, recap in the attended thread, recast ladder rungs 1–3 with the
   situation line, cross-story sub-story delivery.
-* Asides: intent idempotency, the fork-source rule (`comment.context` → live context → disabled,
-  and disabled while working), the read ceiling, verb rejection without `HARNESS_CHARACTER_ID`,
+* Asides: intent idempotency, the fork-source rule (`comment.context` or disabled: gone, never
+  ran, or working), the read ceiling, verb rejection without `HARNESS_CHARACTER_ID`,
   survival across recast and Approve/Cancel, absence from the story record.
 * `tests/test_ui_story.py`, `test_ui_board.py`, `test_ui_contexts.py` via `tests/ui.py`: action
   bars per cell and per waiting thread, option buttons, needs-you sort/count, `@` and `/call`,

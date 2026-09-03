@@ -390,17 +390,13 @@ class StoryStore(QObject):
         return ""
 
     def aside_source(self, key: str, comment: dict) -> str:
-        """The context an aside on `comment` would fork, or "" when the button is disabled: the memory that
-        wrote the comment if it is still resumable, else the character's live context; never one mid-turn."""
-        ch = self._characters.get(comment["author"])
-        if ch is None:
+        """The context an aside on `comment` would fork, or "" when the button is disabled: only the memory
+        that wrote the comment (never a recast successor), and only while it is resumable and not mid-turn."""
+        cid = comment.get("context") if comment["author"] in self._characters else None
+        ctx = self._contexts.get(cid) if cid else None
+        if ctx is None or not getattr(ctx, "sessionId", "") or ctx.status in ("starting", "working"):
             return ""
-        for cid in (comment.get("context"), ch.get("live_context")):
-            ctx = self._contexts.get(cid) if cid else None
-            if ctx is None or not getattr(ctx, "sessionId", ""):
-                continue
-            return "" if ctx.status in ("starting", "working") else cid
-        return ""
+        return cid
 
     @Slot(str, str, result=str)
     @intent

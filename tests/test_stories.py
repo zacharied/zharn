@@ -534,15 +534,15 @@ def test_aside_rejections_report(store, contexts):
     assert store.notifier.errors and "aside" in store.notifier.errors[-1]
 
 
-def test_aside_prefers_the_context_that_wrote_the_comment_then_the_live_one(store, contexts):
+def test_aside_forks_only_the_context_that_wrote_the_comment(store, contexts):
     key, chr_id = started(store)
     c = store.cast_comment(chr_id, "before recast")
     contexts.get(c["context"]).status = "idle"
-    live = contexts.create("claude-fast", owner=chr_id)          # a recast successor
+    live = contexts.create("claude-fast", owner=chr_id)          # a recast successor: a different mind
     contexts.get(live).status = "idle"
     store._characters[chr_id]["live_context"] = live
     assert store.aside_source(key, c) == c["context"]            # the memory that wrote it
-    del contexts.by_id[c["context"]]                              # ...unless it is gone
-    assert store.aside_source(key, c) == live
-    contexts.get(live).status = "working"
-    assert store.aside_source(key, c) == ""
+    contexts.get(c["context"]).status = "working"
+    assert store.aside_source(key, c) == ""                       # ...disabled while it works
+    del contexts.by_id[c["context"]]
+    assert store.aside_source(key, c) == ""                       # ...and when it is gone: never the successor
