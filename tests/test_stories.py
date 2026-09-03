@@ -546,3 +546,53 @@ def test_aside_forks_only_the_context_that_wrote_the_comment(store, contexts):
     assert store.aside_source(key, c) == ""                       # ...disabled while it works
     del contexts.by_id[c["context"]]
     assert store.aside_source(key, c) == ""                       # ...and when it is gone: never the successor
+
+
+# ---------------------------------------------------------------- derived character state (characters plan, Task 2)
+
+def new_thread(store, key, *, author, lead, body="hey"):
+    tid = f"thr_{len(store.story(key).threads) + 1}"
+    store._apply(key, OpenThread(thread_id=tid, author=author, lead=lead, body=body))
+    return tid
+
+
+def test_cast_rows_carry_derived_state(store, contexts):
+    key, chr_id = started(store)
+    live = contexts.get(store.character(chr_id)["live_context"])
+    row, = store.cast(key)
+    assert (row["status"], row["owes"], row["awaits"], row["inboxDepth"], row["forkedFrom"]) == ("working", [store.get(key)["mainThread"]], [], 0, "")
+    live.status = "idle"
+    assert store.cast(key)[0]["status"] == "idle"
+    tid = new_thread(store, key, author=chr_id, lead="chr_friend")
+    assert store.cast(key)[0]["status"] == "waiting" and store.cast(key)[0]["awaits"] == [tid]
+    store.cancel(key)
+    assert store.cast(key)[0]["status"] == "retired"
+
+
+def test_start_comment_names_the_role(store):
+    key, chr_id = started(store)
+    assert store.comments(key)[0]["structured"]["role"] == "protagonist"
+
+
+def test_needs_you_includes_human_side_threads(store):
+    key, chr_id = started(store)
+    tid = new_thread(store, key, author="human", lead=chr_id)
+    assert store.get(key)["needsYou"] is False
+    store._apply(key, Yield(thread_id=tid, by=chr_id, kind="handoff", body="answer"))
+    row = store.get(key)
+    assert row["needsYou"] is True and row["flavor"] == "a side thread waits on you"
+    store.resolve(key, tid)
+    assert store.get(key)["needsYou"] is False
+
+
+def test_proceed_gate_counts_only_outlines_approved_since_the_last_planning_entry(store):
+    key, chr_id = started(store)
+    store.cast_yield(chr_id, "handoff", "outline")
+    store.proceed(key)                      # (implementing, cast)
+    store.cast_yield(chr_id, "handoff", "built")
+    store.backToPlanning(key)               # back in planning: the old approval no longer counts
+    with pytest.raises(Rejected, match="approved outline"):
+        store.cast_proceed(chr_id)
+    store.cast_yield(chr_id, "handoff", "outline v2")
+    store.proceed(key)
+    assert store.get(key)["phase"] == "implementing"

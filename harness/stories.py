@@ -39,15 +39,20 @@ def author_name(author: str, characters: dict[str, dict]) -> str:
 
 
 def needs_you_flavor(story: lc.Story, comments: list[dict]) -> str:
-    if story.ball != "author" or story.author != "human":
+    """Spec §2.4 needs-you: the ball with the human, or any human-authored side thread waiting on them."""
+    if story.author != "human":
         return ""
-    pending = story.main.pending_yield
-    kind = next((c["kind"] for c in comments if c["id"] == pending), "")
-    if kind == "question":
-        return "question"
-    if kind == "handoff":
-        return "outline ready" if story.phase == "planning" else "ready for review"
-    return "waiting on you"
+    if story.ball == "author":
+        pending = story.main.pending_yield
+        kind = next((c["kind"] for c in comments if c["id"] == pending), "")
+        if kind == "question":
+            return "question"
+        if kind == "handoff":
+            return "outline ready" if story.phase == "planning" else "ready for review"
+        return "waiting on you"
+    if any(t.author == "human" and t.turn == "author" and t.id != story.main_thread for t in story.threads):
+        return "a side thread waits on you"
+    return ""
 
 
 def render_brief(story: lc.Story, comments: list[dict], characters: dict[str, dict], role: dict, note: str) -> str:
@@ -208,20 +213,41 @@ class StoryStore(QObject):
         for ch in self._characters.values():
             if ch["story_key"] == key:
                 ctx = self._contexts.get(ch["live_context"]) if ch.get("live_context") else None
-                out.append({**ch, "contextStatus": ctx.status if ctx is not None else "none"})
+                out.append({**ch, "contextStatus": ctx.status if ctx is not None else "none", "status": self.status(ch),
+                            "owes": self.owes(ch), "awaits": self.awaits(ch), "inboxDepth": len(ch.get("inbox", [])),
+                            "forkedFrom": ch.get("forked_from") or ""})
         return out
+
+    # ---------------------------------------------------------------- derived character state (spec §1)
+    def owes(self, ch: dict) -> list[str]:
+        return [t.id for t in lc.owes(self._stories[ch["story_key"]], ch["id"])]
+
+    def awaits(self, ch: dict) -> list[str]:
+        threads = [t.id for t in lc.awaits(self._stories[ch["story_key"]], ch["id"])]
+        subs = [k for k, s in self._stories.items() if s.author == ch["id"] and s.ball == "cast"]
+        return threads + subs
+
+    def status(self, ch: dict) -> str:
+        if self._stories[ch["story_key"]].phase in lc.TERMINAL:
+            return "retired"
+        ctx = self._contexts.get(ch["live_context"]) if ch.get("live_context") else None
+        if ctx is not None and ctx.status in WORKING:
+            return "working"
+        return "waiting" if self.awaits(ch) else "idle"
 
     @Slot(str, result="QVariantMap")
     def character(self, character_id):
         return dict(self._characters[character_id]) if character_id in self._characters else None
 
     # ---------------------------------------------------------------- the one way state changes
-    def _apply(self, key: str, action) -> dict:
+    def _apply(self, key: str, action, extra: dict | None = None) -> dict:
         s = self._stories[key]
         s2, comment = lc.step(s, action, comment_id=new_id("cmt_"), now=time.time())
         writer = self._characters.get(comment["author"])
         if writer is not None:  # spec §4: which memory wrote it (characters only)
             comment["context"] = writer.get("live_context")
+        if extra:
+            comment["structured"].update(extra)
         lc.check_invariants(s2)
         self._stories[key] = s2
         for t in s2.threads:
@@ -300,7 +326,7 @@ class StoryStore(QObject):
         chr_id, thread_id = new_id("chr_"), new_id("thr_")
         prev_story = self._stories[key]
         prev_comments = list(self._comments.get(key, []))
-        self._apply(key, lc.Start(thread_id=thread_id, protagonist=chr_id, note=note))
+        self._apply(key, lc.Start(thread_id=thread_id, protagonist=chr_id, note=note), extra={"role": role_cfg["name"]})
         ch = {"id": chr_id, "story_key": key, "role": role_cfg["name"], "name": name, "live_context": None,
               "attention": thread_id, "inbox": [], "recaps": [], "verbs_log": []}
         self._characters[chr_id] = ch
@@ -449,11 +475,13 @@ class StoryStore(QObject):
     def cast_proceed(self, character_id, note="") -> dict:
         key, ch = self._char(character_id)
         role_cfg = self._roles.get(ch["role"]) or {}
-        outline_approved_transition = {"from": ["planning", "author"], "to": ["implementing", "cast"]}
-        if role_cfg.get("outline_first") and not any(
-                c.get("structured", {}).get("transition") == outline_approved_transition
-                for c in self._comments.get(key, [])):
-            raise lc.Rejected("your role requires an approved outline first: `yield --handoff` the outline and wait for Proceed")
+        if role_cfg.get("outline_first"):  # an outline approved since the most recent entry into planning (§2.2)
+            comments = self._comments.get(key, [])
+            last_planning = max((i for i, c in enumerate(comments)
+                                 if (c.get("structured", {}).get("transition") or {}).get("to", [None])[0] == "planning"), default=-1)
+            approved = {"from": ["planning", "author"], "to": ["implementing", "cast"]}
+            if not any(c.get("structured", {}).get("transition") == approved for c in comments[last_planning + 1:]):
+                raise lc.Rejected("your role requires an approved outline first: `yield --handoff` the outline and wait for Proceed")
         return self._apply(key, lc.Proceed(by=character_id, note=note))
 
     def cast_resolve(self, character_id, thread_id, note="") -> dict:
