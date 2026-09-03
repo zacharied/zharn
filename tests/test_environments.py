@@ -134,3 +134,45 @@ def test_describe_carries_the_repos_checks(ws, tmp_path):
     register_repo(ws, str(p), checks="make test")
     es = store(ws, **{"ZH-1": None})
     assert es.open("ZH-1", "api")["checks"] == "make test"
+
+
+# ---------------------------------------------------------------- sub-stories: the parent chain (§4.2)
+
+def test_substory_branches_from_the_parents_branch(ws, repo):
+    es = store(ws, **{"ZH-1": None, "ZH-2": "ZH-1"})
+    parent = es.open("ZH-1", "client")
+    commit_file(Path(parent["path"]), "parent.txt")          # parent's committed work
+    sub = es.open("ZH-2", "client")
+    assert sub["branch"] == "zharn/ZH-2" and sub["parent"] == "ZH-1:client"
+    assert sub["path"] == str(ws.local_dir / "worktrees" / "client" / "ZH-2")
+    assert (Path(sub["path"]) / "parent.txt").exists()        # cut from zharn/ZH-1, not from main
+    assert run(repo, "rev-parse", "zharn/ZH-2") == run(repo, "rev-parse", "zharn/ZH-1")
+    assert sub["path"] != parent["path"]                      # never the parent's tree
+
+
+def test_substory_creates_the_parents_environment_on_demand(ws, repo):
+    es = store(ws, **{"ZH-1": None, "ZH-2": "ZH-1"})
+    sub = es.open("ZH-2", "client")
+    assert es.get("ZH-1", "client") is not None and es.get("ZH-1", "client")["parent"] is None
+    assert (ws.local_dir / "worktrees" / "client" / "ZH-1").is_dir() and sub["parent"] == "ZH-1:client"
+    assert run(repo, "rev-parse", "zharn/ZH-1") == run(repo, "rev-parse", "main")
+
+
+def test_grandchild_branches_from_its_parent_not_the_root(ws, repo):
+    es = store(ws, **{"ZH-1": None, "ZH-2": "ZH-1", "ZH-3": "ZH-2"})
+    root = es.open("ZH-1", "client")
+    commit_file(Path(root["path"]), "root.txt")
+    child = es.open("ZH-2", "client")
+    commit_file(Path(child["path"]), "child.txt")
+    g = es.open("ZH-3", "client")
+    assert g["parent"] == "ZH-2:client"
+    assert (Path(g["path"]) / "root.txt").exists() and (Path(g["path"]) / "child.txt").exists()
+    assert run(repo, "rev-parse", "zharn/ZH-3") == run(repo, "rev-parse", "zharn/ZH-2")
+
+
+def test_parents_later_commits_do_not_move_the_substory(ws, repo):
+    es = store(ws, **{"ZH-1": None, "ZH-2": "ZH-1"})
+    parent = es.open("ZH-1", "client")
+    sub = es.open("ZH-2", "client")
+    commit_file(Path(parent["path"]), "later.txt")
+    assert not (Path(sub["path"]) / "later.txt").exists()     # plain git: a branch, not a view
