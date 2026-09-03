@@ -15,6 +15,14 @@ class StubContext:
     def __init__(self, cid, meta):
         self.id, self.meta, self.status, self.sent, self.stopped = cid, meta, "idle", [], False
         self.sessionId = "sess-" + cid
+        self.transcript_text, self.last_error, self.turns = "", "", 0
+
+    def last_assistant_text(self):
+        return self.transcript_text
+
+    @property
+    def lastError(self):
+        return self.last_error
 
     def send(self, text):
         self.sent.append(text)
@@ -27,6 +35,7 @@ class StubContext:
 
 class StubContexts(QObject):
     contextsChanged = Signal()
+    contextSettled = Signal(str)
 
     def __init__(self):
         super().__init__()
@@ -690,3 +699,66 @@ def test_delivery_pushes_to_the_attended_thread_and_inboxes_the_rest(store, cont
     live.status = "idle"
     store.comment(key, "now you are free", side)                  # idle → pushed, attention moves
     assert live.sent[-1].endswith("now you are free") and store.character(chr_id)["attention"] == side
+
+
+# ---------------------------------------------------------------- turn end (characters plan, Task 5)
+
+def settle(store, contexts, chr_id, status="idle"):
+    ch = store.character(chr_id)
+    contexts.get(ch["live_context"]).status = status
+    contexts.contextSettled.emit(ch["live_context"])
+
+
+def test_quiet_check_yields_every_owed_thread_when_nothing_is_awaited(store, contexts):
+    key, chr_id = started(store)
+    contexts.get(store.character(chr_id)["live_context"]).transcript_text = "half done"
+    settle(store, contexts, chr_id)
+    s = store.story(key)
+    assert s.ball == "author"
+    last = store.comments(key)[-1]
+    assert (last["author"], last["kind"], last["structured"]["auto_for"]) == ("system", "handoff", chr_id)
+    assert last["body"].startswith("protagonist went quiet: half done")
+    assert store.get(key)["needsYou"] is True and store.character(chr_id)["attention"] is None
+    settle(store, contexts, chr_id)                                # nothing owed now: nothing happens
+    assert len(store.comments(key)) == 2
+
+
+def test_a_waiting_character_is_not_quiet(store, contexts):
+    key, chr_id = started(store)
+    friend = store._cast(key, StubRoles().get("claude-fast"), thread_id="thr_f", author=chr_id, note="build")
+    store._apply(key, OpenThread(thread_id="thr_f", author=chr_id, lead=friend["id"], body="build"))
+    settle(store, contexts, chr_id)
+    assert store.story(key).ball == "cast" and store.cast(key)[0]["status"] == "waiting"
+    store._apply(key, Yield(thread_id="thr_f", by=friend["id"], kind="handoff", body="built"))
+    settle(store, contexts, chr_id)                                # awaits nothing now, still owes main → quiet
+    assert store.story(key).ball == "author"
+
+
+def test_a_crash_or_stop_yields_with_the_reason(store, contexts):
+    key, chr_id = started(store)
+    contexts.get(store.character(chr_id)["live_context"]).last_error = "exit 1"
+    settle(store, contexts, chr_id, status="failed")
+    assert store.comments(key)[-1]["body"].startswith("protagonist crashed: exit 1")
+
+
+def test_turn_end_pops_one_inbox_item_and_moves_attention(store, contexts):
+    key, chr_id = started(store)
+    ch = store.character(chr_id)
+    live = contexts.get(ch["live_context"])
+    a = store.openThread(key, "first btw"); b = store.openThread(key, "second btw")
+    assert [store._comment_by_id(i)["thread_id"] for i in store.character(chr_id)["inbox"]] == [a, b]
+    store.cast_yield(chr_id, "question", "which?")                 # attended main yields, then the turn ends
+    settle(store, contexts, chr_id)
+    ch = store.character(chr_id)
+    assert ch["attention"] == a and live.sent[-1].endswith("first btw") and len(ch["inbox"]) == 1
+    settle(store, contexts, chr_id)                                # a is owed and unanswered → quiet yield there, then pop b
+    assert store.story(key).thread(a).turn == "author" and store.character(chr_id)["attention"] == b
+
+
+def test_retired_characters_get_no_turn_end_processing(store, contexts):
+    key, chr_id = started(store)
+    store.cast_yield(chr_id, "handoff", "outline"); store.proceed(key)
+    store.cast_yield(chr_id, "handoff", "built"); store.approve(key)
+    n = len(store.comments(key))
+    settle(store, contexts, chr_id)
+    assert len(store.comments(key)) == n

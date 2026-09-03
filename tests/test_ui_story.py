@@ -71,17 +71,19 @@ def test_start_casts_protagonist_and_shows_phase_and_ball(ui):
 
 def test_question_yield_renders_options_and_clicking_one_replies(ui):
     key = ui.store.stories.create("Q", "")
-    chr_id = ui.store.stories.start(key, "", "protagonist")
+    ui.store.stories.start(key, "yield-question", "protagonist")     # the fake protagonist asks (options a,b)
     open_story(ui, key)
-    c = ui.store.stories.cast_yield(chr_id, "question", "pg or sqlite?", options=["pg", "sqlite"])
+    assert wait_until(lambda: any(r["kind"] == "question" for r in ui.store.stories.comments(key)))
+    c = next(r for r in ui.store.stories.comments(key) if r["kind"] == "question")
     QTest.qWait(80)
     assert ui.visible(ui.find("needsYouBanner")) and "question" in ui.find("needsYouBanner").property("text")
-    assert ui.find("needsYouCount").property("text").startswith("1 need")
+    expected = sum(1 for r in ui.store.stories.list() if r["needsYou"])   # other stories may need you too
+    assert expected >= 1 and ui.find("needsYouCount").property("text").startswith(f"{expected} need")
     assert ui.visible(ui.find(f"cardBadge_{key}"))
     ui.click(ui.find(f"optionButton_{c['id']}_1"))
     assert ui.store.stories.get(key)["ball"] == "cast"
     last = ui.store.stories.comments(key)[-1]
-    assert last["body"] == "sqlite" and last["reply_to"] == c["id"]
+    assert last["body"] == "b" and last["reply_to"] == c["id"]
     assert not ui.visible(ui.find("needsYouBanner"))
 
 
@@ -167,12 +169,13 @@ def test_cast_panel_follows_the_active_story_tab(ui):
 
 def test_aside_button_opens_a_private_context_and_reopens_it(ui):
     key = ui.store.stories.create("Aside me", "")
-    chr_id = ui.store.stories.start(key, "", "protagonist")
+    chr_id = ui.store.stories.start(key, "yield-question", "protagonist")   # the fake protagonist asks, then idles
     ctx = ui.store.contexts.get(ui.store.stories.character(chr_id)["live_context"])
     assert wait_until(lambda: ctx.status == "idle")
-    c = ui.store.stories.cast_yield(chr_id, "question", "which way?")
+    c = next(r for r in ui.store.stories.comments(key) if r["kind"] == "question")
     open_story(ui, key)
     name = f"asideButton_{c['id']}"
+    ui.hover(ui.find("storyTitle"))                      # park the pointer away from the comment
     assert not ui.find_all(name)[0].isVisible()          # ghost: nothing until hover
     ui.hover(ui.find(f"comment_{c['id']}"))
     ui.click(ui.find(name))

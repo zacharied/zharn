@@ -103,6 +103,7 @@ class StoryStore(QObject):
         self.load_errors: list[str] = []
         self._load()
         contexts.contextsChanged.connect(self._refresh)
+        contexts.contextSettled.connect(self._on_turn_end)
 
     # ---------------------------------------------------------------- persistence
     def _load(self):
@@ -338,6 +339,54 @@ class StoryStore(QObject):
     def _route(self, key: str, comment: dict, phase_before: str = ""):
         for cid in self.addressees(key, comment):
             self._deliver_to(self._characters[cid], comment, phase_before)
+
+    # ---------------------------------------------------------------- turn end (spec §2.3)
+    def _character_by_context(self, context_id: str) -> dict | None:
+        return next((ch for ch in self._characters.values() if ch.get("live_context") == context_id), None)
+
+    def _thread_anywhere(self, thread_id: str):
+        for key, s in self._stories.items():
+            for t in s.threads:
+                if t.id == thread_id:
+                    return key, t
+        return None, None
+
+    def _on_turn_end(self, context_id: str):
+        """A character's turn ended (normal end, crash, or Stop): attention clears once its thread no longer waits on
+        the cast; a character that awaits nothing has every owed thread yielded for it; then one inbox item."""
+        ch = self._character_by_context(context_id)
+        if ch is None:
+            return
+        key = ch["story_key"]
+        s = self._stories[key]
+        if s.phase in lc.TERMINAL:
+            return  # retired
+        ctx = self._contexts.get(context_id)
+        if not self.awaits(ch):
+            status = getattr(ctx, "status", "idle")
+            why = {"failed": "crashed", "stopped": "was stopped"}.get(status, "went quiet")
+            text = ((ctx.last_assistant_text() if ctx is not None else "") or (getattr(ctx, "lastError", "") if ctx is not None else "")
+                    or "(no output)")
+            for t in lc.owes(s, ch["id"]):
+                c = self._apply(key, lc.Yield(thread_id=t.id, by="system", kind="handoff",
+                                              body=f"{ch['name']} {why}: {text}", auto_for=ch["id"]))
+                self._route(key, c)
+        _, att = self._thread_anywhere(ch.get("attention") or "")
+        if att is None or att.turn != "cast":
+            ch["attention"] = None  # it yielded or resolved there (itself, or the harness for it), or the thread closed
+        inbox = ch.setdefault("inbox", [])
+        while inbox:
+            comment = self._comment_by_id(inbox.pop(0))
+            if comment is not None:
+                ch["attention"] = comment["thread_id"]
+                self._save_characters()
+                if ctx is not None:
+                    role_cfg = self._roles.get(ch["role"]) or {}
+                    ctx.meta["systemPrompt"] = self._system_prompt(s, ch, role_cfg)
+                    ctx.send(self._format(ch, comment))
+                break
+        self._save_characters()
+        self._refresh()
 
     # ---------------------------------------------------------------- author intents
     @Slot(str, str, result=str)
