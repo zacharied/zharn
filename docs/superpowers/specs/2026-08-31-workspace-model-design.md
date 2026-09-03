@@ -1,4 +1,4 @@
-# Workspaces, repos, environments — design + spec (2026-08-31)
+# Workspaces, repos, environments — design + spec (2026-08-31, environments revised 2026-09-03)
 
 Fixes the model *around* stories: where stories live, what a repo is to zharn, where a
 character stands when it works, and where all of it is stored. Complements `docs/AGENT-MODEL.md`
@@ -52,12 +52,16 @@ opening a directory reads only that directory's own `.zharn/`.
 ### 2.2 Scratch
 
 On first run zharn creates an ordinary workspace at `<appdata>/zharn/scratch/` named **Scratch**,
-prefix `SCR`, and registers zharn's own source checkout as a repo in it (fork-as-config: "change
-the harness" is one story away from anywhere). Scratch is pinned first on the start screen and
-cannot be deleted; it is otherwise indistinguishable from any workspace and **no code may test
+prefix `SCR`, and registers zharn's own source checkout as the repo `zharn` in it (fork-as-config:
+"change the harness" is one story away from anywhere). Scratch is pinned first on the start screen
+and cannot be deleted; it is otherwise indistinguishable from any workspace and **no code may test
 for it**. It is the home of everything that exists before it has a home: bare contexts started
 from the start screen, one-off stories, stories about zharn itself. Stories leave Scratch by
 being moved (§5.3).
+
+Scratch is the workspace zharn opens when `HARNESS_WORKSPACE` is unset. `<appdata>` is the
+platform application-data directory (`%APPDATA%` on Windows, `$XDG_DATA_HOME` or
+`~/.local/share` elsewhere); `ZHARN_APPDATA` overrides it, which is how tests keep it in a temp dir.
 
 ## 3. Repos
 
@@ -100,39 +104,113 @@ Nothing is deleted or rewritten automatically.
 
 ## 4. Environments
 
+*Revised 2026-09-03: one rule for "work on master" and "work in my parent's worktree" — a story
+either owns a worktree cut from its parent environment or stands in the parent environment
+itself, and the parent environment of a root story is the main checkout.*
+
 ### 4.1 Kinds
 
-* **Main checkout** — the registered path itself. Where bare contexts and read-only work stand.
-  Never created or destroyed by zharn.
+* **Main checkout** — the registered path itself. Where bare contexts stand, and where a
+  root story in shared mode (§4.2) works. Never created or destroyed by zharn. The root of every
+  parent chain.
 * **Managed worktree** — created by zharn with `git worktree add` under
-  `<workspace>/.zharn/local/worktrees/<repo>/<story-key>/`, on branch `zharn/<story-key>` from
-  `base`. `setup` runs once after creation, in the worktree.
+  `<workspace>/.zharn/local/worktrees/<repo>/<story-key>/`, on the new branch `zharn/<story-key>`
+  cut from the parent environment's effective branch (§4.2). `setup` runs once after creation, in
+  the worktree.
 
-### 4.2 Context placement
+### 4.2 Mode and the parent chain
 
-A context runs in exactly one place: its environment's path if it has one, else the workspace
-dir. A character's contexts and its minions' contexts inherit the character's environment; a
-character may move between environments of *its story* between turns (`zharn env open`).
+Every story has, per repo, a **parent environment**: for a root story it is the main checkout;
+for a sub-story it is its parent story's environment for that repo, created on demand if the
+parent has none yet (in the parent's own mode), because the sub-story's work is the parent's work.
 
-### 4.3 Lazy acquisition
+Every story has an **env mode**, chosen once by its author at creation and applied to every repo
+the cast opens. The cast cannot change it.
 
-A story starts with no environments. The first time a character asks for one in repo X
-(`zharn env open X`), the harness creates the managed worktree for `(story, repo X)`; every
-later request for the same pair returns the same worktree — one per pair, shared by the whole
-cast, so a reviewer friend sees the implementor's work. The story's `repos` list is the set of
-pairs that exist; it is derived, persisted for the board filter, and never edited by hand. An
-author may add a repo *hint* at creation for scoping; a hint is not an environment.
+* **`worktree`** (default at every level) — the story's environment for a repo is its own
+  managed worktree, branched from the parent environment's effective branch. At the root that is
+  the repo's `base`; under a parent story it is `zharn/<parent-key>`, so the sub-story starts
+  from the parent's committed work.
+* **`shared`** — the story stands in the parent environment itself. At the root that is the main
+  checkout — the traditional "just work on master" harness. Under a parent it is the parent's
+  worktree, so results land in the parent's tree with nothing to merge.
 
-Read-only investigation should use the main checkout (`zharn env open X --main`) so that stories
-that only look do not sprout branches.
+The **effective branch** of an environment is found by walking up the chain to the first
+worktree (its branch) or the main checkout (the repo's `base`). A shared environment has no
+branch of its own.
 
-### 4.4 Checks
+The human picks the mode on the story creation form; a character passes `--shared` to
+`zharn story create`. A story that only investigates should be created shared so that it does
+not sprout branches. Shared means two casts editing one working tree — and at the root, an agent
+dirtying the human's checkout. That is the point of the mode, so the story page and cast panel
+state each environment's kind plainly; nothing else defends against it.
 
-At an `implementing` handoff on the main thread the harness runs, for each of the story's
-environments, that repo's `checks` in that environment, and attaches
-`[{repo, cmd, exit, output}]` to the handoff comment. A repo with no `checks` contributes nothing.
+Approve is out of scope (§11), but the chain gives it its shape: a worktree environment has a
+branch to merge into its parent environment's effective branch; a shared environment has nothing
+to do.
 
-### 4.5 Collisions
+### 4.3 Records
+
+`local/environments.json` holds one record per `(story, repo)` pair:
+
+```
+{story, repo, kind: "worktree" | "shared", path, branch, parent, created, setup_done}
+```
+
+A worktree record owns `path` and `branch`. A shared record owns neither: its path is resolved
+through `parent` at use time (ending at the repo's registered path), so Relocate (§3.3) keeps
+working. `parent` is the `(story, repo)` of the parent environment, or null when the parent is
+the main checkout. The story's `repos` list is the set of records that exist, shared ones
+included; it is derived, persisted in `story.json` for the board filter, and never edited by
+hand. An author may add a repo *hint* at creation for scoping; a hint is not an environment.
+
+### 4.4 Lazy acquisition
+
+A story starts with no environments. `zharn env open <repo>` is idempotent per pair: the first
+call resolves the parent chain (creating parent records as needed), creates the record in the
+story's mode, and every later call returns the same environment — one per pair, shared by the
+whole cast, so a reviewer friend sees the implementor's work. The command prints the
+environment's path and records the environment on the calling character (§4.5).
+
+* A worktree record whose directory is gone (deleted by hand) is pruned with `git worktree
+  prune` and re-added on its existing branch.
+* A failed `setup` leaves the worktree in place, returns the error to the caller, and is retried
+  on the next `env open`; `setup_done` records success.
+* A missing repo (§3.3) fails with the missing message and creates nothing.
+* Git errors (branch exists, worktree registered elsewhere) are reported as is.
+
+### 4.5 Context placement
+
+A context's working directory is decided at every spawn, not at creation, so a character may
+move between environments *of its story* between turns by calling `env open` again. The rules:
+
+* A character's context runs in its environment's path, else the workspace dir.
+* Minions inherit the process directory through the provider's native agent tool.
+* A friend cast by `call` (fresh or `--fork`) starts in the caller's environment.
+* A recast keeps the character's environment.
+* The protagonist starts in the workspace dir.
+
+Processes receive `HARNESS_WORKSPACE` (dir), and, when the character has an environment,
+`HARNESS_REPO` (name) and `HARNESS_ENV` (path).
+
+### 4.6 Checks
+
+`checks` is per repo (§3.1) and replaces `config.CHECK_CMD`. At a handoff on the main thread of
+an `implementing` story, the CLI — inside the character's turn, so the harness process never
+waits on a test suite — lists the story's environments, runs each repo's `checks` in that
+environment, and attaches `[{repo, cmd, exit, output}]` to the handoff comment. Output is
+truncated to `config.CHECKS_OUTPUT_LIMIT` characters. A repo with no `checks` contributes
+nothing; a shared environment runs in the shared path like any other.
+
+What a failing check does is a knob, `config.HANDOFF_CHECKS`, because the trade is token burn
+against red handoffs:
+
+* `"gate"` (default) — the handoff is refused, the failures are printed to the character, and
+  the character fixes and retries; `--despite-checks` posts the handoff anyway with the results
+  attached.
+* `"attach"` — the handoff always posts, results attached; the author sees the red.
+
+### 4.7 Collisions
 
 The same repo registered in two workspaces means both create worktrees in one `.git`. Branch
 names collide only if both workspaces share a prefix *and* a story number; zharn does not defend
@@ -172,12 +250,12 @@ Sub-stories move with their parent.
     workspace.toml            id, name, prefix, next, repos[]
     stories/<key>/
       story.json              title, description, priority, phase, author, protagonist, main_thread,
-                              parent_story, aliases[], repos[], hint_repos[], created
+                              parent_story, env_mode, aliases[], repos[], hint_repos[], created
       threads.jsonl           append-only: threads, comments, yields, recaps, registrations, transitions
     local/                    machine-local; a generated .zharn/.gitignore ignores it
       contexts/<id>.jsonl     transcripts; provider session ids (resumable only on this machine)
       characters.json         live_context, attention, inbox per character
-      environments.json       (story, repo) → worktree path
+      environments.json       (story, repo) → {kind, path, branch, parent, …} (§4.3)
       worktrees/<repo>/<key>/ managed worktrees
       session.json            layout, open tabs
   repos/                      exists only if something was cloned by URL
@@ -194,7 +272,8 @@ Appdata (`<appdata>/zharn/`) holds: `scratch/` (a full workspace, layout above) 
 `recents.json` (`[{id, path, name}]`). Nothing else. Re-opening a moved workspace by folder
 re-binds the recent entry by id.
 
-Agent processes receive `HARNESS_WORKSPACE` (dir) in addition to the existing variables.
+Agent processes receive `HARNESS_WORKSPACE` (dir), `HARNESS_REPO` and `HARNESS_ENV` (§4.5) in
+addition to the existing variables.
 
 ## 7. Start screen and opening a folder
 
@@ -210,17 +289,19 @@ name), the board, contexts, and **Move story** on every story page.
 
 ## 8. CLI
 
-Inside a character (existing `zharn story …` verbs unchanged):
+Inside a character (existing `zharn story …` verbs unchanged, plus one flag):
 
 ```
+zharn story create --title T [--shared]    # env mode of the sub-story: shared, else worktree (§4.2)
+zharn story yield --handoff --body B [--despite-checks]   # §4.6
 zharn repo add <path|url> [--name N] [--checks C] [--setup S] [--base B]   # §3.2; system comment
 zharn repo list [--json]
-zharn env open <repo> [--main]        # prints the environment path; creates the worktree on first use
-zharn env list [--json]               # this story's environments
+zharn env open <repo>                 # prints the environment path; creates it on first use (§4.4)
+zharn env list [--json]               # this story's environments, each with its repo's checks
 ```
 
 Author-only, UI (and CLI when the author is a character, for sub-stories):
-`story move <key> --to <workspace-id|path>`, repo unregister, prefix rename.
+`story move <key> --to <workspace-id|path>`, repo unregister and relocate, prefix rename.
 
 ## 9. Migration
 
@@ -237,14 +318,28 @@ single repo is `.`. The prefix is taken from the existing store (`ABC`) so keys 
 
 ## 10. Tests
 
-* `tests/test_workspace.py`: create/open; relative vs absolute repo paths; folder inspection
-  (repo at `.`, repos one level down); missing repo detection and relocate; prefix rename keeps
-  aliases; Scratch created on first run and never special-cased (grep the source for `scratch`
-  outside its creation).
+All against real temporary git repositories; no network.
+
+* `tests/test_workspace.py`: create/open; relative vs absolute repo paths; `repo add` by URL
+  clones from a local path into `repos/<name>/`; `base` defaults to the HEAD branch at
+  registration; folder inspection (repo at `.`, repos one level down); missing repo detection and
+  relocate; prefix rename keeps aliases; Scratch created on first run under `ZHARN_APPDATA` with
+  the zharn checkout registered, and never special-cased (grep the source for `scratch` outside
+  its creation).
 * `tests/test_environments.py`: `env open` is idempotent per `(story, repo)`; branch and path
-  naming; `--main` creates nothing; `setup` runs once; per-repo checks attached to a handoff.
+  naming; a root story in shared mode resolves to the main checkout and creates nothing; a
+  sub-story in worktree mode branches from `zharn/<parent-key>` and creates the parent's
+  environment on demand; a sub-story in shared mode resolves to the parent's worktree; the
+  effective branch walks through shared records; `setup` runs once and is retried after failure;
+  a deleted worktree directory is recreated on its branch; a missing repo fails and creates
+  nothing; the derived `repos` list; cwd at spawn for a character, a called friend, a fork, and a
+  recast; `HARNESS_REPO`/`HARNESS_ENV`.
+* `tests/test_cli.py` / `tests/test_ipc.py`: the `repo` and `env` verbs; `story create --shared`;
+  checks run per environment at an implementing handoff on the main thread and attached to the
+  yield; `HANDOFF_CHECKS = "gate"` refuses on failure unless `--despite-checks`; `"attach"` posts.
 * `tests/test_story_move.py`: key/alias; environments re-homed when the repo is registered in
-  the destination, refused with an offer otherwise; sub-stories follow.
+  the destination, refused with an offer otherwise; sub-stories follow. *(Move is not in the
+  2026-09-03 chunk.)*
 * `tests/test_ui_start.py`: start screen (Scratch pinned, recents, open-folder flow) through
   `tests/ui.py`; workspace page actions.
 
