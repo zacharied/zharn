@@ -271,6 +271,10 @@ def test_recycle_does_not_retire_a_process_that_already_finished(store):
     cid = store.create("claude-fast", title="t")
     c = store.get(cid)
     c._status = "idle"
-    c._proc = _FakeDeadProc()
+    fake = _FakeDeadProc()
+    fake.event.connect(c._on_event)
+    fake.stderrText.connect(c._on_stderr)
+    fake.finished.connect(c._on_finished)
+    c._proc = fake
     c.recycle()
     assert c._proc is None and c._retired == []
