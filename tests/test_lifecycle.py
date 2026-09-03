@@ -601,3 +601,12 @@ def test_owes_and_awaits_are_read_off_turns():
     assert owes(s, "chr3") == [] and awaits(s, "chr1") == []          # waiting on chr1 now
     s, _ = run(s, Yield("t1", "chr1", "question", "which?"))
     assert owes(s, "chr1") == []
+
+
+def test_story_repos_round_trip():
+    from harness.lifecycle import Story
+    s = Story(key="ZH-1", title="t", repos=["client"])
+    d = s.to_dict()
+    assert d["repos"] == ["client"]
+    assert Story.from_dict({"key": "ZH-2", "title": "u"}).repos == []
+    assert Story.from_dict(d).repos == ["client"]

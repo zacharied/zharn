@@ -16,6 +16,7 @@ from PySide6.QtCore import QObject, Property, Signal, Slot
 
 from harness import config as cfg
 from harness import lifecycle as lc
+from harness.environments import EnvError, EnvironmentStore, register_repo
 from harness.fsutil import write_text_atomic
 from harness.notify import intent
 from harness.qmodels import DictListModel
@@ -112,6 +113,8 @@ class StoryStore(QObject):
         self._characters: dict[str, dict] = {}
         self._model = DictListModel(STORY_ROLES, self)
         self.load_errors: list[str] = []
+        self.environments = EnvironmentStore(workspace, self._parent_of)   # _load()'s _refresh() needs this to exist
+        contexts.placement = self._placement   # Task 5 makes ContextStore call it at every spawn
         self._load()
         contexts.contextsChanged.connect(self._refresh)
         contexts.contextSettled.connect(self._on_turn_end)
@@ -167,6 +170,7 @@ class StoryStore(QObject):
                 "workingCount": sum(1 for c in live if c is not None and c.status in WORKING),
                 "createdAt": self._created.get(key, 0), "mainThread": s.main_thread or "",
                 "parentStory": s.parent_story or "",
+                "repos": list(s.repos), "environments": self._env_rows(key),
                 "openSubstories": sum(1 for x in self._stories.values() if x.parent_story == s.key and x.phase not in lc.TERMINAL),
                 "threads": [{"id": t.id, "n": i + 1, "isMain": t.id == s.main_thread, "author": t.author, "lead": t.lead,
                              "turn": t.turn, "pendingYield": t.pending_yield or ""} for i, t in enumerate(s.threads)]}
@@ -184,6 +188,29 @@ class StoryStore(QObject):
             if k.lower() == (key or "").lower():
                 return k
         raise KeyError(key)
+
+    def _parent_of(self, key: str) -> str | None:
+        return self._stories[key].parent_story
+
+    def _env_rows(self, key: str) -> list[dict]:
+        return [{"repo": r["repo"], "path": r["path"], "branch": r["branch"], "parent": r["parent"]}
+                for r in self.environments.records(key)]
+
+    def _placement(self, ctx) -> tuple[str, dict]:
+        """§4.5: a character's context runs in its environment's path, else where its meta says (the workspace dir)."""
+        ch = self._characters.get(ctx.meta.get("owner", ""))
+        repo = ch.get("environment") if ch else None
+        rec = self.environments.get(ch["story_key"], repo) if repo else None
+        if rec is not None:
+            return rec["path"], {"HARNESS_REPO": repo, "HARNESS_ENV": rec["path"]}
+        return ctx.meta.get("cwd") or str(self.workspace.dir), {}
+
+    def environment_line(self, ch: dict) -> str:
+        repo = ch.get("environment")
+        rec = self.environments.get(ch["story_key"], repo) if repo else None
+        if rec is not None:
+            return f"{rec['path']} (repo {repo}, your story's worktree on branch {rec['branch']})"
+        return f"the workspace dir ({self.workspace.dir}); run `env open <repo>` before touching a repo"
 
     def story(self, key: str) -> lc.Story | None:
         try:
@@ -230,7 +257,7 @@ class StoryStore(QObject):
                 ctx = self._contexts.get(ch["live_context"]) if ch.get("live_context") else None
                 out.append({**ch, "contextStatus": ctx.status if ctx is not None else "none", "status": self.status(ch),
                             "owes": self.owes(ch), "awaits": self.awaits(ch), "inboxDepth": len(ch.get("inbox", [])),
-                            "forkedFrom": ch.get("forked_from") or ""})
+                            "forkedFrom": ch.get("forked_from") or "", "environment": ch.get("environment") or ""})
         return out
 
     # ---------------------------------------------------------------- derived character state (spec §1)
@@ -455,7 +482,7 @@ class StoryStore(QObject):
         return chr_id
 
     def _cast(self, key: str, role_cfg: dict, *, thread_id: str, author: str, note: str, name: str = "",
-              fork_from: str | None = None, chr_id: str | None = None) -> dict:
+              fork_from: str | None = None, chr_id: str | None = None, environment: str | None = None) -> dict:
         """Cast a character on `key` to lead `thread_id` (spec §2.1 Open a thread, §2.2 call): a record, a live
         context (fresh from the role, or forked from `fork_from`'s live context), and its first message."""
         provider = role_cfg.get("provider", "claude-code")
@@ -468,7 +495,8 @@ class StoryStore(QObject):
             name, n = f"{base}-{n}", n + 1
         chr_id = chr_id or new_id("chr_")
         ch = {"id": chr_id, "story_key": key, "role": role_cfg["name"], "name": name, "live_context": None,
-              "forked_from": fork_from, "attention": thread_id, "inbox": [], "recaps": [], "verbs_log": []}
+              "forked_from": fork_from, "attention": thread_id, "inbox": [], "recaps": [], "verbs_log": [],
+              "environment": environment}
         self._characters[chr_id] = ch
         s = self._stories[key]
         env = {"HARNESS_CHARACTER_ID": chr_id}
@@ -500,7 +528,8 @@ class StoryStore(QObject):
             name=ch["name"], character_id=ch["id"], story_key=s.key, title=s.title, phase=s.phase,
             thread_id=s.main_thread or "", attention=ch.get("attention") or s.main_thread or "",
             owes=", ".join("#" + t for t in self.owes(ch)) or "nothing",
-            awaits=", ".join("#" + t for t in self.awaits(ch)) or "nothing", outline_rule=rule)
+            awaits=", ".join("#" + t for t in self.awaits(ch)) or "nothing", outline_rule=rule,
+            environment=self.environment_line(ch))
 
     def _author_action(self, key, action, *, resume: bool):
         key = self._key(key)
@@ -602,16 +631,17 @@ class StoryStore(QObject):
                 role_cfg = self._roles.get(m_call.group(1))
                 if not role_cfg:
                     raise ValueError(f"unknown role {m_call.group(1)!r}")
-                note, fork_from = m_call.group(2).strip() or f"called in as {role_cfg['name']}", None
+                note, fork_from, environment = m_call.group(2).strip() or f"called in as {role_cfg['name']}", None, None
             else:
                 source = self._by_name(key, m_fork.group(1))
                 role_cfg = self._roles.get(source["role"]) or {"name": source["role"]}
-                note, fork_from = m_fork.group(2).strip() or "a side question", source["id"]
+                note, fork_from, environment = m_fork.group(2).strip() or "a side question", source["id"], source.get("environment")
             chr_id = new_id("chr_")
             prev_story, prev_comments = self._stories[key], list(self._comments.get(key, []))
             self._apply(key, lc.OpenThread(thread_id=thread_id, author="human", lead=chr_id, body=note))
             try:
-                self._cast(key, role_cfg, chr_id=chr_id, thread_id=thread_id, author="human", note=note, fork_from=fork_from)
+                self._cast(key, role_cfg, chr_id=chr_id, thread_id=thread_id, author="human", note=note, fork_from=fork_from,
+                          environment=environment)
             except Exception:
                 self._stories[key], self._comments[key] = prev_story, prev_comments
                 self._save_story(key)
@@ -802,7 +832,7 @@ class StoryStore(QObject):
         self._apply(key, lc.OpenThread(thread_id=thread_id, author=character_id, lead=chr_id, body=note))
         try:
             friend = self._cast(key, role_cfg, chr_id=chr_id, thread_id=thread_id, author=character_id, note=note,
-                                name=as_name, fork_from=character_id if fork else None)
+                                name=as_name, fork_from=character_id if fork else None, environment=ch.get("environment"))
         except Exception:
             self._stories[key], self._comments[key] = prev_story, prev_comments
             self._save_story(key)
@@ -825,6 +855,46 @@ class StoryStore(QObject):
             t = next((t for t in s.threads if t.id == item), None)
             rows.append({"thread": item, "lead": author_name(t.lead, self._characters)} if t else {"story": item})
         return {"awaits": rows, "message": "end your turn now; you will be woken when any of these yields to you"}
+
+    # ---------------------------------------------------------------- repos and environments (workspace spec §3.2, §4)
+    def cast_repo_add(self, character_id, spec, name="", checks="", setup="", base="") -> dict:
+        key, ch = self._char(character_id)
+        rec = register_repo(self.workspace, spec, name=name, checks=checks, setup=setup, base=base)
+        tid = ch.get("attention") or self._stories[key].main_thread
+        self._apply(key, lc.Note(thread_id=tid, body=f"Registered repo `{rec['name']}` at `{rec['path']}`"))
+        self._refresh()
+        return rec
+
+    def repo_list(self) -> list[dict]:
+        return [{**r, "status": self.workspace.repo_status(r["name"])} for r in self.workspace.repos]
+
+    def cast_env_open(self, character_id, repo) -> dict:
+        key, ch = self._char(character_id)
+        if not repo:
+            raise EnvError("env open needs a repo name; `repo list` shows what is registered")
+        d = self.environments.open(key, repo)
+        ch["environment"] = repo
+        self._save_characters()
+        s = self._stories[key]
+        if repo not in s.repos:
+            s.repos.append(repo)
+            self._save_story(key)
+        self._refresh()
+        return d
+
+    def cast_env_list(self, character_id) -> list[dict]:
+        key, _ = self._char(character_id)
+        return [self.environments.describe(r) for r in self.environments.records(key)]
+
+    def env_checks(self, character_id, thread_id="") -> dict:
+        """§4.6: what the CLI must run before posting a handoff — only on the main thread of an implementing story."""
+        key, ch = self._char(character_id)
+        s = self._stories[key]
+        tid = thread_id or ch.get("attention") or s.main_thread
+        run = s.phase == "implementing" and tid == s.main_thread
+        envs = [d for d in self.cast_env_list(character_id) if d["checks"]] if run else []
+        return {"run": run, "environments": envs, "policy": getattr(cfg, "HANDOFF_CHECKS", "gate"),
+                "limit": getattr(cfg, "CHECKS_OUTPUT_LIMIT", 4000), "timeout": getattr(cfg, "CHECKS_TIMEOUT_S", 1800)}
 
     def cast_inbox(self, character_id) -> list[dict]:
         key, ch = self._char(character_id)

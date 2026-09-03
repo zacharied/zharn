@@ -982,3 +982,113 @@ def test_reopen_with_a_role_recasts_instead_of_resuming(store, contexts):
     assert "you are a recast of protagonist" in contexts.get(new).sent[0]
     assert any("try again, differently" in t for t in contexts.get(new).sent[1:])  # the note reaches the fresh memory
     assert contexts.get(old).sent == before_old_sent                               # the old one was never resumed
+
+
+# ---------------------------------------------------------------- environments (workspace spec §4)
+import sys as _sys
+from pathlib import Path as _Path
+_sys.path.insert(0, str(_Path(__file__).resolve().parent))
+from gitfix import make_repo, branch_of  # noqa: E402
+from harness.environments import register_repo  # noqa: E402
+
+
+@pytest.fixture
+def repo(tmp_path, ws):
+    p = make_repo(tmp_path / "ws" / "client")
+    register_repo(ws, str(p), checks="echo ok")
+    return p
+
+
+def test_env_open_creates_the_worktree_records_it_on_the_character_and_the_story(store, ws, repo, contexts):
+    key, chr_id = started(store)
+    assert store.get(key)["repos"] == [] and store.get(key)["environments"] == []
+    d = store.cast_env_open(chr_id, "client")
+    assert branch_of(_Path(d["path"])) == f"zharn/{key}" and d["checks"] == "echo ok"
+    assert store.character(chr_id)["environment"] == "client"
+    assert store.get(key)["repos"] == ["client"] and json.loads((ws.stories_dir / key / "story.json").read_text())["repos"] == ["client"]
+    assert store.get(key)["environments"] == [{"repo": "client", "path": d["path"], "branch": f"zharn/{key}", "parent": None}]
+    assert store.cast(key)[0]["environment"] == "client"
+    assert store.cast_env_list(chr_id) == [d]
+    assert store.cast_env_open(chr_id, "client") == d and store.get(key)["repos"] == ["client"]
+
+
+def test_env_open_errors_are_the_repos_message(store, repo):
+    key, chr_id = started(store)
+    from harness.environments import EnvError
+    with pytest.raises(EnvError, match="unknown repo 'nope'"):
+        store.cast_env_open(chr_id, "nope")
+    with pytest.raises(EnvError, match="env open needs a repo name"):
+        store.cast_env_open(chr_id, "")
+    assert store.character(chr_id)["environment"] is None and store.get(key)["repos"] == []
+
+
+def test_substory_opens_its_own_worktree_cut_from_the_parents_branch(store, repo):
+    key, chr_id = started(store)
+    parent_env = store.cast_env_open(chr_id, "client")
+    sub = store.cast_create(chr_id, "Contained", start=True, role="claude-fast")
+    d = store.cast_env_open(store.get(sub)["protagonist"], "client")
+    assert d["branch"] == f"zharn/{sub}" and d["parent"] == f"{key}:client" and d["path"] != parent_env["path"]
+    assert store.get(sub)["environments"][0]["parent"] == f"{key}:client"
+
+
+def test_friends_inherit_the_callers_environment_and_the_protagonist_starts_with_none(store, repo, contexts):
+    key, chr_id = started(store)
+    assert store.character(chr_id)["environment"] is None
+    store.cast_env_open(chr_id, "client")
+    fresh = store.cast_call(chr_id, "claude-fast", "review")["character"]
+    assert store.character(fresh)["environment"] == "client"
+    contexts.get(store.character(chr_id)["live_context"]).status = "idle"
+    forked = store.cast_call(chr_id, "claude-fast", "second opinion", fork=True)["character"]
+    assert store.character(forked)["environment"] == "client"
+    tid = store.openThread(key, "/fork @protagonist quick question")
+    guest = store.story(key).thread(tid).lead
+    assert store.character(guest)["environment"] == "client"
+    tid2 = store.openThread(key, "/call claude-fast from the human")
+    assert store.character(store.story(key).thread(tid2).lead)["environment"] is None
+
+
+def test_recast_keeps_the_environment(store, repo, contexts):
+    key, chr_id = started(store)
+    store.cast_env_open(chr_id, "client")
+    contexts.get(store.character(chr_id)["live_context"]).status = "idle"
+    store.recast(key, chr_id)
+    assert store.character(chr_id)["environment"] == "client"
+
+
+def test_repo_add_registers_and_posts_a_system_note_in_the_attended_thread(store, ws, tmp_path):
+    key, chr_id = started(store)
+    p = make_repo(tmp_path / "ws" / "api")
+    rec = store.cast_repo_add(chr_id, str(p), checks="pytest -q")
+    assert rec["name"] == "api" and ws.repo("api")["checks"] == "pytest -q" and rec["base"] == "main"
+    last = store.comments(key)[-1]
+    assert last["author"] == "system" and last["kind"] == "system" and last["thread_id"] == store.get(key)["mainThread"]
+    assert "Registered repo `api` at `api`" in last["body"]
+    assert store.repo_list() == [{**ws.repo("api"), "status": "ok"}]
+
+
+def test_env_checks_only_for_an_implementing_handoff_on_the_main_thread(store, repo, monkeypatch):
+    from harness import config as cfg
+    monkeypatch.setattr(cfg, "HANDOFF_CHECKS", "attach", raising=False)
+    key, chr_id = started(store)
+    store.cast_env_open(chr_id, "client")
+    plan = store.env_checks(chr_id)
+    assert plan["run"] is False and plan["environments"] == [] and plan["policy"] == "attach"
+    store.cast_yield(chr_id, "handoff", "outline")
+    store.proceed(key)
+    plan = store.env_checks(chr_id)
+    assert plan["run"] is True and [e["repo"] for e in plan["environments"]] == ["client"] and plan["environments"][0]["checks"] == "echo ok"
+    assert plan["limit"] > 0 and plan["timeout"] > 0
+    side = store.cast_call(chr_id, "claude-fast", "review")["thread"]
+    assert store.env_checks(chr_id, side)["run"] is False
+
+
+def test_system_prompt_names_the_environment(store, repo):
+    key, chr_id = started(store)
+    ch = store.character(chr_id)
+    assert "workspace dir" in store.environment_line(ch) and "env open" in store.environment_line(ch)
+    d = store.cast_env_open(chr_id, "client")
+    line = store.environment_line(store.character(chr_id))
+    assert d["path"] in line and "client" in line and f"zharn/{key}" in line
+    ctx = store._contexts.get(store.character(chr_id)["live_context"])
+    store.comment(key, "reply")        # any delivery rebuilds the system prompt
+    assert d["path"] in ctx.meta["systemPrompt"]

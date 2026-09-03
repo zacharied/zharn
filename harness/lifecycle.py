@@ -42,6 +42,7 @@ class Story:
     protagonist: str | None = None
     main_thread: str | None = None
     parent_story: str | None = None
+    repos: list[str] = field(default_factory=list)   # derived from environments (workspace spec §4.3), persisted for the board
     threads: list[Thread] = field(default_factory=list)
 
     @property

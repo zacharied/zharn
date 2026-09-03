@@ -92,6 +92,14 @@ FORK_NOTE = ("You are {name}, a fork of {source}: a new character with a copy of
 # A recap older than this many turns of its context is stale: recast falls from rung 1 to rung 3 (spec §3.4).
 RECAP_STALE_TURNS = 20
 
+# ---- environments (workspace spec §4) ---------------------------------------------------------
+# What a failing repo check does at an implementing handoff (§4.6). "gate": the handoff is refused until the
+# character fixes it or passes --despite-checks. "attach": it posts anyway with the red results attached.
+# The trade is token burn against red handoffs.
+HANDOFF_CHECKS = "gate"
+CHECKS_OUTPUT_LIMIT = 4000   # characters of check output kept per repo
+CHECKS_TIMEOUT_S = 1800      # per repo
+
 # Roles: what a character is cast from. `outline_first` = must get an outline approved before implementing.
 DEFAULT_ROLES = [
     {"name": "protagonist", "provider": "claude-code", "model": "", "reasoning": "high", "permission": "auto", "outline_first": True,
@@ -108,6 +116,7 @@ DEFAULT_BARE_ROLE = "claude-default"
 # System prompt for a character (rebuilt on every delivery). Phase skills arrive with harness/skills/.
 CHARACTER_SYSTEM_PROMPT = """You are {name} ({character_id}), a character in zharn on story {story_key} ("{title}"), phase: {phase}.
 You are attending thread #{attention}. You owe: {owes}. You await: {awaits}. Everything you say to anyone is a comment posted with the CLI below — nothing else reaches them.
+You stand in {environment}.
 
 Iron laws:
 1. Never stop while you owe a thread unless a friend or a sub-story is out (`wait` tells you) — the harness will yield for you and say so.
@@ -126,6 +135,9 @@ CLI (HARNESS_CLI is set; every call prints a reason and exits non-zero when refu
   $HARNESS_CLI story resolve --thread t [--note "..."]                           # close a thread you opened that waits on you
   $HARNESS_CLI story recap --body "..." [--thread t]                             # done / in flight / gotchas / next
   $HARNESS_CLI story show · cast · inbox                                         # the record, the cast, what waits for you
+  $HARNESS_CLI env open <repo>                                                  # where to work: prints the path of your story's worktree; cd there
+  $HARNESS_CLI env list · repo list                                             # this story's environments; registered repos
+  $HARNESS_CLI repo add <path|url> [--name N] [--checks C] [--setup S] [--base B]   # register a repo (URLs are cloned); checks run at your handoffs
 {outline_rule}"""
 
 OUTLINE_RULE_REQUIRED = ("Your role requires an outline: while planning, ask what you must, then `yield --handoff` an outline "
