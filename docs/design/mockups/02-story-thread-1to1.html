@@ -153,6 +153,12 @@ body{font:13px/1.35 var(--ui);color:var(--text);-webkit-font-smoothing:antialias
 .composer .box.focus{border-color:var(--accent);box-shadow:0 0 0 2px rgba(53,116,240,.25)}
 .composer .box .cur{display:inline-block;width:1px;height:14px;background:var(--text);vertical-align:-2px;margin-left:1px}
 .composer .hint{font-size:11px;color:var(--dim)}
+/* aside: floating on a comment, top-right. .ghost = hover affordance, .has = an aside exists, .off = disabled */
+.line{position:relative}
+.aside-btn{position:absolute;top:-4px;right:-36px;display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 8px;border-radius:11px;font:500 11px var(--ui);color:var(--muted);border:1px solid var(--border);background:var(--bg)}
+.aside-btn:hover{color:var(--text);border-color:var(--btn-border)}
+.aside-btn.has{color:var(--text);background:var(--panel)}
+.aside-btn.off{opacity:.4}
 .folded{display:flex;align-items:center;gap:8px;height:28px;color:var(--muted);font-size:12px;margin-top:6px;padding:0 4px;border-radius:4px}
 .folded:hover{background:var(--panel)}
 .folded .n{font:12px var(--mono)} .folded .t{color:var(--text)} .folded .w{margin-left:auto;font-size:11px}
@@ -257,6 +263,7 @@ html,body{overflow:auto;background:var(--bg)} .story{overflow:visible}</style></
       <div class="stage">(Started · Protagonist cast from <i>claude-deep</i>)</div>
 
       <div class="line"><div class="speaker"><span class="who">Protagonist</span>· opus<span class="at">22:16</span></div>
+        <span class="aside-btn has" title="Reopen the aside on this comment"><svg class="ic " width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path stroke-dasharray="2.6 1.9" d="M2.5 3.5h11v7h-6.5L4 13v-2.5H2.5z"/></svg>aside</span>
         <div class="said"><p>This needs an outline — the screen model, the QML view, and the PTY driver are three separable pieces and the PTY story differs per OS. One question before I write it:</p></div>
         <div class="yield question">Question</div>
         <div class="said"><p>Should a terminal be scoped to an <b>environment</b> (one shell per worktree, shared by the cast) or to a <b>context</b> (each character gets its own)?</p></div>
@@ -271,6 +278,7 @@ html,body{overflow:auto;background:var(--bg)} .story{overflow:visible}</style></
       <div class="stage">(Protagonist called in Implementor · sonnet on #3 · created sub-story ZH-15)</div>
 
       <div class="line"><div class="speaker"><span class="who">Protagonist</span>· opus<span class="at">today 09:42</span></div>
+        <span class="aside-btn ghost" title="Aside: ask a private copy of Protagonist about this comment"><svg class="ic " width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path stroke-dasharray="2.6 1.9" d="M2.5 3.5h11v7h-6.5L4 13v-2.5H2.5z"/></svg></span>
         <div class="yield pending">Handoff · ready for review</div>
         <div class="said">
           <p><b>What changed.</b> <code>harness/term.py</code> (from ZH-15), <code>qml/content/Terminal.qml</code>, ConPTY driver behind <code>HARNESS_PTY</code>. The panel opens one shell per environment and survives QML reloads (screen state lives in Python).</p>
@@ -291,9 +299,10 @@ html,body{overflow:auto;background:var(--bg)} .story{overflow:visible}</style></
 
   <div class="thread" style="padding-top:6px">
     <div class="folded"><svg class="ic " width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 4l3.5 4-3.5 4"/></svg><span class="n">#2</span><span class="t">why pyte and not a real PTY lib?</span><span>You → Protagonist · 2 comments</span><span class="w you">answered · waits on you</span><span class="acts"><span class="btn sm quiet">Reply</span><span class="btn sm quiet">Resolve</span></span></div>
-    <div class="folded"><svg class="ic " width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 4l3.5 4-3.5 4"/></svg><span class="n">#3</span><span class="t">build the terminal view</span><span>Protagonist → Implementor · Reviewer joined · 9 comments</span><span class="w">Implementor's turn</span></div>
+    <div class="folded"><svg class="ic " width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 4l3.5 4-3.5 4"/></svg><span class="n">#3</span><span class="t">build the terminal view</span><span>Protagonist → Implementor · 7 comments</span><span class="w">Implementor's turn</span></div>
+    <div class="folded"><svg class="ic " width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 4l3.5 4-3.5 4"/></svg><span class="n">#5</span><span class="t">review #3</span><span>Protagonist → Reviewer · 2 comments</span><span class="w">Reviewer's turn</span></div>
     <div class="folded"><svg class="ic " width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 4l3.5 4-3.5 4"/></svg><span class="n">#4</span><span class="t">does ConPTY need Windows 10 1809+?</span><span>You → Protagonist · 3 comments</span><span class="w res">resolved</span></div>
   </div>
 
-  <div class="newthread"><div class="composer"><div class="box"><span class="lbl">New thread</span><span>Write to the Protagonist, @Implementor, or /call reviewer to bring in a friend</span></div><span class="btn">Open</span></div></div>
+  <div class="newthread"><div class="composer"><div class="box"><span class="lbl">New thread</span><span>Write to the Protagonist, @Name, /call &lt;role&gt;, or /fork @Name for a copy of their memory</span></div><span class="btn">Open</span></div></div>
 </div></div></div></div></body></html>

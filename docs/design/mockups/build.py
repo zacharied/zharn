@@ -31,6 +31,7 @@ ICONS = {
     "x": '<path d="M4.5 4.5l7 7M11.5 4.5l-7 7"/>',
     "home": '<path d="M2.5 8L8 3l5.5 5M4 7v6h8V7"/>',
     "role": '<circle cx="8" cy="5.5" r="2.5"/><path d="M3 14c0-2.8 2.2-4.5 5-4.5s5 1.7 5 4.5"/>',
+    "aside": '<path stroke-dasharray="2.6 1.9" d="M2.5 3.5h11v7h-6.5L4 13v-2.5H2.5z"/>',
 }
 
 def ic(name, size=16, cls=""):
@@ -192,6 +193,12 @@ body{font:13px/1.35 var(--ui);color:var(--text);-webkit-font-smoothing:antialias
 .composer .box.focus{border-color:var(--accent);box-shadow:0 0 0 2px rgba(53,116,240,.25)}
 .composer .box .cur{display:inline-block;width:1px;height:14px;background:var(--text);vertical-align:-2px;margin-left:1px}
 .composer .hint{font-size:11px;color:var(--dim)}
+/* aside: floating on a comment, top-right. .ghost = hover affordance, .has = an aside exists, .off = disabled */
+.line{position:relative}
+.aside-btn{position:absolute;top:-4px;right:-36px;display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 8px;border-radius:11px;font:500 11px var(--ui);color:var(--muted);border:1px solid var(--border);background:var(--bg)}
+.aside-btn:hover{color:var(--text);border-color:var(--btn-border)}
+.aside-btn.has{color:var(--text);background:var(--panel)}
+.aside-btn.off{opacity:.4}
 .folded{display:flex;align-items:center;gap:8px;height:28px;color:var(--muted);font-size:12px;margin-top:6px;padding:0 4px;border-radius:4px}
 .folded:hover{background:var(--panel)}
 .folded .n{font:12px var(--mono)} .folded .t{color:var(--text)} .folded .w{margin-left:auto;font-size:11px}
@@ -361,12 +368,16 @@ def cast_toolwin():
       <span class="meta">inbox 1 · <span class="meter"><i class="hot" style="width:78%"></i></span> 78%</span></div>
     <div class="member"><span class="st live"></span><span class="nm">Implementor<span class="role">sonnet</span></span>
       <span class="btn sm quiet">Recast</span>
-      <span class="what m">busy on #3 · turn 41</span>
+      <span class="what m">working on #3 · turn 41</span>
       <span class="meta">inbox 0 · 1 minion · <span class="meter"><i style="width:36%"></i></span> 36%</span></div>
     <div class="member"><span class="st idle"></span><span class="nm">Reviewer<span class="role">codex</span></span>
       <span class="btn sm quiet">Recast</span>
-      <span class="what m">idle · waiting for Implementor in #3</span>
+      <span class="what m">waiting · awaits #5</span>
       <span class="meta">inbox 0 · <span class="meter"><i style="width:22%"></i></span> 22%</span></div>
+    <div class="member"><span class="st idle"></span><span class="nm">Implementor-2<span class="role">sonnet · forked from Implementor</span></span>
+      <span class="btn sm quiet">Recast</span>
+      <span class="what m">idle</span>
+      <span class="meta">inbox 0 · <span class="meter"><i style="width:31%"></i></span> 31%</span></div>
     <div class="sect">{ic('story',14)}Sub-stories</div>
     <div class="substory"><span class="k">ZH-15</span><span class="t">Extract pyte screen model</span><span class="ph ph-impl">implementing · cast</span></div>
   </div>
@@ -406,6 +417,7 @@ def story_page(compact=False):
       <div class="stage">(Started · Protagonist cast from <i>claude-deep</i>)</div>
 
       <div class="line"><div class="speaker"><span class="who">Protagonist</span>· opus<span class="at">22:16</span></div>
+        <span class="aside-btn has" title="Reopen the aside on this comment">{ic('aside',13)}aside</span>
         <div class="said"><p>This needs an outline — the screen model, the QML view, and the PTY driver are three separable pieces and the PTY story differs per OS. One question before I write it:</p></div>
         <div class="yield question">Question</div>
         <div class="said"><p>Should a terminal be scoped to an <b>environment</b> (one shell per worktree, shared by the cast) or to a <b>context</b> (each character gets its own)?</p></div>
@@ -420,6 +432,7 @@ def story_page(compact=False):
       <div class="stage">(Protagonist called in Implementor · sonnet on #3 · created sub-story ZH-15)</div>
 
       <div class="line"><div class="speaker"><span class="who">Protagonist</span>· opus<span class="at">today 09:42</span></div>
+        <span class="aside-btn ghost" title="Aside: ask a private copy of Protagonist about this comment">{ic('aside',13)}</span>
         <div class="yield pending">Handoff · ready for review</div>
         <div class="said">
           <p><b>What changed.</b> <code>harness/term.py</code> (from ZH-15), <code>qml/content/Terminal.qml</code>, ConPTY driver behind <code>HARNESS_PTY</code>. The panel opens one shell per environment and survives QML reloads (screen state lives in Python).</p>
@@ -440,11 +453,12 @@ def story_page(compact=False):
 
   <div class="thread" style="padding-top:6px">
     <div class="folded">{ic('right',14)}<span class="n">#2</span><span class="t">why pyte and not a real PTY lib?</span><span>You → Protagonist · 2 comments</span><span class="w you">answered · waits on you</span><span class="acts"><span class="btn sm quiet">Reply</span><span class="btn sm quiet">Resolve</span></span></div>
-    <div class="folded">{ic('right',14)}<span class="n">#3</span><span class="t">build the terminal view</span><span>Protagonist → Implementor · Reviewer joined · 9 comments</span><span class="w">Implementor's turn</span></div>
+    <div class="folded">{ic('right',14)}<span class="n">#3</span><span class="t">build the terminal view</span><span>Protagonist → Implementor · 7 comments</span><span class="w">Implementor's turn</span></div>
+    <div class="folded">{ic('right',14)}<span class="n">#5</span><span class="t">review #3</span><span>Protagonist → Reviewer · 2 comments</span><span class="w">Reviewer's turn</span></div>
     <div class="folded">{ic('right',14)}<span class="n">#4</span><span class="t">does ConPTY need Windows 10 1809+?</span><span>You → Protagonist · 3 comments</span><span class="w res">resolved</span></div>
   </div>
 
-  <div class="newthread"><div class="composer"><div class="box"><span class="lbl">New thread</span><span>Write to the Protagonist, @Implementor, or /call reviewer to bring in a friend</span></div><span class="btn">Open</span></div></div>
+  <div class="newthread"><div class="composer"><div class="box"><span class="lbl">New thread</span><span>Write to the Protagonist, @Name, /call &lt;role&gt;, or /fork @Name for a copy of their memory</span></div><span class="btn">Open</span></div></div>
 </div></div>"""
 
 def contexts_toolwin():
@@ -465,6 +479,7 @@ def contexts_toolwin():
       {row(1,'down','Implementor · sonnet','live','ctx 1 · 36%')}
       {row(2,'','minion: find every caller of Screen.resize','','running',dim=True)}
       {row(1,'right','Reviewer · codex','idle','ctx 1 · 22%')}
+      {row(1,'','aside on #1 · Protagonist','','yours',dim=True)}
       {row(0,'down','ZH-14  Git status panel')}
       {row(1,'right','Protagonist · sonnet','live','ctx 1 · 12%')}
       {row(0,'down','Bare')}

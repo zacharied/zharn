@@ -153,6 +153,12 @@ body{font:13px/1.35 var(--ui);color:var(--text);-webkit-font-smoothing:antialias
 .composer .box.focus{border-color:var(--accent);box-shadow:0 0 0 2px rgba(53,116,240,.25)}
 .composer .box .cur{display:inline-block;width:1px;height:14px;background:var(--text);vertical-align:-2px;margin-left:1px}
 .composer .hint{font-size:11px;color:var(--dim)}
+/* aside: floating on a comment, top-right. .ghost = hover affordance, .has = an aside exists, .off = disabled */
+.line{position:relative}
+.aside-btn{position:absolute;top:-4px;right:-36px;display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 8px;border-radius:11px;font:500 11px var(--ui);color:var(--muted);border:1px solid var(--border);background:var(--bg)}
+.aside-btn:hover{color:var(--text);border-color:var(--btn-border)}
+.aside-btn.has{color:var(--text);background:var(--panel)}
+.aside-btn.off{opacity:.4}
 .folded{display:flex;align-items:center;gap:8px;height:28px;color:var(--muted);font-size:12px;margin-top:6px;padding:0 4px;border-radius:4px}
 .folded:hover{background:var(--panel)}
 .folded .n{font:12px var(--mono)} .folded .t{color:var(--text)} .folded .w{margin-left:auto;font-size:11px}
