@@ -4,6 +4,8 @@ rem Usage: run.bat [args passed to `python -m harness`]
 rem Env vars work as usual, e.g.:  set HARNESS_SMOKE_PROMPT=say pong&& run.bat
 setlocal
 cd /d "%~dp0"
+rem Until the start screen exists, open this checkout as the workspace (unset to get Scratch).
+if not defined HARNESS_WORKSPACE set "HARNESS_WORKSPACE=%~dp0."
 
 if not exist ".venv\Scripts\python.exe" (
     echo [run] no .venv yet - creating one and installing zharn ^(editable^)...

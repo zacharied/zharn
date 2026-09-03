@@ -140,3 +140,61 @@ def test_toml_roundtrip_escapes_control_characters(tmp_path):
     assert ws2.name == "line1\nline2"
     assert ws2.repo("repo1")["checks"] == "x\ny"
     assert ws2.repo("repo1")["setup"] == "a\tb"
+
+
+# ---------------------------------------------------------------- unregister / relocate (spec §3.2, §3.3)
+
+def test_unregister_removes_the_record_and_leaves_files(tmp_path):
+    ws = Workspace.create(tmp_path / "ws")
+    (tmp_path / "ws" / "client").mkdir()
+    ws.add_repo(tmp_path / "ws" / "client")
+    ws.unregister("client")
+    assert ws.repos == [] and (tmp_path / "ws" / "client").is_dir()
+    assert Workspace.open(tmp_path / "ws").repos == []
+    with pytest.raises(KeyError):
+        ws.unregister("client")
+
+
+def test_relocate_rewrites_the_path_and_status_recovers(tmp_path):
+    ws = Workspace.create(tmp_path / "ws")
+    ws.add_repo(tmp_path / "elsewhere", name="lib")   # does not exist yet
+    assert ws.repo_status("lib") == "missing"
+    (tmp_path / "ws" / "lib").mkdir()
+    rec = ws.relocate("lib", tmp_path / "ws" / "lib")
+    assert rec["path"] == "lib" and ws.repo_status("lib") == "ok"
+    assert Workspace.open(tmp_path / "ws").repo("lib")["path"] == "lib"
+
+
+# ---------------------------------------------------------------- appdata + Scratch (spec §2.2)
+
+def test_appdata_dir_honours_override(monkeypatch, tmp_path):
+    from harness.workspace import appdata_dir
+    monkeypatch.setenv("ZHARN_APPDATA", str(tmp_path / "ad"))
+    assert appdata_dir() == tmp_path / "ad"
+    monkeypatch.delenv("ZHARN_APPDATA")
+    assert appdata_dir().name == "zharn"
+
+
+def test_scratch_is_created_once_with_zharn_registered(monkeypatch, tmp_path):
+    monkeypatch.setenv("ZHARN_APPDATA", str(tmp_path / "ad"))
+    root = tmp_path / "zharn-src"
+    root.mkdir()
+    ws = Workspace.scratch(root)
+    assert ws.dir == (tmp_path / "ad" / "scratch").resolve()
+    assert ws.name == "Scratch" and ws.prefix == "SCR"
+    assert [r["name"] for r in ws.repos] == ["zharn"] and ws.repo_path(ws.repo("zharn")) == root.resolve()
+    again = Workspace.scratch(root)
+    assert again.id == ws.id and [r["name"] for r in again.repos] == ["zharn"]
+
+
+def test_scratch_is_never_special_cased():
+    """§2.2: no code may test for Scratch. Only its creation (workspace.py) and the call into it may say the word."""
+    import re
+    from pathlib import Path
+    harness = Path(__file__).resolve().parent.parent / "harness"
+    for f in harness.glob("*.py"):
+        if f.name in ("workspace.py", "config_def.py"):   # creation; prose in prompts ("scratch conversation")
+            continue
+        for line in f.read_text(encoding="utf-8").splitlines():
+            if re.search(r"scratch", line, re.I):
+                assert "Workspace.scratch(" in line, f"{f.name}: {line.strip()}"

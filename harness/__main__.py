@@ -53,10 +53,14 @@ def build(argv=None, force_poll=False):
     app.setOrganizationName("zharn")
     QQuickStyle.setStyle("Basic")
 
-    ws_dir = Path(os.environ.get("HARNESS_WORKSPACE") or ROOT)
-    workspace = Workspace.open_or_create(ws_dir)
-    if not workspace.repos and (ws_dir / ".git").exists():
-        workspace.add_repo(ws_dir)
+    ws_env = os.environ.get("HARNESS_WORKSPACE")
+    if ws_env:   # an explicit workspace (tests, run.bat); a git repo opened as a workspace registers itself as "."
+        ws_dir = Path(ws_env)
+        workspace = Workspace.open_or_create(ws_dir)
+        if not workspace.repos and (ws_dir / ".git").exists():
+            workspace.add_repo(ws_dir)
+    else:
+        workspace = Workspace.scratch(ROOT)
     data_dir = workspace.local_dir
     session = Session(Path(os.environ.get("HARNESS_SESSION") or data_dir / "session.json"))
     layout_store = LayoutStore(session)

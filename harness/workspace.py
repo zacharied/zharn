@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import uuid
 from pathlib import Path
@@ -39,6 +40,16 @@ def _dump_toml(data: dict) -> str:
         for f in REPO_FIELDS:
             lines.append(f"{f} = {_toml_str(str(repo.get(f, '')))}")
     return "\n".join(lines) + "\n"
+
+
+def appdata_dir() -> Path:
+    """<appdata>/zharn (spec §2.2). ZHARN_APPDATA overrides — tests keep it in a temp dir."""
+    override = os.environ.get("ZHARN_APPDATA")
+    if override:
+        return Path(override)
+    if os.name == "nt":
+        return Path(os.environ.get("APPDATA") or Path.home() / "AppData" / "Roaming") / "zharn"
+    return Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share") / "zharn"
 
 
 class Workspace:
@@ -126,21 +137,6 @@ class Workspace:
         return sorted((p.name for p in self.stories_dir.iterdir() if p.is_dir()), key=num)
 
     # ---------------------------------------------------------------- repos
-    def add_repo(self, path: Path, name: str = "", checks: str = "", setup: str = "", base: str = "") -> dict:
-        path = Path(path).resolve()
-        name = name or path.name
-        if self.repo(name) is not None:
-            raise ValueError(f"repo {name!r} is already registered")
-        try:
-            rel = path.relative_to(self.dir)
-            stored = rel.as_posix() or "."
-        except ValueError:
-            stored = str(path)
-        record = {"name": name, "path": stored, "checks": checks, "setup": setup, "base": base}
-        self._data["repos"].append(record)
-        self.save()
-        return dict(record)
-
     def repo(self, name: str) -> dict | None:
         return next((dict(r) for r in self._data["repos"] if r["name"] == name), None)
 
@@ -153,3 +149,47 @@ class Workspace:
         if r is None:
             return "unknown"
         return "ok" if self.repo_path(r).is_dir() else "missing"
+
+    def _store_path(self, path: Path) -> str:
+        path = Path(path).resolve()
+        try:
+            return path.relative_to(self.dir).as_posix() or "."
+        except ValueError:
+            return str(path)
+
+    def add_repo(self, path: Path, name: str = "", checks: str = "", setup: str = "", base: str = "") -> dict:
+        path = Path(path).resolve()
+        name = name or path.name
+        if self.repo(name) is not None:
+            raise ValueError(f"repo {name!r} is already registered")
+        record = {"name": name, "path": self._store_path(path), "checks": checks, "setup": setup, "base": base}
+        self._data["repos"].append(record)
+        self.save()
+        return dict(record)
+
+    def unregister(self, name: str) -> None:
+        """§3.2: author-only; never deletes files — worktrees stay and work again once re-registered."""
+        if self.repo(name) is None:
+            raise KeyError(name)
+        self._data["repos"] = [r for r in self._data["repos"] if r["name"] != name]
+        self.save()
+
+    def relocate(self, name: str, path: Path) -> dict:
+        """§3.3 Relocate: rewrite a missing repo's path. Nothing else changes."""
+        for r in self._data["repos"]:
+            if r["name"] == name:
+                r["path"] = self._store_path(path)
+                self.save()
+                return dict(r)
+        raise KeyError(name)
+
+    # ---------------------------------------------------------------- Scratch (spec §2.2)
+    @classmethod
+    def scratch(cls, zharn_root: Path) -> "Workspace":
+        """The workspace zharn opens when none is given: <appdata>/zharn/scratch, with zharn's own checkout
+        registered as `zharn`. Ordinary in every other way — nothing may test for it."""
+        d = appdata_dir() / "scratch"
+        ws = cls.open(d) if cls.exists(d) else cls.create(d, name="Scratch", prefix="SCR")
+        if ws.repo("zharn") is None:
+            ws.add_repo(Path(zharn_root), name="zharn")
+        return ws
