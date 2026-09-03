@@ -6,6 +6,8 @@ import QtQuick
 // generation is torn down and shiboken then hands back the wrong object for a reused address.
 QtObject {
     property var win        // the QQuickWindow (set by Python)
+    property var rootItem   // QQuickWindow::contentItem() — NOT ApplicationWindow.contentItem, which
+                            // excludes the Controls Overlay (popups, dialogs, menus live there)
     property var result
 
     function _walk(item, rx, out) {
@@ -14,7 +16,7 @@ QtObject {
         for (var i = 0; i < cs.length; i++) _walk(cs[i], rx, out)
         return out
     }
-    function _all(pattern) { return _walk(win.contentItem, new RegExp("^(?:" + pattern + ")$"), []) }
+    function _all(pattern) { return _walk(rootItem || win.contentItem, new RegExp("^(?:" + pattern + ")$"), []) }
     function _nth(pattern, nth) {
         var items = _all(pattern)
         if (nth >= items.length) throw new Error("no item #" + nth + " for " + pattern)

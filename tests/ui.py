@@ -106,7 +106,7 @@ class Harness:
         self._win = self.reloader.engine.rootObjects()[-1]
         comp = QQmlComponent(self.reloader.engine, str(PROBE))
         assert not comp.isError(), comp.errorString()
-        self._probe = comp.createWithInitialProperties({"win": self._win})
+        self._probe = comp.createWithInitialProperties({"win": self._win, "rootItem": self._win.contentItem()})
         assert self._probe is not None, comp.errorString()
         # parentless + JS ownership = the QML GC deletes it under us; pin it to the window
         QQmlEngine.setObjectOwnership(self._probe, QQmlEngine.ObjectOwnership.CppOwnership)

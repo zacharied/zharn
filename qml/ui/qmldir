@@ -13,3 +13,4 @@ Combo 1.0 Combo.qml
 Divider 1.0 Divider.qml
 Theme 1.0 Theme.js
 ContextView 1.0 ContextView.qml
+RecastDialog 1.0 RecastDialog.qml

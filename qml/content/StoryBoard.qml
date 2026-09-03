@@ -98,6 +98,12 @@ ContentBase {
                                 StatusDot { visible: card.modelData.workingCount > 0; status: "working"; size: 7 }
                                 Text { objectName: "cardBadge_" + card.modelData.key; visible: card.modelData.needsYou
                                        text: card.modelData.flavor; color: app.theme.needsYou; font.pixelSize: app.theme.fontSizeSmall }
+                                Text {  // a character's sub-story is its business, not yours (AGENT-MODEL §9)
+                                    readonly property var author: card.modelData.parentStory ? app.stories.character(card.modelData.author) : null
+                                    visible: !!card.modelData.parentStory && !card.modelData.needsYou
+                                    text: "sub-story · " + (author ? author.name : "")
+                                    color: app.theme.textDim; font.pixelSize: app.theme.fontSizeSmall
+                                }
                             }
                             HoverHandler { id: ch }
                             TapHandler { onTapped: app.layout.openContent("story", card.modelData.key, card.modelData.key + "  " + card.modelData.title) }
