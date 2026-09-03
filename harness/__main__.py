@@ -4,6 +4,7 @@ from __future__ import annotations
 import importlib
 import json
 import os
+import uuid
 import sys
 from pathlib import Path
 
@@ -68,7 +69,9 @@ def build(argv=None, force_poll=False):
         s.notifier = notifier  # @intent slots report here; the status bar shows it
     store = AppStore(session, layout_store, content, cfg.THEME, contexts=contexts, roles=roles,
                      stories=stories, workspace=workspace, notifier=notifier)
-    ipc = IpcServer(f"zharn-{os.getpid()}", make_handler(store), parent=store)
+    # Unique per app instance, not just per process: tests build several apps in one process, and a torn-down
+    # QLocalServer unlinks its socket by name — it must never be the live one's.
+    ipc = IpcServer(f"zharn-{os.getpid()}-{uuid.uuid4().hex[:6]}", make_handler(store), parent=store)
     store._ipc_path = ipc.path
     contexts.extra_env = lambda: {"HARNESS_IPC": ipc.path}
     reloader = Reloader(store, load_theme, force_poll=force_poll or bool(os.environ.get("HOT_POLL")),
