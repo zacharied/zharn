@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** A character can register a repo and ask for a place to work in it — a managed worktree cut from its parent environment, or, for a sub-story, the parent's environment itself — and an implementing handoff carries that repo's check results. A root story never works on the main checkout.
+**Goal:** A character can register a repo and ask for a place to work in it — a managed worktree on its story's own branch, cut from its parent environment — and an implementing handoff carries that repo's check results. No story ever works on the main checkout or in another story's tree: friends share a tree, stories get a branch.
 
-**Architecture:** A new `harness/environments.py` owns git and the `(story, repo)` records in `local/environments.json`: `EnvironmentStore.open` resolves the parent chain (sub-story → parent story → main checkout) and creates worktrees lazily; `register_repo` handles paths and URL clones. `StoryStore` wires it in: the story's `env_mode` (`shared` is sub-story only; root stories are always `worktree`), the character's `environment`, inheritance on call/fork/recast, and a `placement` hook that `ContextStore` calls at every spawn to pick the working directory. Checks run in the CLI inside the character's turn (`env.checks` → run → `story.yield --handoff` with results), governed by `config.HANDOFF_CHECKS`. Scratch becomes the default workspace, created under appdata.
+**Architecture:** A new `harness/environments.py` owns git and the `(story, repo)` records in `local/environments.json`: `EnvironmentStore.open` resolves the parent chain (sub-story → parent story → main checkout) and creates worktrees lazily; `register_repo` handles paths and URL clones. `StoryStore` wires it in: the character's `environment`, inheritance on call/fork/recast, and a `placement` hook that `ContextStore` calls at every spawn to pick the working directory. Checks run in the CLI inside the character's turn (`env.checks` → run → `story.yield --handoff` with results), governed by `config.HANDOFF_CHECKS`. Scratch becomes the default workspace, created under appdata.
 
 **Tech Stack:** Python ≥3.10, PySide6 6.11, git ≥2.20 (`git worktree`), pytest, `tests/fake_claude.py`.
 
@@ -16,8 +16,8 @@
 - **Nobody sets status.** Phases and turns change only through `lifecycle.step`.
 - Every QML-facing mutation is an `@intent`; every cast verb goes through `harness/ipc.py` and is logged to `verbs_log` by the wrapper in `make_handler.h`.
 - The harness process never blocks on a test suite: checks run in `harness/cli.py`, inside the character's turn. `git worktree add`, `git clone`, and `setup` do run in-process (they are short; a clone is the character's own choice).
-- Character records gain one key: `environment` (repo name or `None`). Story records gain `env_mode` (`"worktree"` | `"shared"`; `shared` only on a sub-story — a root story never works on the main checkout, spec §4.2) and `repos` (list of repo names, derived from environments, persisted for the board).
-- Environment records (`local/environments.json`, keyed `"<story>:<repo>"`): `{story, repo, kind, path, branch, parent, created, setup_done}`. `path`/`branch` are `""` for `shared`; the resolved view (`EnvironmentStore.describe`) fills them in. **Never store a resolved path for a shared record** — Relocate must keep working.
+- Character records gain one key: `environment` (repo name or `None`). Story records gain `repos` (list of repo names, derived from environments, persisted for the board).
+- Environment records (`local/environments.json`, keyed `"<story>:<repo>"`): `{story, repo, path, branch, parent, created, setup_done}`. Every environment is a managed worktree on `zharn/<story>`; `parent` is the `(story, repo)` key of the parent environment or `null` at the root (spec §4.2, §4.3). There is no mode, no flag, and no way to stand in the main checkout or another story's tree.
 - Tests run with `QT_QPA_PLATFORM=offscreen ~/.venvs/mh-conda/bin/python -m pytest -q`. Git tests use real temporary repos created by the `make_repo` helper below; no network (URL clones use `file://`). Full suite green at the end of every task.
 - Commit after every task, message style `Component: what changed`, trailer `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`.
 - **Out of scope:** story move (§5.3), start screen and workspace page QML (UI thread — briefed at the end), Approve's effect on environments (§11), Windows path handling beyond what `pathlib` gives for free.
@@ -28,11 +28,11 @@
 |---|---|
 | `harness/workspace.py` | `_store_path`, `unregister`, `relocate`, `appdata_dir`, `Workspace.scratch`. |
 | `harness/environments.py` | **New.** `git`, `head_branch`, `register_repo`, `EnvError`, `EnvironmentStore`. |
-| `harness/lifecycle.py` | `Story.env_mode`, `Story.repos`. |
-| `harness/stories.py` | `EnvironmentStore` wiring; `create(env_mode)`; `cast_create(shared)`; `cast_env_open/list`, `cast_repo_add`, `repo_list`, `env_checks`; `_placement`; environment inheritance in `_cast`/`openThread`; recycle at turn end; rows; system prompt line. |
+| `harness/lifecycle.py` | `Story.repos`. |
+| `harness/stories.py` | `EnvironmentStore` wiring; `cast_env_open/list`, `cast_repo_add`, `repo_list`, `env_checks`; `_placement`; environment inheritance in `_cast`/`openThread`; recycle at turn end; rows; system prompt line. |
 | `harness/contexts.py` | `ContextStore.placement`; `Context._spawn` uses it; `Context.recycle`, `proc_cwd`. |
 | `harness/config_def.py` | `HANDOFF_CHECKS`, `CHECKS_OUTPUT_LIMIT`, `CHECKS_TIMEOUT_S`; `CHARACTER_SYSTEM_PROMPT` `{environment}` + verbs. |
-| `harness/ipc.py`, `harness/cli.py` | `repo add/list`, `env open/list`, `env.checks`, `story create --shared`, `story yield --despite-checks` + `run_checks`. |
+| `harness/ipc.py`, `harness/cli.py` | `repo add/list`, `env open/list`, `env.checks`, `story yield --despite-checks` + `run_checks`. |
 | `harness/__main__.py` | Scratch as the default workspace. |
 | `run.bat` | Pin `HARNESS_WORKSPACE` to the checkout until the start screen exists. |
 | `tests/fake_claude.py` | `HARNESS_REPO`/`HARNESS_ENV` in `harness_env`; `yield-handoff` behaviour. |
@@ -291,13 +291,11 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
   def register_repo(ws, spec: str, name="", checks="", setup="", base="") -> dict   # path or URL; base defaults to head_branch
   def env_key(story: str, repo: str) -> str                  # "ZH-1:client"
   class EnvironmentStore:
-      def __init__(self, workspace, story_info: Callable[[str], tuple[str | None, str]])  # key → (parent_story, env_mode)
+      def __init__(self, workspace, parent_of: Callable[[str], str | None])   # story key → parent story key or None
       def get(self, story, repo) -> dict | None              # the stored record
       def records(self, story) -> list[dict]
-      def path(self, rec) -> Path                            # resolved through the parent chain
-      def effective_branch(self, rec) -> str
-      def describe(self, rec) -> dict                        # {**rec, path, branch resolved, checks}
-      def open(self, story, repo) -> dict                    # describe() of the (created) record; EnvError "a root story cannot be shared"
+      def describe(self, rec) -> dict                        # {**rec, "checks": the repo's checks command}
+      def open(self, story, repo) -> dict                    # describe() of the (created) record
   ```
 
 - [ ] **Step 1: Write the failing tests**
@@ -333,17 +331,9 @@ def repo(tmp_path, ws):
     return p
 
 
-class Stories:
-    """story_info stand-in: key → (parent_story, env_mode)."""
-    def __init__(self, **stories):
-        self.stories = stories   # key → (parent, mode)
-
-    def __call__(self, key):
-        return self.stories[key]
-
-
-def store(ws, **stories):
-    return EnvironmentStore(ws, Stories(**stories))
+def store(ws, **parents):
+    """parents: story key → parent story key (or None for a root story)."""
+    return EnvironmentStore(ws, lambda key: parents[key])
 
 
 # ---------------------------------------------------------------- git helpers / registration (§3.1, §3.2)
@@ -380,10 +370,10 @@ def test_register_url_clones_into_repos_dir(tmp_path, ws):
 # ---------------------------------------------------------------- root story: worktree (§4.1, §4.4)
 
 def test_open_creates_a_worktree_on_zharn_branch_from_base(ws, repo):
-    es = store(ws, **{"ZH-1": (None, "worktree")})
+    es = store(ws, **{"ZH-1": None})
     d = es.open("ZH-1", "client")
     path = ws.local_dir / "worktrees" / "client" / "ZH-1"
-    assert d["kind"] == "worktree" and d["path"] == str(path) and d["branch"] == "zharn/ZH-1" and d["parent"] is None
+    assert d["path"] == str(path) and d["branch"] == "zharn/ZH-1" and d["parent"] is None and d["story"] == "ZH-1"
     assert path.is_dir() and branch_of(path) == "zharn/ZH-1" and (path / "README.md").exists()
     assert run(repo, "rev-parse", "zharn/ZH-1") == run(repo, "rev-parse", "main")
     saved = json.loads((ws.local_dir / "environments.json").read_text())
@@ -391,7 +381,7 @@ def test_open_creates_a_worktree_on_zharn_branch_from_base(ws, repo):
 
 
 def test_open_is_idempotent_per_pair(ws, repo):
-    es = store(ws, **{"ZH-1": (None, "worktree")})
+    es = store(ws, **{"ZH-1": None})
     a, b = es.open("ZH-1", "client"), es.open("ZH-1", "client")
     assert a == b and len(es.records("ZH-1")) == 1
     assert run(repo, "worktree", "list").count("zharn/ZH-1") == 1
@@ -402,14 +392,14 @@ def test_open_uses_the_registered_base(ws, tmp_path):
     run(p, "checkout", "-q", "-b", "feature")
     commit_file(p, "f.txt")
     register_repo(ws, str(p), base="develop")
-    es = store(ws, **{"ZH-1": (None, "worktree")})
+    es = store(ws, **{"ZH-1": None})
     d = es.open("ZH-1", "api")
     assert not (Path(d["path"]) / "f.txt").exists()   # cut from develop, not the checked-out feature branch
 
 
 def test_open_recreates_a_deleted_worktree_on_its_branch(ws, repo):
     import shutil
-    es = store(ws, **{"ZH-1": (None, "worktree")})
+    es = store(ws, **{"ZH-1": None})
     d = es.open("ZH-1", "client")
     commit_file(Path(d["path"]), "work.txt")
     shutil.rmtree(d["path"])
@@ -418,7 +408,7 @@ def test_open_recreates_a_deleted_worktree_on_its_branch(ws, repo):
 
 
 def test_open_unknown_or_missing_repo_creates_nothing(ws, repo, tmp_path):
-    es = store(ws, **{"ZH-1": (None, "worktree")})
+    es = store(ws, **{"ZH-1": None})
     with pytest.raises(EnvError, match="unknown repo"):
         es.open("ZH-1", "nope")
     ws.relocate("client", tmp_path / "gone")
@@ -427,23 +417,13 @@ def test_open_unknown_or_missing_repo_creates_nothing(ws, repo, tmp_path):
     assert es.records("ZH-1") == [] and not (ws.local_dir / "worktrees").exists()
 
 
-# ---------------------------------------------------------------- root story: never shared (§4.2)
-
-def test_a_root_story_cannot_be_shared(ws, repo):
-    es = store(ws, **{"ZH-1": (None, "shared")})   # a corrupt or hand-edited story.json; the store must still refuse
-    with pytest.raises(EnvError, match="a root story cannot be shared"):
-        es.open("ZH-1", "client")
-    assert es.records("ZH-1") == [] and not (ws.local_dir / "worktrees").exists()
-    assert run(repo, "branch", "--list", "zharn/*") == ""
-
-
 # ---------------------------------------------------------------- setup (§3.1, §4.4)
 
 def test_setup_runs_once_in_the_worktree_and_is_retried_after_failure(ws, tmp_path):
     p = make_repo(tmp_path / "ws" / "api")
     marker = tmp_path / "gate"
     register_repo(ws, str(p), setup=f"test -f {marker} && echo ran >> setup.log")
-    es = store(ws, **{"ZH-1": (None, "worktree")})
+    es = store(ws, **{"ZH-1": None})
     with pytest.raises(EnvError, match="setup failed"):
         es.open("ZH-1", "api")
     path = ws.local_dir / "worktrees" / "api" / "ZH-1"
@@ -457,7 +437,7 @@ def test_setup_runs_once_in_the_worktree_and_is_retried_after_failure(ws, tmp_pa
 def test_describe_carries_the_repos_checks(ws, tmp_path):
     p = make_repo(tmp_path / "ws" / "api")
     register_repo(ws, str(p), checks="make test")
-    es = store(ws, **{"ZH-1": (None, "worktree")})
+    es = store(ws, **{"ZH-1": None})
     assert es.open("ZH-1", "api")["checks"] == "make test"
 ```
 
@@ -471,10 +451,10 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'harness.environments'`
 `harness/environments.py`:
 
 ```python
-"""Environments: where a context stands (workspace spec §4). One record per (story, repo) — a managed worktree
-on `zharn/<key>` cut from the parent environment's effective branch, or `shared`: standing in the parent
-environment itself. The parent environment of a root story is the repo's main checkout. Records live in
-`local/environments.json`; a shared record stores no path — it resolves through the chain at use time."""
+"""Environments: where a context stands (workspace spec §4). One record per (story, repo): a managed worktree
+on `zharn/<key>` cut from the parent environment's branch — the repo's `base` for a root story, `zharn/<parent>`
+for a sub-story. No story works on the main checkout or in another story's tree: friends share a tree, stories
+get a branch. Records live in `local/environments.json`."""
 from __future__ import annotations
 
 import json
@@ -535,10 +515,10 @@ def env_key(story: str, repo: str) -> str:
 
 
 class EnvironmentStore:
-    def __init__(self, workspace, story_info: Callable[[str], tuple[str | None, str]]):
-        """`story_info(key)` → (parent story key or None, env mode "worktree" | "shared")."""
+    def __init__(self, workspace, parent_of: Callable[[str], str | None]):
+        """`parent_of(key)` → the parent story's key, or None for a root story."""
         self.ws = workspace
-        self.story_info = story_info
+        self.parent_of = parent_of
         self._file = workspace.local_dir / "environments.json"
         try:
             self._records: dict[str, dict] = json.loads(self._file.read_text(encoding="utf-8"))
@@ -564,54 +544,32 @@ class EnvironmentStore:
             raise EnvError(f"repo {name!r} is missing at {p}; relocate it from the workspace page")
         return r, p
 
-    def _parent(self, rec: dict) -> dict | None:
-        return self._records.get(rec["parent"]) if rec.get("parent") else None
-
-    def path(self, rec: dict) -> Path:
-        """Resolved through the chain: a shared record stands where its parent stands. The chain always ends at a
-        worktree (a root story is never shared); the main-checkout fallback only guards a hand-edited record."""
-        if rec["kind"] == "worktree":
-            return Path(rec["path"])
-        parent = self._parent(rec)
-        return self.path(parent) if parent is not None else self._repo(rec["repo"])[1]
-
     def _base(self, repo: str) -> str:
         r, p = self._repo(repo)
         return r.get("base") or head_branch(p)
 
-    def effective_branch(self, rec: dict) -> str:
-        """§4.2: walk up to the first worktree (its branch) or the main checkout (the repo's base)."""
-        if rec["kind"] == "worktree":
-            return rec["branch"]
-        parent = self._parent(rec)
-        return self.effective_branch(parent) if parent is not None else self._base(rec["repo"])
-
     def describe(self, rec: dict) -> dict:
         r = self.ws.repo(rec["repo"]) or {}
-        return {**rec, "path": str(self.path(rec)), "branch": self.effective_branch(rec), "checks": r.get("checks", "")}
+        return {**rec, "checks": r.get("checks", "")}
 
     # ---------------------------------------------------------------- open (§4.4)
     def open(self, story: str, repo: str) -> dict:
         """Idempotent per (story, repo). First use resolves the parent chain — creating the parent story's
-        environment on demand — then creates this story's in its mode. Returns the resolved view."""
+        environment on demand — then cuts this story's worktree from the parent's branch (§4.2, §4.4)."""
         rec = self.get(story, repo)
         if rec is None:
             _, repo_path = self._repo(repo)
-            parent_key, mode = self.story_info(story)
-            if mode == "shared" and not parent_key:
-                raise EnvError(f"a root story cannot be shared: {story} must work on its own branch (spec §4.2)")
-            parent_rec = self.open(parent_key, repo) if parent_key else None   # the parent's resolved view
-            rec = {"story": story, "repo": repo, "kind": mode, "path": "", "branch": "",
-                   "parent": env_key(parent_key, repo) if parent_key else None, "created": time.time(), "setup_done": mode == "shared"}
-            if mode == "worktree":
-                rec["path"] = str(self.ws.local_dir / "worktrees" / repo / story)
-                rec["branch"] = f"zharn/{story}"
-                base = parent_rec["branch"] if parent_rec is not None else self._base(repo)   # the parent's effective branch, or the repo's base
-                Path(rec["path"]).parent.mkdir(parents=True, exist_ok=True)
-                git(repo_path, "worktree", "add", "-q", "-b", rec["branch"], rec["path"], base)
+            parent_key = self.parent_of(story)
+            parent_rec = self.open(parent_key, repo) if parent_key else None
+            base = parent_rec["branch"] if parent_rec is not None else self._base(repo)
+            rec = {"story": story, "repo": repo, "path": str(self.ws.local_dir / "worktrees" / repo / story),
+                   "branch": f"zharn/{story}", "parent": env_key(parent_key, repo) if parent_key else None,
+                   "created": time.time(), "setup_done": False}
+            Path(rec["path"]).parent.mkdir(parents=True, exist_ok=True)
+            git(repo_path, "worktree", "add", "-q", "-b", rec["branch"], rec["path"], base)
             self._records[env_key(story, repo)] = rec
             self._save()
-        elif rec["kind"] == "worktree" and not Path(rec["path"]).is_dir():
+        elif not Path(rec["path"]).is_dir():
             _, repo_path = self._repo(repo)   # deleted by hand: prune the stale entry, re-add on the existing branch
             git(repo_path, "worktree", "prune")
             Path(rec["path"]).parent.mkdir(parents=True, exist_ok=True)
@@ -640,14 +598,14 @@ Expected: PASS.
 
 ```bash
 git add harness/environments.py tests/gitfix.py tests/test_environments.py
-git commit -m "Environments: register_repo (path or URL clone, base from HEAD), EnvironmentStore with lazy worktrees, setup once, recreate after delete; a root story is never shared
+git commit -m "Environments: register_repo (path or URL clone, base from HEAD), EnvironmentStore with lazy worktrees cut from the parent's branch, setup once, recreate after delete
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
 
 ---
 
-### Task 3: The parent chain — sub-stories in both modes
+### Task 3: The parent chain — sub-stories branch from their parent
 
 **Files:**
 - Modify: `harness/environments.py` (no new API; this task pins the recursion with tests and fixes what they find)
@@ -662,54 +620,50 @@ Append to `tests/test_environments.py`:
 ```python
 # ---------------------------------------------------------------- sub-stories: the parent chain (§4.2)
 
-def test_substory_worktree_branches_from_the_parents_branch(ws, repo):
-    es = store(ws, **{"ZH-1": (None, "worktree"), "ZH-2": ("ZH-1", "worktree")})
+def test_substory_branches_from_the_parents_branch(ws, repo):
+    es = store(ws, **{"ZH-1": None, "ZH-2": "ZH-1"})
     parent = es.open("ZH-1", "client")
     commit_file(Path(parent["path"]), "parent.txt")          # parent's committed work
     sub = es.open("ZH-2", "client")
-    assert sub["kind"] == "worktree" and sub["branch"] == "zharn/ZH-2" and sub["parent"] == "ZH-1:client"
+    assert sub["branch"] == "zharn/ZH-2" and sub["parent"] == "ZH-1:client"
     assert sub["path"] == str(ws.local_dir / "worktrees" / "client" / "ZH-2")
     assert (Path(sub["path"]) / "parent.txt").exists()        # cut from zharn/ZH-1, not from main
     assert run(repo, "rev-parse", "zharn/ZH-2") == run(repo, "rev-parse", "zharn/ZH-1")
+    assert sub["path"] != parent["path"]                      # never the parent's tree
 
 
 def test_substory_creates_the_parents_environment_on_demand(ws, repo):
-    es = store(ws, **{"ZH-1": (None, "worktree"), "ZH-2": ("ZH-1", "worktree")})
+    es = store(ws, **{"ZH-1": None, "ZH-2": "ZH-1"})
     sub = es.open("ZH-2", "client")
-    assert es.get("ZH-1", "client") is not None and es.get("ZH-1", "client")["kind"] == "worktree"
+    assert es.get("ZH-1", "client") is not None and es.get("ZH-1", "client")["parent"] is None
     assert (ws.local_dir / "worktrees" / "client" / "ZH-1").is_dir() and sub["parent"] == "ZH-1:client"
+    assert run(repo, "rev-parse", "zharn/ZH-1") == run(repo, "rev-parse", "main")
 
 
-def test_substory_shared_stands_in_the_parents_worktree(ws, repo):
-    es = store(ws, **{"ZH-1": (None, "worktree"), "ZH-2": ("ZH-1", "shared")})
-    parent = es.open("ZH-1", "client")
-    sub = es.open("ZH-2", "client")
-    assert sub["kind"] == "shared" and sub["path"] == parent["path"] and sub["branch"] == "zharn/ZH-1"
-    assert es.get("ZH-2", "client")["path"] == ""
-    assert "zharn/ZH-2" not in run(repo, "branch", "--list", "zharn/*")
-
-
-def test_effective_branch_walks_through_shared_records(ws, repo):
-    """root worktree → shared child → worktree grandchild: the grandchild branches from the root's branch."""
-    es = store(ws, **{"ZH-1": (None, "worktree"), "ZH-2": ("ZH-1", "shared"), "ZH-3": ("ZH-2", "worktree")})
+def test_grandchild_branches_from_its_parent_not_the_root(ws, repo):
+    es = store(ws, **{"ZH-1": None, "ZH-2": "ZH-1", "ZH-3": "ZH-2"})
     root = es.open("ZH-1", "client")
     commit_file(Path(root["path"]), "root.txt")
+    child = es.open("ZH-2", "client")
+    commit_file(Path(child["path"]), "child.txt")
     g = es.open("ZH-3", "client")
-    assert g["parent"] == "ZH-2:client" and es.get("ZH-2", "client")["kind"] == "shared"
-    assert (Path(g["path"]) / "root.txt").exists() and run(repo, "rev-parse", "zharn/ZH-3") == run(repo, "rev-parse", "zharn/ZH-1")
+    assert g["parent"] == "ZH-2:client"
+    assert (Path(g["path"]) / "root.txt").exists() and (Path(g["path"]) / "child.txt").exists()
+    assert run(repo, "rev-parse", "zharn/ZH-3") == run(repo, "rev-parse", "zharn/ZH-2")
 
 
-def test_shared_substory_under_a_shared_substory_reaches_the_root_worktree(ws, repo):
-    es = store(ws, **{"ZH-1": (None, "worktree"), "ZH-2": ("ZH-1", "shared"), "ZH-3": ("ZH-2", "shared")})
-    root = es.open("ZH-1", "client")
-    assert es.open("ZH-3", "client")["path"] == root["path"]
-    assert [r["kind"] for r in es.records("ZH-2") + es.records("ZH-3")] == ["shared", "shared"]
+def test_parents_later_commits_do_not_move_the_substory(ws, repo):
+    es = store(ws, **{"ZH-1": None, "ZH-2": "ZH-1"})
+    parent = es.open("ZH-1", "client")
+    sub = es.open("ZH-2", "client")
+    commit_file(Path(parent["path"]), "later.txt")
+    assert not (Path(sub["path"]) / "later.txt").exists()     # plain git: a branch, not a view
 ```
 
 - [ ] **Step 2: Run them to verify they pass or fail**
 
-Run: `~/.venvs/mh-conda/bin/python -m pytest tests/test_environments.py -q -k "substory or effective or reaches_the_root"`
-Expected: all PASS if Task 2's recursion is right. If any fails, fix `EnvironmentStore.open`/`effective_branch`/`path` — do not weaken the tests. The likely trap: `open` must call `self._repo(repo)` **before** recursing so a missing repo creates no parent record.
+Run: `~/.venvs/mh-conda/bin/python -m pytest tests/test_environments.py -q -k "substory or grandchild or later_commits"`
+Expected: all PASS if Task 2's recursion is right. If any fails, fix `EnvironmentStore.open` — do not weaken the tests. The likely trap: `open` must call `self._repo(repo)` **before** recursing so a missing repo creates no parent record.
 
 - [ ] **Step 3: Run the full suite** — PASS.
 
@@ -717,18 +671,18 @@ Expected: all PASS if Task 2's recursion is right. If any fails, fix `Environmen
 
 ```bash
 git add harness/environments.py tests/test_environments.py
-git commit -m "Environments: the parent chain pinned — sub-stories branch from the parent's branch or stand in its worktree; parents created on demand
+git commit -m "Environments: the parent chain pinned — sub-stories branch from the parent's branch; parents created on demand
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
 
 ---
 
-### Task 4: StoryStore — env mode, repos, env verbs, environment inheritance
+### Task 4: StoryStore — repos, env verbs, environment inheritance
 
 **Files:**
 - Modify: `harness/lifecycle.py` (`Story` dataclass)
-- Modify: `harness/stories.py` (`__init__`, `_row`, `cast`, `create`, `cast_create`, `_cast`, `_start`, `openThread`, `cast_call`, `_system_prompt`; new methods)
+- Modify: `harness/stories.py` (`__init__`, `_row`, `cast`, `_cast`, `_start`, `openThread`, `cast_call`, `_system_prompt`; new methods)
 - Modify: `harness/config_def.py` (`CHARACTER_SYSTEM_PROMPT`)
 - Test: `tests/test_stories.py`, `tests/test_lifecycle.py`
 
@@ -737,11 +691,9 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
   ```python
   # lifecycle
   @dataclass
-  class Story: ...; env_mode: str = "worktree"; repos: list[str] = field(default_factory=list)
+  class Story: ...; repos: list[str] = field(default_factory=list)
   # stories
   StoryStore.environments: EnvironmentStore
-  # create(title, description) is unchanged: a human's story is a root story and is always "worktree"
-  def cast_create(self, character_id, title, description="", start=False, role="", shared=False) -> str   # shared: sub-story only (always the case here)
   def cast_env_open(self, character_id, repo) -> dict                       # describe(); sets ch["environment"]; appends story.repos
   def cast_env_list(self, character_id) -> list[dict]
   def cast_repo_add(self, character_id, spec, name="", checks="", setup="", base="") -> dict   # + system Note in the attended thread
@@ -749,7 +701,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
   def env_checks(self, character_id, thread_id="") -> dict                  # {"run", "environments", "policy", "limit", "timeout"}
   def environment_line(self, ch) -> str                                     # for the system prompt
   ```
-  Character record: `environment: str | None` (repo name). `_row` gains `envMode`, `repos`, `environments: [{repo, kind, path, branch}]`. `cast()` rows gain `environment`.
+  Character record: `environment: str | None` (repo name). `_row` gains `repos`, `environments: [{repo, path, branch, parent}]`. `cast()` rows gain `environment`.
   Rejections: `"unknown repo"` / `"missing"` come from `EnvError` (Task 2); `"env open needs a repo name"`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -757,12 +709,12 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 Append to `tests/test_lifecycle.py`:
 
 ```python
-def test_story_env_mode_and_repos_round_trip():
+def test_story_repos_round_trip():
     from harness.lifecycle import Story
-    s = Story(key="ZH-1", title="t", env_mode="shared", repos=["client"])
+    s = Story(key="ZH-1", title="t", repos=["client"])
     d = s.to_dict()
-    assert d["env_mode"] == "shared" and d["repos"] == ["client"]
-    assert Story.from_dict({"key": "ZH-2", "title": "u"}).env_mode == "worktree"
+    assert d["repos"] == ["client"]
+    assert Story.from_dict({"key": "ZH-2", "title": "u"}).repos == []
     assert Story.from_dict(d).repos == ["client"]
 ```
 
@@ -784,23 +736,14 @@ def repo(tmp_path, ws):
     return p
 
 
-def test_root_stories_are_worktree_and_substories_may_be_shared(store, ws):
-    a = store.create("A")
-    assert json.loads((ws.stories_dir / a / "story.json").read_text())["env_mode"] == "worktree"
-    assert store.get(a)["envMode"] == "worktree" and store.get(a)["repos"] == []
-    key, chr_id = started(store)
-    b = store.cast_create(chr_id, "B", shared=True)
-    assert json.loads((ws.stories_dir / b / "story.json").read_text())["env_mode"] == "shared" and store.get(b)["envMode"] == "shared"
-    assert store.get(store.cast_create(chr_id, "C"))["envMode"] == "worktree"
-
-
 def test_env_open_creates_the_worktree_records_it_on_the_character_and_the_story(store, ws, repo, contexts):
     key, chr_id = started(store)
+    assert store.get(key)["repos"] == [] and store.get(key)["environments"] == []
     d = store.cast_env_open(chr_id, "client")
-    assert d["kind"] == "worktree" and branch_of(_Path(d["path"])) == f"zharn/{key}" and d["checks"] == "echo ok"
+    assert branch_of(_Path(d["path"])) == f"zharn/{key}" and d["checks"] == "echo ok"
     assert store.character(chr_id)["environment"] == "client"
     assert store.get(key)["repos"] == ["client"] and json.loads((ws.stories_dir / key / "story.json").read_text())["repos"] == ["client"]
-    assert store.get(key)["environments"] == [{"repo": "client", "kind": "worktree", "path": d["path"], "branch": f"zharn/{key}"}]
+    assert store.get(key)["environments"] == [{"repo": "client", "path": d["path"], "branch": f"zharn/{key}", "parent": None}]
     assert store.cast(key)[0]["environment"] == "client"
     assert store.cast_env_list(chr_id) == [d]
     assert store.cast_env_open(chr_id, "client") == d and store.get(key)["repos"] == ["client"]
@@ -816,17 +759,13 @@ def test_env_open_errors_are_the_repos_message(store, repo):
     assert store.character(chr_id)["environment"] is None and store.get(key)["repos"] == []
 
 
-def test_substory_shared_flag_sets_its_mode_and_opens_in_the_parents_worktree(store, repo):
+def test_substory_opens_its_own_worktree_cut_from_the_parents_branch(store, repo):
     key, chr_id = started(store)
     parent_env = store.cast_env_open(chr_id, "client")
-    sub = store.cast_create(chr_id, "Contained", shared=True, start=True, role="claude-fast")
-    assert store.get(sub)["envMode"] == "shared"
-    sub_chr = store.get(sub)["protagonist"]
-    d = store.cast_env_open(sub_chr, "client")
-    assert d["kind"] == "shared" and d["path"] == parent_env["path"] and d["branch"] == f"zharn/{key}"
-    own = store.cast_create(chr_id, "Own branch", start=True, role="claude-fast")
-    d2 = store.cast_env_open(store.get(own)["protagonist"], "client")
-    assert d2["kind"] == "worktree" and d2["branch"] == f"zharn/{own}" and d2["parent"] == f"{key}:client"
+    sub = store.cast_create(chr_id, "Contained", start=True, role="claude-fast")
+    d = store.cast_env_open(store.get(sub)["protagonist"], "client")
+    assert d["branch"] == f"zharn/{sub}" and d["parent"] == f"{key}:client" and d["path"] != parent_env["path"]
+    assert store.get(sub)["environments"][0]["parent"] == f"{key}:client"
 
 
 def test_friends_inherit_the_callers_environment_and_the_protagonist_starts_with_none(store, repo, contexts):
@@ -886,7 +825,7 @@ def test_system_prompt_names_the_environment(store, repo):
     assert "workspace dir" in store.environment_line(ch) and "env open" in store.environment_line(ch)
     d = store.cast_env_open(chr_id, "client")
     line = store.environment_line(store.character(chr_id))
-    assert d["path"] in line and "client" in line and "worktree" in line and f"zharn/{key}" in line
+    assert d["path"] in line and "client" in line and f"zharn/{key}" in line
     ctx = store._contexts.get(store.character(chr_id)["live_context"])
     store.comment(key, "reply")        # any delivery rebuilds the system prompt
     assert d["path"] in ctx.meta["systemPrompt"]
@@ -894,16 +833,15 @@ def test_system_prompt_names_the_environment(store, repo):
 
 - [ ] **Step 2: Run them to verify they fail**
 
-Run: `~/.venvs/mh-conda/bin/python -m pytest tests/test_lifecycle.py tests/test_stories.py -q -k "env or repo or environment or recast_keeps or friends_inherit or substory_shared"`
-Expected: FAIL — `TypeError: Story.__init__() got an unexpected keyword argument 'env_mode'`, `AttributeError: 'StoryStore' object has no attribute 'cast_env_open'`.
+Run: `~/.venvs/mh-conda/bin/python -m pytest tests/test_lifecycle.py tests/test_stories.py -q -k "env or repo or environment or recast_keeps or friends_inherit or substory_opens"`
+Expected: FAIL — `TypeError: Story.__init__() got an unexpected keyword argument 'repos'`, `AttributeError: 'StoryStore' object has no attribute 'cast_env_open'`.
 
 - [ ] **Step 3: Implement**
 
 `harness/lifecycle.py`, in `Story` after `parent_story`:
 
 ```python
-    env_mode: str = "worktree"       # "worktree" | "shared" (workspace spec §4.2), fixed at creation
-    repos: list[str] = field(default_factory=list)   # derived from environments, persisted for the board
+    repos: list[str] = field(default_factory=list)   # derived from environments (workspace spec §4.3), persisted for the board
 ```
 
 `harness/stories.py`:
@@ -913,67 +851,44 @@ Imports: add `from harness.environments import EnvError, EnvironmentStore, regis
 In `__init__`, after `self._load()`:
 
 ```python
-        self.environments = EnvironmentStore(workspace, self._story_info)
+        self.environments = EnvironmentStore(workspace, self._parent_of)
         contexts.placement = self._placement   # Task 5 makes ContextStore call it at every spawn
 ```
 
 New methods (put them after `_key`):
 
 ```python
-    def _story_info(self, key: str) -> tuple[str | None, str]:
-        s = self._stories[key]
-        return s.parent_story, s.env_mode
+    def _parent_of(self, key: str) -> str | None:
+        return self._stories[key].parent_story
 
     def _env_rows(self, key: str) -> list[dict]:
-        out = []
-        for rec in self.environments.records(key):
-            try:
-                d = self.environments.describe(rec)
-                out.append({"repo": d["repo"], "kind": d["kind"], "path": d["path"], "branch": d["branch"]})
-            except EnvError as e:   # a missing repo: show the record, say why it has no path
-                out.append({"repo": rec["repo"], "kind": rec["kind"], "path": "", "branch": "", "error": str(e)})
-        return out
+        return [{"repo": r["repo"], "path": r["path"], "branch": r["branch"], "parent": r["parent"]}
+                for r in self.environments.records(key)]
 
     def _placement(self, ctx) -> tuple[str, dict]:
         """§4.5: a character's context runs in its environment's path, else where its meta says (the workspace dir)."""
         ch = self._characters.get(ctx.meta.get("owner", ""))
         repo = ch.get("environment") if ch else None
-        if repo:
-            rec = self.environments.get(ch["story_key"], repo)
-            if rec is not None:
-                try:
-                    path = str(self.environments.path(rec))
-                    return path, {"HARNESS_REPO": repo, "HARNESS_ENV": path}
-                except EnvError:
-                    pass   # missing repo: fall back to the workspace dir; env open will say so
+        rec = self.environments.get(ch["story_key"], repo) if repo else None
+        if rec is not None:
+            return rec["path"], {"HARNESS_REPO": repo, "HARNESS_ENV": rec["path"]}
         return ctx.meta.get("cwd") or str(self.workspace.dir), {}
 
     def environment_line(self, ch: dict) -> str:
         repo = ch.get("environment")
-        if repo:
-            rec = self.environments.get(ch["story_key"], repo)
-            if rec is not None:
-                try:
-                    d = self.environments.describe(rec)
-                    return f"{d['path']} (repo {repo}, {d['kind']} environment on branch {d['branch']})"
-                except EnvError as e:
-                    return f"repo {repo} is unavailable: {e}"
-        mode = self._stories[ch["story_key"]].env_mode
-        return (f"the workspace dir ({self.workspace.dir}); run `env open <repo>` before touching a repo "
-                f"(this story's environments are {mode})")
+        rec = self.environments.get(ch["story_key"], repo) if repo else None
+        if rec is not None:
+            return f"{rec['path']} (repo {repo}, your story's worktree on branch {rec['branch']})"
+        return f"the workspace dir ({self.workspace.dir}); run `env open <repo>` before touching a repo"
 ```
 
-`_row`: add three keys to the returned dict:
+`_row`: add two keys to the returned dict:
 
 ```python
-                "envMode": s.env_mode, "repos": list(s.repos), "environments": self._env_rows(key),
+                "repos": list(s.repos), "environments": self._env_rows(key),
 ```
 
 `cast()`: add `"environment": ch.get("environment") or ""` to each row.
-
-`create`: unchanged — a human's story is a root story and `Story.env_mode` defaults to `"worktree"`.
-
-`cast_create`: add `shared=False` parameter and `env_mode="shared" if shared else "worktree"` to the `lc.Story(...)` call. Every story created here has a parent (the character's story), so `shared` is always legal.
 
 `_cast`: add a parameter `environment: str | None = None` and put `"environment": environment` in the `ch = {...}` record. Callers:
 - `_start`: unchanged (no environment → `None`).
@@ -1048,7 +963,7 @@ You stand in {environment}.
 and after the `story show · cast · inbox` line add
 
 ```
-  $HARNESS_CLI env open <repo>                                                  # where to work: prints the path (your story's worktree, or the shared tree); cd there
+  $HARNESS_CLI env open <repo>                                                  # where to work: prints the path of your story's worktree; cd there
   $HARNESS_CLI env list · repo list                                             # this story's environments; registered repos
   $HARNESS_CLI repo add <path|url> [--name N] [--checks C] [--setup S] [--base B]   # register a repo (URLs are cloned); checks run at your handoffs
 ```
@@ -1062,7 +977,7 @@ Expected: PASS. Watch `tests/test_stories.py::test_system_prompt_*` and any test
 
 ```bash
 git add harness/lifecycle.py harness/stories.py harness/config_def.py tests/test_lifecycle.py tests/test_stories.py
-git commit -m "Stories: sub-stories may be shared, env open/list, repo add with a system note, environment inherited by friends and forks, the environment line in the system prompt
+git commit -m "Stories: env open/list, repo add with a system note, environment inherited by friends and forks, the environment line in the system prompt
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
@@ -1291,7 +1206,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ---
 
-### Task 6: IPC and CLI — repo/env verbs, create --shared, checks at handoff
+### Task 6: IPC and CLI — repo/env verbs, checks at handoff
 
 **Files:**
 - Modify: `harness/ipc.py` (`make_handler`)
@@ -1300,8 +1215,8 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Test: `tests/test_ipc.py`, `tests/test_cli.py`, `tests/test_environments.py` (end-to-end)
 
 **Interfaces:**
-- IPC commands: `repo.add {character, spec, name, checks, setup, base}`, `repo.list {}`, `env.open {character, repo}`, `env.list {character}`, `env.checks {character, thread}`; `story.create` gains `shared`; `story.yield` gains `checks: [{repo, cmd, exit, output}]`.
-- CLI: `zharn repo add <spec> [--name --checks --setup --base]`, `zharn repo list`, `zharn env open <repo>` (prints the path), `zharn env list`, `zharn story create --shared`, `zharn story yield --handoff --despite-checks`.
+- IPC commands: `repo.add {character, spec, name, checks, setup, base}`, `repo.list {}`, `env.open {character, repo}`, `env.list {character}`, `env.checks {character, thread}`; `story.yield` gains `checks: [{repo, cmd, exit, output}]`.
+- CLI: `zharn repo add <spec> [--name --checks --setup --base]`, `zharn repo list`, `zharn env open <repo>` (prints the path), `zharn env list`, `zharn story yield --handoff --despite-checks`.
 - Produces: `cli.run_checks(envs: list[dict], limit: int, timeout: float) -> list[dict]`.
 - Exit text (tests match on it): `"handoff refused: checks failed in <repos> — fix and retry, or pass --despite-checks"`.
 
@@ -1333,9 +1248,6 @@ class FakeEnvStories:
     def cast_yield(self, ch, kind, body, options, thread, checks=()):
         self.calls.append(("yield", ch, kind, body, list(options), thread, list(checks))); return {"id": "c"}
 
-    def cast_create(self, ch, title, description, start, role, shared=False):
-        self.calls.append(("create", ch, title, description, start, role, shared)); return "ZH-9"
-
     def log_verb(self, ch, verb, args, ok, error=""):
         self.verbs.append((ch, verb, args, ok, error))
 
@@ -1360,14 +1272,14 @@ def test_repo_and_env_commands_route_and_log():
     assert st.verbs[-1][1] == "env.open" and st.verbs[-1][3] is False
 
 
-def test_yield_passes_checks_and_create_passes_shared():
+def test_yield_passes_checks_through():
     st = FakeEnvStories()
     h = make_handler(FakeEnvApp(st))
     checks = [{"repo": "r", "cmd": "c", "exit": 0, "output": ""}]
     h("story.yield", {"character": "chr_1", "kind": "handoff", "body": "b", "checks": checks})
     assert st.calls[-1] == ("yield", "chr_1", "handoff", "b", [], "", checks)
-    h("story.create", {"character": "chr_1", "title": "T", "shared": True, "start": True, "role": "claude-fast"})
-    assert st.calls[-1] == ("create", "chr_1", "T", "", True, "claude-fast", True)
+    h("story.yield", {"character": "chr_1", "kind": "question", "body": "q", "options": ["a"]})
+    assert st.calls[-1] == ("yield", "chr_1", "question", "q", ["a"], "", [])
 ```
 
 Append to `tests/test_cli.py` — a multi-request fake server (the existing `fake_server` is one-shot) and the parsing/flow tests:
@@ -1426,13 +1338,6 @@ def test_repo_add_keeps_urls_and_absolutises_paths(fake_ipc, monkeypatch, tmp_pa
     cli.main(["repo", "add", "sub/b"])
     assert st["received"][0]["args"]["spec"] == "https://example.com/x/a.git"
     assert st["received"][1]["args"]["spec"] == str(tmp_path / "sub" / "b")
-
-
-@posix_only
-def test_story_create_shared_flag(fake_ipc):
-    st = fake_ipc({"key": "ZH-3"})
-    cli.main(["story", "create", "--title", "T", "--shared", "--start"])
-    assert st["received"][0]["args"] == {"title": "T", "description": "", "character": "chr_1", "start": True, "role": "", "shared": True}
 
 
 def test_run_checks_runs_each_env_and_truncates(tmp_path):
@@ -1516,7 +1421,7 @@ In `tests/fake_claude.py`, next to the `yield-question` branch:
 
 - [ ] **Step 2: Run them to verify they fail**
 
-Run: `~/.venvs/mh-conda/bin/python -m pytest tests/test_ipc.py tests/test_cli.py -q -k "repo or env or shared or checks or handoff"`
+Run: `~/.venvs/mh-conda/bin/python -m pytest tests/test_ipc.py tests/test_cli.py -q -k "repo or env or checks or handoff"`
 Expected: FAIL — `ValueError: unknown command 'repo.add'`, `argparse` errors on `repo`, `AttributeError: module 'harness.cli' has no attribute 'run_checks'`.
 
 - [ ] **Step 3: Implement**
@@ -1545,15 +1450,9 @@ with, above `story_cmd`:
         return a["character"]
 ```
 
-Change the `create` and `yield` branches:
+Change the `yield` branch:
 
 ```python
-        if verb == "create":
-            if ch:
-                return stories.cast_create(ch, a["title"], a.get("description", ""), bool(a.get("start")), a.get("role", ""),
-                                           bool(a.get("shared")))
-            return stories.get(stories.create(a["title"], a.get("description", "")))
-        ...
         if verb == "yield":
             return stories.cast_yield(ch, a["kind"], a["body"], a.get("options") or [], a.get("thread", ""), a.get("checks") or [])
 ```
@@ -1575,7 +1474,7 @@ Add `import subprocess` to the imports. Add the parsers before `sub.add_parser("
     en.add_parser("list", help="This story's environments")
 ```
 
-Add flags: `c.add_argument("--shared", action="store_true", help="the sub-story works in your environment instead of its own worktree")` on `create`, and `y.add_argument("--despite-checks", action="store_true", help="post a handoff even though checks failed")` on `yield`.
+Add the flag `y.add_argument("--despite-checks", action="store_true", help="post a handoff even though checks failed")` on `yield`.
 
 Extend `out`'s column tuple with `"repo", "kind", "path", "branch"` — the final tuple is `("id", "key", "name", "phase", "ball", "status", "title", "storyKey", "owner", "kind", "model", "repo", "path", "branch")` (keep `kind` where it is).
 
@@ -1613,15 +1512,9 @@ Dispatch — add branches after `elif a.noun == "role":`:
             out(request("env.list", {"character": character()}), a.json)
 ```
 
-Replace the `create` args and the `yield` branch:
+Replace the `yield` branch:
 
 ```python
-        elif a.verb == "create":
-            args = {"title": a.title, "description": a.description}
-            if ch:
-                args.update(character=ch, start=a.start, role=a.role, shared=a.shared)
-            out(request("story.create", args), a.json)
-        ...
         elif a.verb == "yield":
             if a.question == a.handoff:
                 sys.exit("yield needs exactly one of --question / --handoff")
@@ -1649,7 +1542,7 @@ Expected: PASS. The end-to-end handoff test needs `fake_claude` to find `HARNESS
 
 ```bash
 git add harness/ipc.py harness/cli.py tests/fake_claude.py tests/test_ipc.py tests/test_cli.py tests/test_environments.py
-git commit -m "CLI/IPC: repo add/list, env open/list, story create --shared; checks run in the CLI at an implementing handoff, gated by HANDOFF_CHECKS
+git commit -m "CLI/IPC: repo add/list, env open/list; checks run in the CLI at an implementing handoff, gated by HANDOFF_CHECKS
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
@@ -1667,9 +1560,9 @@ In `docs/DESIGN.md` §8, item 6, replace the trailing `**Partly done (workspace 
 
 ```
 **Harness side shipped 2026-09-03** (plan `docs/superpowers/plans/2026-09-03-environments.md`, spec §4 revised the same day):
-   repo registration (`zharn repo add`, paths or URL clones), environments — every story on its own worktree
-   cut from its parent environment, sub-stories optionally sharing the parent's — lazy managed worktrees,
-   context placement at spawn, checks at implementing handoffs run by the CLI (`HANDOFF_CHECKS` gate/attach),
+   repo registration (`zharn repo add`, paths or URL clones), environments — every story on its own branch
+   and worktree, cut from its parent environment's branch; friends share a tree, stories get a branch — lazy
+   managed worktrees, context placement at spawn, checks at implementing handoffs run by the CLI (`HANDOFF_CHECKS` gate/attach),
    Scratch under appdata as the default workspace. **Next:** start screen, workspace page (Relocate/Unregister),
    story move (§5.3), environments on the story page and cast panel (UI thread).
 ```
@@ -1688,8 +1581,8 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 Send the UI thread (`thr_h2eg7mfy7u`) this, with `bb thread message thr_h2eg7mfy7u "<text>"` (check `bb guide thread` for the exact verb first):
 
 > Environments landed on `bb/thr_w5px42mt28` (workspace spec §4, revised 2026-09-03). What the QML can read now:
-> - `stories.create(title, description)` is unchanged; a root story is always on its own worktree. Only sub-stories can be `shared` (a character's choice at `story create --shared`), so the creation form needs no toggle.
-> - `_row`: `envMode`, `repos` (names), `environments: [{repo, kind, path, branch, error?}]` — show each environment's kind and branch on the story page; a `shared` sub-story stands in its parent's worktree.
+> - `stories.create(title, description)` is unchanged; every story works on its own branch in its own worktree.
+> - `_row`: `repos` (names), `environments: [{repo, path, branch, parent}]` — show each environment's branch and path on the story page; `parent` is the `"<story>:<repo>"` key of the environment it was cut from (null at the root).
 > - `cast(key)` rows: `environment` (repo name or `""`).
 > - `stories.repo_list()` → `[{name, path, checks, setup, base, status: ok|missing}]`; store methods `workspace.unregister(name)`, `workspace.relocate(name, path)` for the workspace page. `Workspace.scratch(root)` + `appdata_dir()` exist for the start screen; recents are not built.
 > - Handoff comments carry `structured.checks: [{repo, cmd, exit, output}]` — the per-cell action bar can render exit≠0 in `danger`.
@@ -1699,8 +1592,8 @@ Send the UI thread (`thr_h2eg7mfy7u`) this, with `bb thread message thr_h2eg7mfy
 
 ## Self-review
 
-**Spec coverage.** §2.2 Scratch/appdata → Task 1. §3.1 record fields (`base` default) → Task 2 `register_repo`. §3.2 `repo add` path/URL + system comment → Tasks 2, 4, 6; unregister store method → Task 1. §3.3 missing + relocate → Tasks 1, 2 (`_repo` error), 4 (`_env_rows` error field). §4.1 kinds → Task 2. §4.2 mode at creation, parent chain, effective branch, `--shared` (sub-story only; a root story is refused by `EnvironmentStore.open` and has no UI path to it) → Tasks 2, 3, 4, 6. §4.3 records, never-store-resolved, derived `repos` → Tasks 2, 4. §4.4 idempotent, prune/recreate, setup retry, missing repo, git errors as-is → Task 2. §4.5 placement at every spawn, minions (process cwd), friends/forks inherit, recast keeps, protagonist in workspace dir, `HARNESS_REPO`/`HARNESS_ENV` → Tasks 4, 5. §4.6 checks in the CLI, main thread + implementing only, truncation, gate/attach knob, `--despite-checks` → Tasks 4, 6. §6 storage keys → Tasks 2, 4. §8 CLI → Task 6. §10 tests → each task; `test_story_move.py` and `test_ui_start.py` are explicitly out of scope.
+**Spec coverage.** §2.2 Scratch/appdata → Task 1. §3.1 record fields (`base` default) → Task 2 `register_repo`. §3.2 `repo add` path/URL + system comment → Tasks 2, 4, 6; unregister store method → Task 1. §3.3 missing + relocate → Tasks 1, 2 (`_repo` error), 4 (a missing repo makes `env open` fail; rows list the record as stored). §4.1 kinds → Task 2. §4.2 parent chain, branch from the parent's branch, no mode and no way into another tree → Tasks 2, 3, 4. §4.3 records, derived `repos` → Tasks 2, 4. §4.4 idempotent, prune/recreate, setup retry, missing repo, git errors as-is → Task 2. §4.5 placement at every spawn, minions (process cwd), friends/forks inherit, recast keeps, protagonist in workspace dir, `HARNESS_REPO`/`HARNESS_ENV` → Tasks 4, 5. §4.6 checks in the CLI, main thread + implementing only, truncation, gate/attach knob, `--despite-checks` → Tasks 4, 6. §6 storage keys → Tasks 2, 4. §8 CLI → Task 6. §10 tests → each task; `test_story_move.py` and `test_ui_start.py` are explicitly out of scope.
 
-**Type consistency.** `EnvironmentStore.open/describe` return the resolved dict everywhere (`path`, `branch`, `checks` present); `get`/`records` return stored records. `story_info(key) -> (parent, mode)` is what `StoryStore._story_info` returns. `placement(ctx) -> (cwd, env)` in Tasks 4 and 5. `cast_yield(..., checks)` already exists with that name; `env_checks` returns `run/environments/policy/limit/timeout`, which `cli.main` reads by those keys.
+**Type consistency.** `EnvironmentStore.open/describe` return the record plus `checks`; `get`/`records` return stored records (which already carry `path` and `branch`). `parent_of(key) -> str | None` is what `StoryStore._parent_of` returns. `placement(ctx) -> (cwd, env)` in Tasks 4 and 5. `cast_yield(..., checks)` already exists with that name; `env_checks` returns `run/environments/policy/limit/timeout`, which `cli.main` reads by those keys.
 
 **Known trap for executors.** `tests/test_stories.py` imports `gitfix` via `sys.path`; keep the `_sys`/`_Path` aliases so the module's existing names are untouched.
