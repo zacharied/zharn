@@ -214,6 +214,9 @@ class StoryStore(QObject):
     def _apply(self, key: str, action) -> dict:
         s = self._stories[key]
         s2, comment = lc.step(s, action, comment_id=new_id("cmt_"), now=time.time())
+        writer = self._characters.get(comment["author"])
+        if writer is not None:  # spec §4: which memory wrote it (characters only)
+            comment["context"] = writer.get("live_context")
         lc.check_invariants(s2)
         self._stories[key] = s2
         for t in s2.threads:

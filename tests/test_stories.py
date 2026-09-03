@@ -460,3 +460,15 @@ def test_handoff_carries_checks(store):
     c = store.cast_yield(chr_id, "handoff", "built", checks=[{"repo": "zharn", "cmd": "pytest -q", "exit": 0, "output": "ok"}])
     assert c["structured"]["checks"] == [{"repo": "zharn", "cmd": "pytest -q", "exit": 0, "output": "ok"}]
     assert store.comments(key)[-1]["structured"]["checks"][0]["repo"] == "zharn"
+
+
+def test_cast_comments_record_the_context_that_wrote_them(store, contexts, ws):
+    key, chr_id = started(store)
+    live = store.character(chr_id)["live_context"]
+    c = store.cast_comment(chr_id, "from the protagonist")
+    assert c["context"] == live
+    assert store.comment(key, "from the human")["context"] is None
+    assert store.comments(key)[0]["context"] is None  # the Start comment is the author's
+    rows = [json.loads(l) for l in (ws.stories_dir / key / "threads.jsonl").read_text().splitlines()]
+    assert [r.get("context") for r in rows if r["type"] == "comment"] == [None, live, None]
+    assert StoryStore(ws, contexts, StubRoles()).comments(key)[1]["context"] == live

@@ -161,7 +161,7 @@ def _comment(story: Story, comment_id: str, now: float, *, thread_id: str | None
              body: str, reply_to: str | None = None, structured: dict | None = None) -> dict:
     return {"id": comment_id, "story_key": story.key, "thread_id": thread_id, "reply_to": reply_to,
             "author": author, "kind": kind, "body": body, "mentions": [], "structured": structured or {},
-            "attachments": [], "created_at": now}
+            "attachments": [], "context": None, "created_at": now}
 
 
 def _cell(story: Story) -> list:

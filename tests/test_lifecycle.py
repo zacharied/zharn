@@ -531,3 +531,9 @@ def test_every_phase_transition_has_exactly_one_causing_comment():
         log.append((before != after, "transition" in c["structured"]))
     assert all(changed == recorded for changed, recorded in log), log
     assert sum(1 for changed, _ in log if changed) == 12  # every action above except Comment and Recap
+
+
+def test_every_comment_has_a_context_slot_the_reducer_leaves_empty():
+    s = started()
+    _, c = run(s, Comment(thread_id="t1", by="chr1", body="hi"))
+    assert "context" in c and c["context"] is None
