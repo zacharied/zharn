@@ -63,6 +63,10 @@ def main():
             cli = os.environ["HARNESS_CLI"].split() + ["story", "yield", "--question", "--body", "which one?", "--options", "a,b"]
             r = subprocess.run(cli, capture_output=True, text=True, env=os.environ)
             tool_turn("Bash", {"command": "zharn story yield --question …"}, (r.stdout + r.stderr).strip(), is_error=r.returncode != 0)
+        elif "yield-handoff" in prompt:
+            cli = os.environ["HARNESS_CLI"].split() + ["story", "yield", "--handoff", "--body", "done"]
+            r = subprocess.run(cli, capture_output=True, text=True, env=os.environ)
+            tool_turn("Bash", {"command": "zharn story yield --handoff …"}, (r.stdout + r.stderr).strip(), is_error=r.returncode != 0)
         if "tool" in prompt:
             tool_turn("Bash", {"command": "echo hello-from-tool"}, "hello-from-tool")
         if "fail" in prompt:

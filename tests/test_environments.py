@@ -240,3 +240,25 @@ def test_character_moves_into_its_worktree_at_the_next_turn(app_store):
     assert Path(init["cwd"]).resolve() == Path(d["path"]).resolve()
     assert init["harness_env"]["HARNESS_REPO"] == "client" and init["harness_env"]["HARNESS_ENV"] == d["path"]
     assert d["path"] in ctx.meta["systemPrompt"]
+
+
+def test_handoff_over_the_cli_carries_the_checks(app_store):
+    """fake claude's `yield-handoff` runs `$HARNESS_CLI story yield --handoff` from inside the character."""
+    st = app_store.stories
+    key = st.create("Checks", "")
+    chr_id = st.start(key, "go", "claude-fast")   # no outline required
+    ctx = app_store.contexts.get(st.character(chr_id)["live_context"])
+    assert wait_until(lambda: ctx.status == "idle"), ctx.lastError
+    assert st.get(key)["ball"] == "author"           # the harness yielded for it at turn end
+    d = st.cast_env_open(chr_id, "client")
+    st.proceed(key)                                  # planning → implementing; resumes the protagonist
+    assert wait_until(lambda: ctx.status == "idle" and st.get(key)["ball"] == "author", timeout_ms=15000)
+    (Path(d["path"]) / "ok.txt").write_text("")
+    st.comment(key, "yield-handoff")                 # the fake runs `story yield --handoff` from inside the character
+
+    def posted():
+        return any(c["kind"] == "handoff" and "checks" in c.get("structured", {}) for c in st.comments(key))
+    assert wait_until(posted, timeout_ms=15000), [(c["author"], c["kind"], c["body"][:60]) for c in st.comments(key)]
+    handoff = [c for c in st.comments(key) if c["kind"] == "handoff" and "checks" in c.get("structured", {})][-1]
+    assert handoff["author"] == chr_id
+    assert handoff["structured"]["checks"] == [{"repo": "client", "cmd": "test -f ok.txt", "exit": 0, "output": ""}]

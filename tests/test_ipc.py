@@ -103,7 +103,7 @@ class FakeStories:
     def backToPlanning(self, key, note=""): self.calls.append(("back", key, note))
     def cancel(self, key, note=""): self.calls.append(("cancel", key, note))
     def reopen(self, key, note=""): self.calls.append(("reopen", key, note))
-    def cast_yield(self, character_id, kind, body, options=(), thread_id=""):
+    def cast_yield(self, character_id, kind, body, options=(), thread_id="", checks=()):
         self.calls.append(("cast_yield", character_id, kind, body, list(options), thread_id))
         if body == "boom":
             from harness.lifecycle import Rejected
@@ -437,3 +437,60 @@ def test_story_create_and_author_verbs_from_a_character(h, store):
     assert h("story.reply", {"character": "chr1", "key": "SUB-1", "thread": "t", "body": "b"}) == {"id": "c12"}
     assert store.stories.calls[-2:] == [("cast_author", "chr1", "approve", "SUB-1", {"note": "ok"}),
                                         ("cast_author", "chr1", "reply", "SUB-1", {"thread_id": "t", "body": "b"})]
+
+
+class FakeEnvStories:
+    """Records the env/repo calls the handler makes; `verbs` mirrors log_verb."""
+    def __init__(self):
+        self.calls, self.verbs = [], []
+
+    def cast_repo_add(self, ch, spec, name, checks, setup, base):
+        self.calls.append(("repo_add", ch, spec, name, checks, setup, base)); return {"name": name or "r"}
+
+    def repo_list(self):
+        self.calls.append(("repo_list",)); return [{"name": "r", "status": "ok"}]
+
+    def cast_env_open(self, ch, repo):
+        self.calls.append(("env_open", ch, repo)); return {"repo": repo, "path": "/p"}
+
+    def cast_env_list(self, ch):
+        self.calls.append(("env_list", ch)); return []
+
+    def env_checks(self, ch, thread):
+        self.calls.append(("env_checks", ch, thread)); return {"run": False, "environments": [], "policy": "gate", "limit": 10, "timeout": 5}
+
+    def cast_yield(self, ch, kind, body, options, thread, checks=()):
+        self.calls.append(("yield", ch, kind, body, list(options), thread, list(checks))); return {"id": "c"}
+
+    def log_verb(self, ch, verb, args, ok, error=""):
+        self.verbs.append((ch, verb, args, ok, error))
+
+
+class FakeEnvApp:
+    def __init__(self, stories):
+        self.stories, self.contexts, self.roles, self.layout = stories, FakeContexts(), None, None
+
+
+def test_repo_and_env_commands_route_and_log():
+    st = FakeEnvStories()
+    h = make_handler(FakeEnvApp(st))
+    assert h("repo.add", {"character": "chr_1", "spec": "/r", "name": "", "checks": "c", "setup": "", "base": ""}) == {"name": "r"}
+    assert h("repo.list", {}) == [{"name": "r", "status": "ok"}]
+    assert h("env.open", {"character": "chr_1", "repo": "r"}) == {"repo": "r", "path": "/p"}
+    assert h("env.list", {"character": "chr_1"}) == []
+    assert h("env.checks", {"character": "chr_1", "thread": "t"})["policy"] == "gate"
+    assert [c[0] for c in st.calls] == ["repo_add", "repo_list", "env_open", "env_list", "env_checks"]
+    assert [(v[1], v[3]) for v in st.verbs] == [("repo.add", True), ("env.open", True), ("env.list", True), ("env.checks", True)]
+    with pytest.raises(KeyError):
+        h("env.open", {"character": "chr_1"})
+    assert st.verbs[-1][1] == "env.open" and st.verbs[-1][3] is False
+
+
+def test_yield_passes_checks_through():
+    st = FakeEnvStories()
+    h = make_handler(FakeEnvApp(st))
+    checks = [{"repo": "r", "cmd": "c", "exit": 0, "output": ""}]
+    h("story.yield", {"character": "chr_1", "kind": "handoff", "body": "b", "checks": checks})
+    assert st.calls[-1] == ("yield", "chr_1", "handoff", "b", [], "", checks)
+    h("story.yield", {"character": "chr_1", "kind": "question", "body": "q", "options": ["a"]})
+    assert st.calls[-1] == ("yield", "chr_1", "question", "q", ["a"], "", [])

@@ -58,8 +58,23 @@ class IpcServer(QObject):
 
 def make_handler(app_store):
     """Command table. Names mirror the CLI: <noun>.<verb>."""
+    def ch_of(a: dict) -> str:
+        if not a.get("character"):
+            raise KeyError("character")
+        return a["character"]
+
     def story_cmd(cmd: str, a: dict):
         stories, contexts = app_store.stories, app_store.contexts
+        if cmd == "repo.add":
+            return stories.cast_repo_add(ch_of(a), a["spec"], a.get("name", ""), a.get("checks", ""), a.get("setup", ""), a.get("base", ""))
+        if cmd == "repo.list":
+            return stories.repo_list()
+        if cmd == "env.open":
+            return stories.cast_env_open(ch_of(a), a["repo"])
+        if cmd == "env.list":
+            return stories.cast_env_list(ch_of(a))
+        if cmd == "env.checks":
+            return stories.env_checks(ch_of(a), a.get("thread", ""))
         verb = cmd.split(".", 1)[1]
         if verb == "list":
             return stories.list()
@@ -92,7 +107,7 @@ def make_handler(app_store):
         if verb == "wait":
             return stories.cast_wait(ch)
         if verb == "yield":
-            return stories.cast_yield(ch, a["kind"], a["body"], a.get("options") or [], a.get("thread", ""))
+            return stories.cast_yield(ch, a["kind"], a["body"], a.get("options") or [], a.get("thread", ""), a.get("checks") or [])
         if verb == "recap":
             return stories.cast_recap(ch, a["body"], a.get("thread", ""))
         if verb == "comment":
@@ -122,17 +137,18 @@ def make_handler(app_store):
             return {"pid": os.getpid()}
         if cmd == "role.list":
             return roles.roles
-        if cmd.startswith("story."):
+        if cmd.startswith(("story.", "repo.", "env.")):
             ch = a.get("character", "")
             if not ch:
                 return story_cmd(cmd, a)
             logged = {k: v for k, v in a.items() if k != "character"}
+            verb = cmd.split(".", 1)[1] if cmd.startswith("story.") else cmd
             try:
                 result = story_cmd(cmd, a)
             except Exception as e:
-                app_store.stories.log_verb(ch, cmd.split(".", 1)[1], logged, False, f"{type(e).__name__}: {e}")
+                app_store.stories.log_verb(ch, verb, logged, False, f"{type(e).__name__}: {e}")
                 raise
-            app_store.stories.log_verb(ch, cmd.split(".", 1)[1], logged, True)
+            app_store.stories.log_verb(ch, verb, logged, True)
             return result
         if cmd == "context.list":
             return [s for s in contexts.summaries() if not a.get("story") or s["storyKey"] == a["story"]]

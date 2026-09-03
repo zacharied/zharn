@@ -131,8 +131,11 @@ class Context(QObject):
             f.write(json.dumps(record) + "\n")
 
     def _env(self, extra: dict | None = None) -> dict:
+        # PYTHONPATH: `python -m harness.cli` otherwise resolves `harness` via whatever's on sys.path for its cwd
+        # (an editable install elsewhere, in a worktree) rather than the code this app is actually running.
         env = {"HARNESS_CONTEXT_ID": self.id, "HARNESS_STORY_KEY": self.storyKey, "HARNESS_ROOT": str(self._store.root),
-               "HARNESS_WORKSPACE": str(self._store.workspace_dir), "HARNESS_CLI": f"{sys.executable} -m harness.cli"}
+               "HARNESS_WORKSPACE": str(self._store.workspace_dir), "HARNESS_CLI": f"{sys.executable} -m harness.cli",
+               "PYTHONPATH": str(self._store.root)}
         env.update(self.meta.get("env") or {})
         env.update(extra or {})
         env.update(self._store.extra_env())

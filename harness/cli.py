@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import socket
+import subprocess
 import sys
 import time
 
@@ -49,7 +50,7 @@ def out(value, as_json: bool):
     elif isinstance(value, list):
         for row in value:
             if isinstance(row, dict):
-                print("  ".join(f"{k}={row[k]}" for k in ("id", "key", "name", "phase", "ball", "status", "title", "storyKey", "owner", "kind", "model") if k in row))
+                print("  ".join(f"{k}={row[k]}" for k in ("id", "key", "name", "phase", "ball", "status", "title", "storyKey", "owner", "kind", "model", "repo", "path", "branch") if k in row))
             else:
                 print(row)
     elif isinstance(value, dict):
@@ -62,6 +63,19 @@ def out(value, as_json: bool):
             print(f"[{row['role']}/{row['kind']}] {row.get('name', '')} {row.get('text') or row.get('input', '')}")
     else:
         print(value)
+
+
+def run_checks(envs: list[dict], limit: int, timeout: float) -> list[dict]:
+    """Workspace spec §4.6: each repo's `checks` in that environment; output truncated to `limit` characters."""
+    results = []
+    for e in envs:
+        try:
+            r = subprocess.run(e["checks"], shell=True, cwd=e["path"], capture_output=True, text=True, timeout=timeout)
+            code, output = r.returncode, r.stdout + r.stderr
+        except subprocess.TimeoutExpired:
+            code, output = -1, f"timed out after {timeout}s"
+        results.append({"repo": e["repo"], "cmd": e["checks"], "exit": code, "output": output[-limit:]})
+    return results
 
 
 def main(argv=None):
@@ -93,6 +107,7 @@ def main(argv=None):
     s = stp.add_parser("start"); s.add_argument("key"); s.add_argument("--note", default=""); s.add_argument("--role", default="")
     y = stp.add_parser("yield"); y.add_argument("--question", action="store_true"); y.add_argument("--handoff", action="store_true")
     y.add_argument("--body", required=True); y.add_argument("--options", default=""); y.add_argument("--thread", default="")
+    y.add_argument("--despite-checks", action="store_true", help="post a handoff even though checks failed")
     pr = stp.add_parser("proceed"); pr.add_argument("key", nargs="?", default=""); pr.add_argument("--note", default="")
     rc = stp.add_parser("recap"); rc.add_argument("--body", required=True); rc.add_argument("--thread", default="")
     cm = stp.add_parser("comment"); cm.add_argument("--body", required=True); cm.add_argument("--thread", default=""); cm.add_argument("--story", default=os.environ.get("HARNESS_STORY_KEY", ""))
@@ -111,6 +126,15 @@ def main(argv=None):
 
     rcst = stp.add_parser("recast", help="Replace a character's context: same character, fresh memory")
     rcst.add_argument("key"); rcst.add_argument("target", help="character id"); rcst.add_argument("--role", default=""); rcst.add_argument("--model", default="")
+
+    rp2 = sub.add_parser("repo").add_subparsers(dest="verb", required=True)
+    ra = rp2.add_parser("add", help="Register a git repo (a URL is cloned into the workspace)")
+    ra.add_argument("spec", help="path or URL"); ra.add_argument("--name", default=""); ra.add_argument("--checks", default="", help="run in your environment at every implementing handoff")
+    ra.add_argument("--setup", default="", help="run once in every new worktree"); ra.add_argument("--base", default="", help="branch worktrees are cut from (default: HEAD at registration)")
+    rp2.add_parser("list")
+    en = sub.add_parser("env").add_subparsers(dest="verb", required=True)
+    en.add_parser("open", help="Where to work in a repo: prints the path; creates it on first use").add_argument("repo")
+    en.add_parser("list", help="This story's environments")
     sub.add_parser("ping")
     a = p.parse_args(argv)
 
@@ -133,6 +157,19 @@ def main(argv=None):
         out(request("ping", {}), a.json)
     elif a.noun == "role":
         out(request("role.list", {}), a.json)
+    elif a.noun == "repo":
+        if a.verb == "add":
+            spec = a.spec if ("://" in a.spec or a.spec.startswith("git@")) else os.path.abspath(a.spec)
+            out(request("repo.add", {"character": character(), "spec": spec, "name": a.name, "checks": a.checks,
+                                     "setup": a.setup, "base": a.base}), a.json)
+        else:
+            out(request("repo.list", {}), a.json)
+    elif a.noun == "env":
+        if a.verb == "open":
+            r = request("env.open", {"character": character(), "repo": a.repo})
+            out(r if a.json else r["path"], a.json)
+        else:
+            out(request("env.list", {"character": character()}), a.json)
     elif a.noun == "context":
         if a.verb == "new":
             s = request("context.new", {"role": a.role, "prompt": a.prompt, "title": a.title, "open": a.open})
@@ -162,8 +199,18 @@ def main(argv=None):
             if a.question == a.handoff:
                 sys.exit("yield needs exactly one of --question / --handoff")
             opts = [o.strip() for o in a.options.split(",") if o.strip()]
+            checks = []
+            if a.handoff:   # §4.6: checks run here, in your turn, before the handoff posts
+                plan = request("env.checks", {"character": character(), "thread": a.thread})
+                checks = run_checks(plan["environments"], plan["limit"], plan["timeout"])
+                failed = [c for c in checks if c["exit"] != 0]
+                if failed and plan["policy"] == "gate" and not a.despite_checks:
+                    for c in failed:
+                        print(f"[{c['repo']}] {c['cmd']} → exit {c['exit']}\n{c['output']}", file=sys.stderr)
+                    sys.exit("handoff refused: checks failed in " + ", ".join(c["repo"] for c in failed)
+                             + " — fix and retry, or pass --despite-checks")
             out(request("story.yield", {"character": character(), "kind": "question" if a.question else "handoff",
-                                        "body": a.body, "options": opts, "thread": a.thread}), a.json)
+                                        "body": a.body, "options": opts, "thread": a.thread, "checks": checks}), a.json)
         elif a.verb == "recap": out(request("story.recap", {"character": character(), "body": a.body, "thread": a.thread}), a.json)
         elif a.verb == "call": out(request("story.call", {"character": character(), "role": a.role, "note": a.note, "as": a.as_name, "fork": a.fork}), a.json)
         elif a.verb == "wait": out(request("story.wait", {"character": character()}), a.json)

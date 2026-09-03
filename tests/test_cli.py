@@ -277,7 +277,8 @@ def test_story_yield_uses_character_from_env(recorder, monkeypatch, capsys):
     monkeypatch.setenv("HARNESS_CHARACTER_ID", "chr1")
     recorder.replies["story.yield"] = {"id": "c1", "kind": "question"}
     cli.main(["story", "yield", "--question", "--body", "which?", "--options", "a,b", "--thread", "t2"])
-    assert recorder.calls == [("story.yield", {"character": "chr1", "kind": "question", "body": "which?", "options": ["a", "b"], "thread": "t2"})]
+    assert recorder.calls == [("story.yield", {"character": "chr1", "kind": "question", "body": "which?", "options": ["a", "b"], "thread": "t2", "checks": []})]
+    recorder.replies["env.checks"] = {"run": False, "environments": [], "policy": "gate", "limit": 100, "timeout": 30}
     cli.main(["story", "yield", "--handoff", "--body", "done"])
     assert recorder.calls[-1][1]["kind"] == "handoff" and recorder.calls[-1][1]["options"] == []
 
@@ -356,3 +357,103 @@ def test_story_create_and_author_verbs_inside_a_character(recorder, monkeypatch)
         ("story.approve", {"character": "chr1", "key": "SUB-1", "note": "ok"}),
         ("story.reply", {"character": "chr1", "key": "SUB-1", "thread": "t", "body": "b"}),
     ]
+
+
+@pytest.fixture
+def fake_ipc(tmp_path, monkeypatch):
+    """Serves `replies` in order, one connection each; records every request."""
+    path = str(tmp_path / "ipc2.sock")
+    srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    srv.bind(path); srv.listen(8); srv.settimeout(10)
+    state = {"received": [], "replies": deque()}
+
+    def serve():
+        while state["replies"]:
+            conn, _ = srv.accept()
+            with conn:
+                data = b""
+                while not data.endswith(b"\n"):
+                    data += conn.recv(65536)
+                state["received"].append(json.loads(data))
+                conn.sendall((json.dumps(state["replies"].popleft()) + "\n").encode())
+
+    t = threading.Thread(target=serve, daemon=True)
+    monkeypatch.setenv("HARNESS_IPC", path)
+    monkeypatch.setenv("HARNESS_CHARACTER_ID", "chr_1")
+
+    def start(*replies):
+        state["replies"].extend({"ok": True, "result": r} for r in replies)
+        t.start()
+        return state
+    yield start
+    srv.close(); t.join(timeout=5)
+
+
+@posix_only
+def test_repo_and_env_verbs(fake_ipc, capsys, tmp_path):
+    st = fake_ipc({"name": "api"}, [{"name": "api", "status": "ok"}], {"repo": "api", "path": "/wt/api"}, [])
+    cli.main(["repo", "add", str(tmp_path / "api"), "--checks", "pytest -q"])
+    cli.main(["repo", "list"])
+    cli.main(["env", "open", "api"])
+    cli.main(["env", "list"])
+    cmds = [(r["cmd"], r["args"]) for r in st["received"]]
+    assert cmds[0] == ("repo.add", {"character": "chr_1", "spec": str(tmp_path / "api"), "name": "", "checks": "pytest -q", "setup": "", "base": ""})
+    assert cmds[1] == ("repo.list", {})
+    assert cmds[2] == ("env.open", {"character": "chr_1", "repo": "api"}) and cmds[3] == ("env.list", {"character": "chr_1"})
+    out = capsys.readouterr().out
+    assert "/wt/api\n" in out and "name=api  status=ok" in out
+
+
+@posix_only
+def test_repo_add_keeps_urls_and_absolutises_paths(fake_ipc, monkeypatch, tmp_path):
+    st = fake_ipc({"name": "a"}, {"name": "b"})
+    monkeypatch.chdir(tmp_path)
+    cli.main(["repo", "add", "https://example.com/x/a.git"])
+    cli.main(["repo", "add", "sub/b"])
+    assert st["received"][0]["args"]["spec"] == "https://example.com/x/a.git"
+    assert st["received"][1]["args"]["spec"] == str(tmp_path / "sub" / "b")
+
+
+def test_run_checks_runs_each_env_and_truncates(tmp_path):
+    a, b = tmp_path / "a", tmp_path / "b"
+    a.mkdir(); b.mkdir()
+    (a / "ok.txt").write_text("")
+    res = cli.run_checks([{"repo": "a", "checks": "test -f ok.txt && echo fine", "path": str(a)},
+                          {"repo": "b", "checks": "echo 0123456789; test -f ok.txt", "path": str(b)}], limit=6, timeout=30)
+    assert res == [{"repo": "a", "cmd": "test -f ok.txt && echo fine", "exit": 0, "output": "fine\n"[-6:]},
+                   {"repo": "b", "cmd": "echo 0123456789; test -f ok.txt", "exit": 1, "output": "56789\n"}]
+
+
+def test_run_checks_times_out(tmp_path):
+    res = cli.run_checks([{"repo": "s", "checks": "sleep 5", "path": str(tmp_path)}], limit=100, timeout=0.2)
+    assert res[0]["exit"] == -1 and "timed out" in res[0]["output"]
+
+
+@posix_only
+def test_handoff_runs_checks_and_gates_on_failure(fake_ipc, tmp_path, capsys):
+    plan = {"run": True, "policy": "gate", "limit": 100, "timeout": 30,
+            "environments": [{"repo": "api", "checks": "test -f ok.txt", "path": str(tmp_path)}]}
+    st = fake_ipc(plan)
+    with pytest.raises(SystemExit) as e:
+        cli.main(["story", "yield", "--handoff", "--body", "done"])
+    assert "handoff refused: checks failed in api" in str(e.value) and "--despite-checks" in str(e.value)
+    assert len(st["received"]) == 1 and st["received"][0]["cmd"] == "env.checks"
+    assert "[api] test -f ok.txt" in capsys.readouterr().err
+
+
+@posix_only
+def test_handoff_posts_with_checks_when_they_pass_or_despite_or_attach(fake_ipc, tmp_path):
+    (tmp_path / "ok.txt").write_text("")
+    env = {"repo": "api", "checks": "test -f ok.txt", "path": str(tmp_path)}
+    st = fake_ipc({"run": True, "policy": "gate", "limit": 100, "timeout": 30, "environments": [env]}, {"id": "c1"},
+                  {"run": True, "policy": "attach", "limit": 100, "timeout": 30, "environments": [{**env, "checks": "false"}]}, {"id": "c2"},
+                  {"run": True, "policy": "gate", "limit": 100, "timeout": 30, "environments": [{**env, "checks": "false"}]}, {"id": "c3"},
+                  {"run": False, "policy": "gate", "limit": 100, "timeout": 30, "environments": []}, {"id": "c4"})
+    cli.main(["story", "yield", "--handoff", "--body", "green"])
+    cli.main(["story", "yield", "--handoff", "--body", "red but attach"])
+    cli.main(["story", "yield", "--handoff", "--body", "red despite", "--despite-checks"])
+    cli.main(["story", "yield", "--handoff", "--body", "not implementing"])
+    yields = [r["args"] for r in st["received"] if r["cmd"] == "story.yield"]
+    assert yields[0]["checks"] == [{"repo": "api", "cmd": "test -f ok.txt", "exit": 0, "output": ""}]
+    assert yields[1]["checks"][0]["exit"] == 1 and yields[2]["checks"][0]["exit"] == 1 and yields[3]["checks"] == []
+    assert all(y["kind"] == "handoff" for y in yields)
