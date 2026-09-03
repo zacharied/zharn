@@ -104,15 +104,16 @@ Nothing is deleted or rewritten automatically.
 
 ## 4. Environments
 
-*Revised 2026-09-03: one rule for "work on master" and "work in my parent's worktree" — a story
-either owns a worktree cut from its parent environment or stands in the parent environment
-itself, and the parent environment of a root story is the main checkout.*
+*Revised 2026-09-03: a story either owns a worktree cut from its parent environment or — if it is
+a sub-story — stands in the parent environment itself. The parent environment of a root story is
+the main checkout, and no story ever works there: a root story's work is always on its own
+branch, which is what makes its handoff mean something.*
 
 ### 4.1 Kinds
 
-* **Main checkout** — the registered path itself. Where bare contexts stand, and where a
-  root story in shared mode (§4.2) works. Never created or destroyed by zharn. The root of every
-  parent chain.
+* **Main checkout** — the registered path itself. Where bare contexts stand. Never created or
+  destroyed by zharn, and never worked in by a story: it is the root of every parent chain, the
+  branch point, not a place of work.
 * **Managed worktree** — created by zharn with `git worktree add` under
   `<workspace>/.zharn/local/worktrees/<repo>/<story-key>/`, on the new branch `zharn/<story-key>`
   cut from the parent environment's effective branch (§4.2). `setup` runs once after creation, in
@@ -127,23 +128,23 @@ parent has none yet (in the parent's own mode), because the sub-story's work is 
 Every story has an **env mode**, chosen once by its author at creation and applied to every repo
 the cast opens. The cast cannot change it.
 
-* **`worktree`** (default at every level) — the story's environment for a repo is its own
-  managed worktree, branched from the parent environment's effective branch. At the root that is
-  the repo's `base`; under a parent story it is `zharn/<parent-key>`, so the sub-story starts
-  from the parent's committed work.
-* **`shared`** — the story stands in the parent environment itself. At the root that is the main
-  checkout — the traditional "just work on master" harness. Under a parent it is the parent's
-  worktree, so results land in the parent's tree with nothing to merge.
+* **`worktree`** (the default, and the only mode for a root story) — the story's environment for
+  a repo is its own managed worktree, branched from the parent environment's effective branch. At
+  the root that is the repo's `base`; under a parent story it is `zharn/<parent-key>`, so the
+  sub-story starts from the parent's committed work.
+* **`shared`** (sub-stories only) — the story stands in its parent story's environment, so
+  results land in the parent's tree with nothing to merge. A root story cannot be shared: that
+  would put its work on the main checkout before anyone handed anything off.
 
 The **effective branch** of an environment is found by walking up the chain to the first
 worktree (its branch) or the main checkout (the repo's `base`). A shared environment has no
 branch of its own.
 
-The human picks the mode on the story creation form; a character passes `--shared` to
-`zharn story create`. A story that only investigates should be created shared so that it does
-not sprout branches. Shared means two casts editing one working tree — and at the root, an agent
-dirtying the human's checkout. That is the point of the mode, so the story page and cast panel
-state each environment's kind plainly; nothing else defends against it.
+A character passes `--shared` to `zharn story create`; the human's creation form has no such
+choice because every story the human creates is a root story. Shared means two casts editing one
+working tree; that is the point of the mode, so the story page and cast panel state each
+environment's kind plainly, and nothing else defends against it. A story that only investigates
+still gets a worktree — cheap, and one rule.
 
 Approve is out of scope (§11), but the chain gives it its shape: a worktree environment has a
 branch to merge into its parent environment's effective branch; a shared environment has nothing
@@ -158,9 +159,9 @@ to do.
 ```
 
 A worktree record owns `path` and `branch`. A shared record owns neither: its path is resolved
-through `parent` at use time (ending at the repo's registered path), so Relocate (§3.3) keeps
-working. `parent` is the `(story, repo)` of the parent environment, or null when the parent is
-the main checkout. The story's `repos` list is the set of records that exist, shared ones
+through `parent` at use time, so Relocate (§3.3) keeps working. `parent` is the `(story, repo)`
+of the parent environment, or null when the parent is the main checkout — which only a worktree
+record may have, since a shared record always stands in another story's environment. The story's `repos` list is the set of records that exist, shared ones
 included; it is derived, persisted in `story.json` for the board filter, and never edited by
 hand. An author may add a repo *hint* at creation for scoping; a hint is not an environment.
 
@@ -292,7 +293,7 @@ name), the board, contexts, and **Move story** on every story page.
 Inside a character (existing `zharn story …` verbs unchanged, plus one flag):
 
 ```
-zharn story create --title T [--shared]    # env mode of the sub-story: shared, else worktree (§4.2)
+zharn story create --title T [--shared]    # the sub-story stands in your environment instead of its own worktree (§4.2)
 zharn story yield --handoff --body B [--despite-checks]   # §4.6
 zharn repo add <path|url> [--name N] [--checks C] [--setup S] [--base B]   # §3.2; system comment
 zharn repo list [--json]
@@ -327,10 +328,10 @@ All against real temporary git repositories; no network.
   the zharn checkout registered, and never special-cased (grep the source for `scratch` outside
   its creation).
 * `tests/test_environments.py`: `env open` is idempotent per `(story, repo)`; branch and path
-  naming; a root story in shared mode resolves to the main checkout and creates nothing; a
-  sub-story in worktree mode branches from `zharn/<parent-key>` and creates the parent's
-  environment on demand; a sub-story in shared mode resolves to the parent's worktree; the
-  effective branch walks through shared records; `setup` runs once and is retried after failure;
+  naming; a root story is never shared (refused at creation and by the store); a sub-story in
+  worktree mode branches from `zharn/<parent-key>` and creates the parent's environment on
+  demand; a sub-story in shared mode resolves to the parent's worktree; the effective branch
+  walks through shared records; `setup` runs once and is retried after failure;
   a deleted worktree directory is recreated on its branch; a missing repo fails and creates
   nothing; the derived `repos` list; cwd at spawn for a character, a called friend, a fork, and a
   recast; `HARNESS_REPO`/`HARNESS_ENV`.
