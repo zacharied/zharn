@@ -671,3 +671,22 @@ def test_addressees_follow_the_routing_rules(store, contexts):
     assert store.addressees(key, c_auto) == [chr_id]
     c_answer = store._apply(key, Comment(thread_id="thr_f", by=chr_id, body="ok"))
     assert store.addressees(key, c_answer) == [friend["id"]]                      # reply to a harness yield → the lead
+
+
+# ---------------------------------------------------------------- delivery by status (characters plan, Task 4)
+
+def test_delivery_pushes_to_the_attended_thread_and_inboxes_the_rest(store, contexts):
+    key, chr_id = started(store)
+    ch = store.character(chr_id)
+    live = contexts.get(ch["live_context"])
+    main = store.get(key)["mainThread"]
+    assert ch["attention"] == main and live.status == "working"
+    store.comment(key, "steer")                                   # attended, mid-turn → pushed now
+    assert live.sent[-1].endswith("steer") and store.character(chr_id)["inbox"] == []
+    side = store.openThread(key, "btw?")                          # other thread, mid-turn → inbox
+    btw = store.comments(key)[-1]
+    assert store.character(chr_id)["inbox"] == [btw["id"]] and store.character(chr_id)["attention"] == main
+    assert not live.sent[-1].endswith("btw?") and store.cast(key)[0]["inboxDepth"] == 1
+    live.status = "idle"
+    store.comment(key, "now you are free", side)                  # idle → pushed, attention moves
+    assert live.sent[-1].endswith("now you are free") and store.character(chr_id)["attention"] == side

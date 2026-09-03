@@ -166,3 +166,24 @@ def test_fork_rejects_a_source_that_never_ran_or_is_working(store):
         store.fork(busy.id, role_name="claude-default")
     with pytest.raises(KeyError):
         store.fork("ctx_nope", role_name="claude-default")
+
+
+def test_a_result_is_not_a_turn_end_while_a_pushed_message_is_unechoed(store):
+    settled = []
+    store.contextSettled.connect(settled.append)
+    c = store.get(store.spawn("claude-fast", "slow one"))
+    assert wait_until(lambda: c.status == "working")
+    c.send("two")                                  # pushed mid-turn; the fake echoes it only when it reads it
+    assert c._unacked in (1, 2)                     # "slow one" may or may not be echoed yet
+    assert wait_until(lambda: c.turns == 2 and c.status == "idle", timeout_ms=8000), (c.turns, c.status)
+    assert settled == [c.id]                       # one settle for two results: the first was not a turn end
+    assert [r["text"] for r in c.transcript.rows() if r["role"] == "user"] == ["slow one", "two"]   # no double rows
+    assert c._unacked == 0
+
+
+def test_a_stop_settles_regardless_of_unechoed_pushes(store):
+    c = store.get(store.spawn("claude-fast", "slow one"))
+    assert wait_until(lambda: c.status == "working")
+    c.send("never echoed")
+    c.stop()
+    assert wait_until(lambda: c.status == "stopped") and c._unacked == 0

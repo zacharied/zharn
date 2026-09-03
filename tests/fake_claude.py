@@ -53,6 +53,8 @@ def main():
             continue
         msg = json.loads(line)
         prompt = "".join(b.get("text", "") for b in msg["message"]["content"] if isinstance(b, dict))
+        if "--replay-user-messages" in args:  # like claude: echo a user message when it is consumed
+            emit({"type": "user", "message": {"role": "user", "content": [{"type": "text", "text": prompt}]}})
         last = prompt.strip().splitlines()[-1] if prompt.strip() else ""
         emit({"type": "system", "subtype": "status", "status": "requesting"})
         if "slow" in prompt:

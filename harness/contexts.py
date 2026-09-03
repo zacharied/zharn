@@ -23,6 +23,14 @@ CONTEXT_ROLES = ["id", "title", "storyKey", "owner", "status", "roleName", "cost
 SETTLED = ("idle", "failed", "stopped")
 
 
+def _has_text_block(ev: dict) -> bool:
+    """A replayed user message (claude's --replay-user-messages echo), as opposed to a tool_result."""
+    content = (ev.get("message") or {}).get("content")
+    if isinstance(content, str):
+        return bool(content)
+    return any(isinstance(b, dict) and b.get("type") == "text" for b in content or [])
+
+
 def new_context_id() -> str:
     return "ctx_" + "".join(random.choices(string.ascii_lowercase + string.digits, k=10))
 
@@ -41,6 +49,7 @@ class Context(QObject):
         self._interp = StreamInterpreter(self.transcript)
         self._interp.session_id = meta.get("sessionId", "")
         self._proc: ClaudeCodeProcess | None = None
+        self._unacked = 0  # messages pushed to the process that claude has not echoed (consumed) yet
         self._log_path = store.data_dir / f"{meta['id']}.jsonl"
 
     # ---------------------------------------------------------------- QML-facing state
@@ -154,6 +163,7 @@ class Context(QObject):
             self._spawn(resume=self._interp.session_id)
         else:
             self._set_status("working")
+        self._unacked += 1
         self._proc.send_user(text)
 
     @Slot()
@@ -161,11 +171,16 @@ class Context(QObject):
     def stop(self):
         if self._proc and self._proc.running():
             self._proc.stop()
+            self._unacked = 0
             self._set_status("stopped")
 
     def _on_event(self, ev: dict):
         self._log(ev)
+        if ev.get("type") == "user" and _has_text_block(ev):
+            self._unacked = max(0, self._unacked - 1)   # claude echoed a pushed message: it has been consumed
         hint = self._interp.apply(ev)
+        if hint == "idle" and self._unacked > 0:
+            hint = "working"                             # a pushed message is still queued: not a turn end
         if hint:
             self._set_status(hint)
         else:
@@ -178,6 +193,7 @@ class Context(QObject):
 
     def _on_finished(self, code: int, status: str):
         self._proc = None
+        self._unacked = 0
         if self._status in ("starting", "working"):
             self._last_error = self._last_error or f"process exited with code {code} ({status})"
             self.transcript.append(role="system", kind="error", text=self._last_error, isError=True)

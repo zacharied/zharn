@@ -115,7 +115,7 @@ class ClaudeCodeProcess(QObject):
         self.proc.setProcessEnvironment(penv)
         cmd = claude_command()
         args = cmd[1:] + ["-p", "--output-format", "stream-json", "--input-format", "stream-json",
-                          "--verbose", "--include-partial-messages"]
+                          "--verbose", "--include-partial-messages", "--replay-user-messages"]
         if model:
             args += ["--model", model]
         args += list(getattr(cfg, "PERMISSION_FLAGS", {}).get(permission, ["--permission-mode", "acceptEdits"]))

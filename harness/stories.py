@@ -317,11 +317,17 @@ class StoryStore(QObject):
         return text
 
     def _deliver_to(self, ch: dict, comment: dict, phase_before: str = ""):
-        """Push to the character's context and move its attention there."""
+        """Spec §2.3 delivery: mid-turn, the attended thread is pushed now and everything else waits in the inbox;
+        a waiting or idle character is woken by whatever arrives and attends its thread."""
         if self._stories[ch["story_key"]].phase in lc.TERMINAL:
             return  # retired
         ctx = self._contexts.get(ch["live_context"]) if ch.get("live_context") else None
         if ctx is None:
+            return
+        if ctx.status in WORKING and ch.get("attention") != comment["thread_id"]:
+            ch.setdefault("inbox", []).append(comment["id"])
+            self._save_characters()
+            self._refresh()
             return
         ch["attention"] = comment["thread_id"]
         self._save_characters()
