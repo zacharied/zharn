@@ -117,6 +117,9 @@ class FakeStories:
     def cast_wait(self, character_id): self.calls.append(("cast_wait", character_id)); return {"awaits": [], "message": "end your turn"}
     def cast_inbox(self, character_id): return []
     def character(self, character_id): return {"id": character_id, "story_key": "ABC-1"}
+    def cast_create(self, character_id, title, description="", start=False, role=""):
+        self.calls.append(("cast_create", character_id, title, description, start, role)); return "SUB-1"
+    def cast_author(self, character_id, verb, key, **kw): self.calls.append(("cast_author", character_id, verb, key, kw)); return {"id": "c12"}
     def resolve(self, key, thread_id, note=""): self.calls.append(("resolve", key, thread_id, note)); return {"id": "c10", "kind": "system"}
     def cast_resolve(self, character_id, thread_id, note=""): self.calls.append(("cast_resolve", character_id, thread_id, note)); return {"id": "c11", "kind": "system"}
     def log_verb(self, character_id, verb, args, ok, error=""): self.verbs.append((character_id, verb, dict(args), ok, error))
@@ -426,3 +429,11 @@ def test_story_call_wait_inbox_cast_forward_and_log(h, store):
     assert h("story.comment", {"character": "chr1", "body": "b", "thread": "", "to": ["@x"]}) == {"id": "c8", "kind": "text"}
     assert [v[1] for v in store.stories.verbs] == ["call", "wait", "inbox", "cast", "recap", "comment"]
     assert store.stories.calls[-2:] == [("cast_recap", "chr1", "r", "thr_x"), ("cast_comment", "chr1", "b", "", ["@x"])]
+
+
+def test_story_create_and_author_verbs_from_a_character(h, store):
+    assert h("story.create", {"character": "chr1", "title": "t", "start": True, "role": "claude-fast"}) == "SUB-1"
+    assert h("story.approve", {"character": "chr1", "key": "SUB-1", "note": "ok"}) == {"id": "c12"}
+    assert h("story.reply", {"character": "chr1", "key": "SUB-1", "thread": "t", "body": "b"}) == {"id": "c12"}
+    assert store.stories.calls[-2:] == [("cast_author", "chr1", "approve", "SUB-1", {"note": "ok"}),
+                                        ("cast_author", "chr1", "reply", "SUB-1", {"thread_id": "t", "body": "b"})]

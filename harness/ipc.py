@@ -70,12 +70,19 @@ def make_handler(app_store):
             key = row["key"]
             return {**row, "comments": stories.comments(key), "cast": stories.cast(key),
                     "contexts": [c for c in contexts.summaries() if c["storyKey"] == key]}
+        ch = a.get("character", "")
         if verb == "create":
+            if ch:
+                return stories.cast_create(ch, a["title"], a.get("description", ""), bool(a.get("start")), a.get("role", ""))
             return stories.get(stories.create(a["title"], a.get("description", "")))
         if verb == "start":
             chr_id = stories.start(a["key"], a.get("note", ""), a.get("role", ""))
             return {**stories.get(a["key"]), "character": chr_id}
-        ch = a.get("character", "")
+        if ch and a.get("key") and verb in ("reply", "resolve", "proceed", "approve", "cancel", "reopen", "back", "recast"):
+            kw = {("thread_id" if k == "thread" else k): v for k, v in a.items() if k in ("thread", "body", "note", "role", "model")}
+            if verb == "recast":
+                kw["character"] = a.get("target", "")
+            return stories.cast_author(ch, verb, a["key"], **kw)
         if verb == "cast":
             return stories.cast(a.get("key") or stories.character(ch)["story_key"])
         if verb == "inbox":

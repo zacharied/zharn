@@ -343,3 +343,16 @@ def test_story_call_wait_inbox_cast_recap_comment_args(recorder, monkeypatch):
         ("story.recap", {"character": "chr1", "body": "r", "thread": "thr_x"}),
         ("story.comment", {"character": "chr1", "body": "b", "thread": "", "to": ["@Impl", "@Rev"]}),
     ]
+
+
+def test_story_create_and_author_verbs_inside_a_character(recorder, monkeypatch):
+    monkeypatch.setenv("HARNESS_CHARACTER_ID", "chr1")
+    recorder.replies["story.create"] = "SUB-1"
+    cli.main(["story", "create", "--title", "t", "--start", "--role", "claude-fast"])
+    cli.main(["story", "approve", "SUB-1", "--note", "ok"])
+    cli.main(["story", "reply", "SUB-1", "--thread", "t", "--body", "b"])
+    assert recorder.calls == [
+        ("story.create", {"character": "chr1", "title": "t", "description": "", "start": True, "role": "claude-fast"}),
+        ("story.approve", {"character": "chr1", "key": "SUB-1", "note": "ok"}),
+        ("story.reply", {"character": "chr1", "key": "SUB-1", "thread": "t", "body": "b"}),
+    ]

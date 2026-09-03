@@ -56,10 +56,13 @@ def needs_you_flavor(story: lc.Story, comments: list[dict]) -> str:
     return ""
 
 
-def render_brief(story: lc.Story, comments: list[dict], characters: dict[str, dict], role: dict, note: str) -> str:
+def render_brief(story: lc.Story, comments: list[dict], characters: dict[str, dict], role: dict, note: str, *,
+                 substories: list[dict] = (), situation: str = "") -> str:
     """Lifecycle spec §3.1: the story record as markdown, then the role's instructions, then the note."""
     out = [f"# {story.key}: {story.title}", "", story.description or "(no description)", "",
            f"Phase: {story.phase}" + (f" · ball: {story.ball}" if story.ball else ""), ""]
+    if story.parent_story:
+        out += [f"Sub-story of {story.parent_story}; its author is {author_name(story.author, characters)}.", ""]
     if story.threads:
         out += ["## Threads", ""]
         for t in story.threads:
@@ -79,8 +82,13 @@ def render_brief(story: lc.Story, comments: list[dict], characters: dict[str, di
     cast = [ch for ch in characters.values() if ch["story_key"] == story.key]
     if cast:
         out += ["## Cast", ""] + [f"- {ch['name']} — {ch['role']}" + (" (protagonist)" if ch["id"] == story.protagonist else "") for ch in cast] + [""]
+    if substories:
+        out += ["## Sub-stories", ""] + [f"- {x['key']}: {x['title']} ({x['phase']}" + (f", ball {x['ball']}" if x['ball'] else "") + ")"
+                                        for x in substories] + [""]
     if role.get("instructions"):
         out += ["## Instructions", role["instructions"], ""]
+    if situation:
+        out += ["## Situation", situation, ""]
     if note:
         out += ["## Note", note]
     return "\n".join(out).rstrip() + "\n"
@@ -155,6 +163,8 @@ class StoryStore(QObject):
                 "protagonist": s.protagonist or "", "castCount": len(cast),
                 "workingCount": sum(1 for c in live if c is not None and c.status in WORKING),
                 "createdAt": self._created.get(key, 0), "mainThread": s.main_thread or "",
+                "parentStory": s.parent_story or "",
+                "openSubstories": sum(1 for x in self._stories.values() if x.parent_story == s.key and x.phase not in lc.TERMINAL),
                 "threads": [{"id": t.id, "n": i + 1, "isMain": t.id == s.main_thread, "author": t.author, "lead": t.lead,
                              "turn": t.turn, "pendingYield": t.pending_yield or ""} for i, t in enumerate(s.threads)]}
 
@@ -415,6 +425,9 @@ class StoryStore(QObject):
     @Slot(str, str, str, result=str)
     @intent
     def start(self, key, note="", role=""):
+        return self._start(key, note, role)
+
+    def _start(self, key, note="", role=""):
         key = self._key(key)
         role_name = role or getattr(cfg, "DEFAULT_ROLE", "protagonist")
         role_cfg = self._roles.get(role_name)
@@ -457,7 +470,7 @@ class StoryStore(QObject):
             if fork_from is None:
                 cid = self._contexts.create(role_cfg["name"], story_key=key, owner=chr_id, title=title,
                                             system_prompt=self._system_prompt(s, ch, role_cfg), env=env)
-                first = render_brief(s, self._comments[key], self._characters, role_cfg, note)
+                first = render_brief(s, self._comments[key], self._characters, role_cfg, note, substories=self._substories(key))
             else:
                 src = self._characters[fork_from]
                 src_ctx = self._contexts.get(src["live_context"]) if src.get("live_context") else None
@@ -488,39 +501,56 @@ class StoryStore(QObject):
         comment = self._apply(key, action)
         if resume:
             self._route(key, comment, before)
+        owner = self._characters.get(self._stories[key].author)
+        if owner is not None and comment["author"] == owner["id"] and getattr(action, "by", None) == owner["id"]:
+            if resume or comment["kind"] == "system":  # the human acted for the owner (§2.3): the owner is told
+                self._deliver_to(owner, comment, before)
         return comment
 
-    @Slot(str, str)
-    @intent
-    def proceed(self, key, note=""):
-        self._author_action(key, lc.Proceed(by="human", note=note), resume=True)
+    def _on_behalf(self, key: str) -> str:
+        """Who a human action on `key` is by: the story's author — a character for its sub-stories (§2.3)."""
+        return self._stories[self._key(key)].author
 
-    @Slot(str, str)
-    @intent
-    def approve(self, key, note=""):
-        self._author_action(key, lc.Approve(note=note), resume=False)
+    def _substories(self, key: str) -> list[dict]:
+        return [{"key": x.key, "title": x.title, "phase": x.phase, "ball": x.ball or ""}
+                for x in self._stories.values() if x.parent_story == key]
 
-    @Slot(str, str)
-    @intent
-    def backToPlanning(self, key, note=""):
-        self._author_action(key, lc.BackToPlanning(note=note), resume=True)
-
-    @Slot(str, str)
-    @intent
-    def cancel(self, key, note=""):
-        key = self._key(key)
-        self._author_action(key, lc.Cancel(note=note), resume=False)
+    def _stop_cast(self, key: str):
         for ch in self._characters.values():
             if ch["story_key"] == key and ch.get("live_context"):
                 ctx = self._contexts.get(ch["live_context"])
                 if ctx is not None:
                     ctx.stop()
+
+    @Slot(str, str)
+    @intent
+    def proceed(self, key, note=""):
+        self._author_action(key, lc.Proceed(by=self._on_behalf(key), note=note), resume=True)
+
+    @Slot(str, str)
+    @intent
+    def approve(self, key, note=""):
+        self._author_action(key, lc.Approve(by=self._on_behalf(key), note=note), resume=False)
+
+    @Slot(str, str)
+    @intent
+    def backToPlanning(self, key, note=""):
+        self._author_action(key, lc.BackToPlanning(by=self._on_behalf(key), note=note), resume=True)
+
+    @Slot(str, str)
+    @intent
+    def cancel(self, key, note=""):
+        key = self._key(key)
+        self._author_action(key, lc.Cancel(by=self._on_behalf(key), note=note), resume=False)
+        self._stop_cast(key)
+        for sub in [k for k, x in self._stories.items() if x.parent_story == key and x.phase not in lc.TERMINAL]:
+            self.cancel(sub)
         self._refresh()
 
     @Slot(str, str)
     @intent
     def reopen(self, key, note=""):
-        self._author_action(key, lc.Reopen(note=note), resume=True)
+        self._author_action(key, lc.Reopen(by=self._on_behalf(key), note=note), resume=True)
 
     @Slot(str, str, result="QVariantMap")
     @Slot(str, str, str, result="QVariantMap")
@@ -528,7 +558,7 @@ class StoryStore(QObject):
     def resolve(self, key, thread_id, note=""):
         """Close a side thread waiting on the author: nobody is resumed or notified (§2.1)."""
         key = self._key(key)
-        comment = self._author_action(key, lc.Resolve(thread_id=thread_id, by="human", note=note), resume=False)
+        comment = self._author_action(key, lc.Resolve(thread_id=thread_id, by=self._on_behalf(key), note=note), resume=False)
         self._clear_attention(key, thread_id)
         return comment
 
@@ -623,7 +653,7 @@ class StoryStore(QObject):
         key = self._key(key)
         s = self._stories[key]
         tid = thread_id or s.main_thread or ""
-        return self._author_action(key, lc.Comment(thread_id=tid, by="human", body=body), resume=True)
+        return self._author_action(key, lc.Comment(thread_id=tid, by=self._on_behalf(key), body=body), resume=True)
 
     # ---------------------------------------------------------------- cast verbs (via IPC)
     def _char(self, character_id: str) -> tuple[str, dict]:
@@ -633,9 +663,54 @@ class StoryStore(QObject):
     def cast_yield(self, character_id, kind, body, options=(), thread_id="", checks=()) -> dict:
         key, ch = self._char(character_id)
         tid = thread_id or ch.get("attention") or self._stories[key].main_thread
+        open_subs = self._row(key)["openSubstories"] if tid == self._stories[key].main_thread else 0
         c = self._apply(key, lc.Yield(thread_id=tid, by=character_id, kind=kind, body=body, options=list(options),
-                                      checks=[dict(c) for c in checks]))
+                                      checks=[dict(c) for c in checks], open_substories=open_subs))
         self._route(key, c)
+        return c
+
+    def cast_create(self, character_id, title, description="", start=False, role="") -> str:
+        """Spec §2.2 create: a sub-story authored by the character, under its story."""
+        parent, ch = self._char(character_id)
+        key = self.workspace.next_key()
+        self._stories[key] = lc.Story(key=key, title=title, description=description, phase="todo",
+                                      author=character_id, parent_story=parent)
+        self._created[key] = time.time()
+        self._comments[key] = []
+        self.workspace.story_dir(key)
+        self._save_story(key)
+        if start:
+            self._start(key, "", role)
+        self._refresh()
+        return key
+
+    def cast_author(self, character_id, verb, key, **kw) -> dict:
+        """Spec §2.2: the §2.1 author actions on a story the character authored (its sub-stories)."""
+        key = self._key(key)
+        s = self._stories[key]
+        if s.author != character_id:
+            raise lc.Rejected(f"only the author of {key} ({author_name(s.author, self._characters)}) can {verb} it")
+        by, note = character_id, kw.get("note", "")
+        if verb == "reply":
+            tid = kw.get("thread_id") or s.main_thread
+            return self._author_action(key, lc.Comment(thread_id=tid, by=by, body=kw["body"]), resume=True)
+        if verb == "resolve":
+            c = self._author_action(key, lc.Resolve(thread_id=kw["thread_id"], by=by, note=note), resume=False)
+            self._clear_attention(key, kw["thread_id"])
+            return c
+        if verb == "recast":
+            return {"context": self.recast(key, kw["character"], kw.get("role", ""), kw.get("model", ""))}
+        actions = {"proceed": lc.Proceed(by=by, note=note), "approve": lc.Approve(by=by, note=note),
+                   "cancel": lc.Cancel(by=by, note=note), "reopen": lc.Reopen(by=by, note=note),
+                   "back": lc.BackToPlanning(by=by, note=note)}
+        if verb not in actions:
+            raise lc.Rejected(f"unknown author verb {verb!r}")
+        c = self._author_action(key, actions[verb], resume=verb != "approve")
+        if verb == "cancel":
+            self._stop_cast(key)
+            for sub in [k for k, x in self._stories.items() if x.parent_story == key and x.phase not in lc.TERMINAL]:
+                self.cast_author(character_id if self._stories[sub].author == character_id else self._stories[sub].author, "cancel", sub)
+        self._refresh()
         return c
 
     def cast_call(self, character_id, role, note, as_name="", fork=False) -> dict:

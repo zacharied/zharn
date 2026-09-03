@@ -89,6 +89,7 @@ def main(argv=None):
     stp.add_parser("list")
     stp.add_parser("show").add_argument("key", nargs="?", default=os.environ.get("HARNESS_STORY_KEY", ""))
     c = stp.add_parser("create"); c.add_argument("--title", required=True); c.add_argument("--description", default="")
+    c.add_argument("--start", action="store_true", help="Start it now (characters: a sub-story you author)"); c.add_argument("--role", default="")
     s = stp.add_parser("start"); s.add_argument("key"); s.add_argument("--note", default=""); s.add_argument("--role", default="")
     y = stp.add_parser("yield"); y.add_argument("--question", action="store_true"); y.add_argument("--handoff", action="store_true")
     y.add_argument("--body", required=True); y.add_argument("--options", default=""); y.add_argument("--thread", default="")
@@ -149,7 +150,11 @@ def main(argv=None):
         ch = os.environ.get("HARNESS_CHARACTER_ID", "")
         if a.verb == "list": out(request("story.list", {}), a.json)
         elif a.verb == "show": out(request("story.show", {"key": a.key}), a.json)
-        elif a.verb == "create": out(request("story.create", {"title": a.title, "description": a.description}), a.json)
+        elif a.verb == "create":
+            args = {"title": a.title, "description": a.description}
+            if ch:
+                args.update(character=ch, start=a.start, role=a.role)
+            out(request("story.create", args), a.json)
         elif a.verb == "start": out(request("story.start", {"key": a.key, "note": a.note, "role": a.role}), a.json)
         elif a.verb == "yield":
             if a.question == a.handoff:
@@ -163,16 +168,20 @@ def main(argv=None):
         elif a.verb == "inbox": out(request("story.inbox", {"character": character()}), a.json)
         elif a.verb == "cast": out(request("story.cast", {"key": a.key, **({"character": ch} if ch else {})}), a.json)
         elif a.verb == "proceed":
-            args = {"character": ch, "note": a.note} if ch and not a.key else {"key": a.key, "note": a.note}
+            args = {"character": ch, "note": a.note} if ch and not a.key else {"key": a.key, "note": a.note, **({"character": ch} if ch else {})}
             out(request("story.proceed", args), a.json)
         elif a.verb == "comment":
             args = {"character": ch, "body": a.body, "thread": a.thread, "to": a.to} if ch else {"key": a.story, "body": a.body, "thread": a.thread}
             out(request("story.comment", args), a.json)
-        elif a.verb == "reply": out(request("story.comment", {"key": a.key, "body": a.body, "thread": a.thread}), a.json)
+        elif a.verb == "reply":
+            if ch:
+                out(request("story.reply", {"character": ch, "key": a.key, "thread": a.thread, "body": a.body}), a.json)
+            else:
+                out(request("story.comment", {"key": a.key, "body": a.body, "thread": a.thread}), a.json)
         elif a.verb == "resolve":
-            args = {"character": ch, "thread": a.thread, "note": a.note} if ch and not a.key else {"key": a.key, "thread": a.thread, "note": a.note}
+            args = {"character": ch, "thread": a.thread, "note": a.note} if ch and not a.key else {"key": a.key, "thread": a.thread, "note": a.note, **({"character": ch} if ch else {})}
             out(request("story.resolve", args), a.json)
-        else: out(request(f"story.{a.verb}", {"key": a.key, "note": a.note}), a.json)
+        else: out(request(f"story.{a.verb}", {"key": a.key, "note": a.note, **({"character": ch} if ch else {})}), a.json)
 
 
 if __name__ == "__main__":

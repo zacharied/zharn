@@ -863,3 +863,60 @@ def test_cancel_stops_every_character(store, contexts):
     r = store.cast_call(chr_id, "claude-fast", "build")
     store.cancel(key)
     assert all(contexts.get(store.character(c)["live_context"]).stopped for c in (chr_id, r["character"]))
+
+
+# ---------------------------------------------------------------- sub-stories (characters plan, Task 8)
+
+def test_character_creates_and_starts_a_sub_story_it_authors(store, contexts):
+    key, chr_id = started(store)
+    sub = store.cast_create(chr_id, "screen model", "pyte-backed", start=True, role="claude-fast")
+    s = store.story(sub)
+    assert (s.author, s.parent_story, s.phase, s.ball) == (chr_id, key, "planning", "cast")
+    assert store.get(key)["openSubstories"] == 1 and store.get(sub)["parentStory"] == key
+    assert store.awaits(store.character(chr_id)) == [sub]
+    sub_lead = store.story(sub).protagonist
+    assert contexts.get(store.character(sub_lead)["live_context"]).sent[0].startswith(f"# {sub}:")
+
+
+def test_sub_story_yield_reaches_the_author_character_cross_story(store, contexts):
+    key, chr_id = started(store)
+    live = contexts.get(store.character(chr_id)["live_context"]); live.status = "idle"
+    sub = store.cast_create(chr_id, "screen model", start=True, role="claude-fast")
+    lead = store.story(sub).protagonist
+    store.cast_yield(lead, "question", "rows or cells?")
+    assert live.sent[-1].startswith(f"[claude-fast] question in #{store.get(sub)['mainThread']} of {sub}: rows or cells?")
+    assert store.character(chr_id)["attention"] == store.get(sub)["mainThread"]
+    c = store.cast_author(chr_id, "reply", sub, body="rows", thread_id=store.get(sub)["mainThread"])
+    assert store.story(sub).ball == "cast" and c["reply_to"]
+    with pytest.raises(Rejected, match="only the author"):
+        store.cast_author(lead, "approve", sub)
+
+
+def test_main_handoff_is_blocked_while_a_sub_story_is_open(store, contexts):
+    key, chr_id = started(store)
+    store.cast_yield(chr_id, "handoff", "outline"); store.proceed(key)
+    sub = store.cast_create(chr_id, "part", start=True, role="claude-fast")
+    with pytest.raises(Rejected, match="still open"):
+        store.cast_yield(chr_id, "handoff", "done")
+    lead = store.story(sub).protagonist
+    store.cast_yield(lead, "handoff", "outline"); store.cast_author(chr_id, "proceed", sub)
+    store.cast_yield(lead, "handoff", "built"); store.cast_author(chr_id, "approve", sub)
+    assert store.cast_yield(chr_id, "handoff", "done")["kind"] == "handoff"
+
+
+def test_human_acting_on_a_character_owned_sub_story_notifies_the_owner(store, contexts):
+    key, chr_id = started(store)
+    live = contexts.get(store.character(chr_id)["live_context"]); live.status = "idle"
+    sub = store.cast_create(chr_id, "part", start=True, role="claude-fast")
+    lead = store.story(sub).protagonist
+    store.cast_yield(lead, "handoff", "outline")
+    store.proceed(sub)                                              # the human, on behalf of the owner
+    assert store.story(sub).phase == "implementing"
+    assert live.sent[-1].startswith(f"[protagonist] system in #{store.get(sub)['mainThread']} of {sub}: outline approved")
+
+
+def test_cancel_cascades_to_open_sub_stories(store, contexts):
+    key, chr_id = started(store)
+    sub = store.cast_create(chr_id, "part", start=True, role="claude-fast")
+    store.cancel(key)
+    assert store.story(sub).phase == "canceled" and store.cast(sub)[0]["status"] == "retired"
