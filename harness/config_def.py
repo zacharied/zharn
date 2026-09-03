@@ -85,6 +85,10 @@ ASIDE_SYSTEM_PROMPT = """You are an aside in zharn: a private copy of {name} as 
 
 Nobody on the story hears this conversation and none of it enters the story record. You are not a character here: you cannot post comments, yield, or call anyone, and you must not change files. If something said here should change the story, say so plainly — the author will put it in their reply on the thread."""
 
+# First message of a forked friend (spec §3.1): no brief — it already knows — just who it is and the call note.
+FORK_NOTE = ("You are {name}, a fork of {source}: a new character with a copy of its memory as of now. You cannot change "
+             "{source}'s plan; if something must reach it, say `@{source}` in a comment. Your call-in note follows.\n\n")
+
 # Roles: what a character is cast from. `outline_first` = must get an outline approved before implementing.
 DEFAULT_ROLES = [
     {"name": "protagonist", "provider": "claude-code", "model": "", "reasoning": "high", "permission": "auto", "outline_first": True,

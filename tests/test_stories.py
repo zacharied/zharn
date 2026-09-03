@@ -6,7 +6,7 @@ import pytest
 from PySide6.QtCore import QObject, Signal
 
 from harness import config as cfg
-from harness.lifecycle import OpenThread, Rejected, Yield
+from harness.lifecycle import Comment, OpenThread, Rejected, Yield
 from harness.stories import StoryStore, author_name, needs_you_flavor, render_brief
 from harness.workspace import Workspace
 
@@ -596,3 +596,78 @@ def test_proceed_gate_counts_only_outlines_approved_since_the_last_planning_entr
     store.cast_yield(chr_id, "handoff", "outline v2")
     store.proceed(key)
     assert store.get(key)["phase"] == "implementing"
+
+
+# ---------------------------------------------------------------- casting and routing (characters plan, Task 3)
+
+def test_open_thread_addresses_the_protagonist_by_default(store, contexts):
+    key, chr_id = started(store)
+    live = contexts.get(store.character(chr_id)["live_context"])
+    live.status = "idle"
+    tid = store.openThread(key, "why pyte?")
+    t = store.story(key).thread(tid)
+    assert (t.author, t.lead) == ("human", chr_id)
+    assert live.sent[-1].startswith("[you] comment in #" + tid) and store.character(chr_id)["attention"] == tid
+
+
+def test_open_thread_to_a_named_character(store, contexts):
+    key, chr_id = started(store)
+    friend = store._cast(key, StubRoles().get("claude-fast"), thread_id="thr_f", author=chr_id, note="build it")
+    store._apply(key, OpenThread(thread_id="thr_f", author=chr_id, lead=friend["id"], body="build it"))
+    contexts.get(friend["live_context"]).status = "idle"
+    tid = store.openThread(key, "@claude-fast how far along?")
+    assert store.story(key).thread(tid).lead == friend["id"]
+    assert contexts.get(friend["live_context"]).sent[-1].endswith("how far along?")
+
+
+def test_open_thread_with_call_casts_a_fresh_friend_with_a_brief(store, contexts):
+    key, chr_id = started(store)
+    tid = store.openThread(key, "/call claude-fast review the outline")
+    t = store.story(key).thread(tid)
+    friend = store.character(t.lead)
+    assert friend["role"] == "claude-fast" and friend["forked_from"] is None and t.author == "human"
+    ctx = contexts.get(friend["live_context"])
+    assert ctx.meta["owner"] == friend["id"] and ctx.meta["env"]["HARNESS_CHARACTER_ID"] == friend["id"]
+    assert ctx.sent[0].startswith(f"# {key}:") and "review the outline" in ctx.sent[0]      # the brief, note last
+    assert store.comments(key)[-1]["body"] == "review the outline" and friend["attention"] == tid
+
+
+def test_open_thread_with_fork_casts_a_forked_friend_without_a_brief(store, contexts):
+    key, chr_id = started(store)
+    contexts.get(store.character(chr_id)["live_context"]).status = "idle"
+    tid = store.openThread(key, "/fork @protagonist what did you mean by X?")
+    friend = store.character(store.story(key).thread(tid).lead)
+    assert friend["forked_from"] == chr_id and friend["name"] == "protagonist-2" and friend["role"] == "protagonist"
+    (source, kw), = contexts.forked
+    assert source == store.character(chr_id)["live_context"] and kw["owner"] == friend["id"] and kw["story_key"] == key
+    assert kw["env"]["HARNESS_CHARACTER_ID"] == friend["id"]
+    first = contexts.get(friend["live_context"]).sent[0]
+    assert "a fork of protagonist" in first and "what did you mean by X?" in first and not first.startswith("#")
+
+
+def test_open_thread_rejections(store, contexts):
+    key, chr_id = started(store)
+    with pytest.raises(Rejected, match="no character named"):
+        store.openThread(key, "@nobody hi")
+    with pytest.raises(ValueError, match="unknown role"):
+        store.openThread(key, "/call wizard do magic")
+    with pytest.raises(Rejected, match="working"):
+        store.openThread(key, "/fork @protagonist now")      # its context is still working on the brief
+    assert len(store.cast(key)) == 1 and len(store.story(key).threads) == 1
+
+
+def test_addressees_follow_the_routing_rules(store, contexts):
+    key, chr_id = started(store)
+    friend = store._cast(key, StubRoles().get("claude-fast"), thread_id="thr_f", author=chr_id, note="build")
+    c_root = store._apply(key, OpenThread(thread_id="thr_f", author=chr_id, lead=friend["id"], body="build"))
+    assert store.addressees(key, c_root) == [friend["id"]]                       # root → lead
+    c_yield = store._apply(key, Yield(thread_id="thr_f", by=friend["id"], kind="question", body="which db? @protagonist"))
+    assert store.addressees(key, c_yield) == [chr_id]                             # yield → author (mention == author: once)
+    c_reply = store._apply(key, Comment(thread_id="thr_f", by=chr_id, body="postgres"))
+    assert c_reply["reply_to"] == c_yield["id"] and store.addressees(key, c_reply) == [friend["id"]]   # reply to a yield → yielder
+    c_guest = store._apply(key, Comment(thread_id="thr_f", by="human", body="fyi @protagonist"))
+    assert store.addressees(key, c_guest) == [friend["id"], chr_id]               # reply → lead, plus mentions
+    c_auto = store._apply(key, Yield(thread_id="thr_f", by="system", kind="handoff", body="quiet", auto_for=friend["id"]))
+    assert store.addressees(key, c_auto) == [chr_id]
+    c_answer = store._apply(key, Comment(thread_id="thr_f", by=chr_id, body="ok"))
+    assert store.addressees(key, c_answer) == [friend["id"]]                      # reply to a harness yield → the lead

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import random
+import re
 import string
 import time
 from pathlib import Path
@@ -262,27 +263,75 @@ class StoryStore(QObject):
             self.notifier.info(f"{key} needs you: {flavor}")
         return comment
 
-    def _protagonist_context(self, key: str):
-        s = self._stories[key]
-        ch = self._characters.get(s.protagonist or "")
-        return self._contexts.get(ch["live_context"]) if ch and ch.get("live_context") else None
+    # ---------------------------------------------------------------- routing (spec §3.2) and delivery (§2.3)
+    def _mentions(self, key: str, body: str) -> list[str]:
+        names = {ch["name"].lower(): ch["id"] for ch in self._characters.values() if ch["story_key"] == key}
+        out = []
+        for m in re.findall(r"@([\w-]+)", body or ""):
+            cid = names.get(m.lower())
+            if cid and cid not in out:
+                out.append(cid)
+        return out
 
-    def _deliver(self, key: str, comment: dict, phase_before: str):
-        """Main thread only: tell the protagonist what the author just did."""
-        ctx = self._protagonist_context(key)
+    def _by_name(self, key: str, name: str) -> dict:
+        for ch in self._characters.values():
+            if ch["story_key"] == key and ch["name"].lower() == name.lower():
+                return ch
+        raise lc.Rejected(f"no character named {name!r} on {key}")
+
+    def _comment_by_id(self, comment_id: str) -> dict | None:
+        for comments in self._comments.values():
+            for c in comments:
+                if c["id"] == comment_id:
+                    return c
+        return None
+
+    def addressees(self, key: str, comment: dict) -> list[str]:
+        """Who a comment is addressed to: a yield → the thread's author; a reply to a yield → whoever yielded (the
+        lead, when the harness did); anything else → the lead; plus @mentions; never the comment's own author."""
+        s = self._stories[key]
+        t = s.thread(comment["thread_id"])
+        if comment["kind"] in lc.YIELD_KINDS:
+            target = t.author
+        elif comment.get("reply_to"):
+            pending = self._comment_by_id(comment["reply_to"])
+            target = pending["author"] if pending and pending["author"] in self._characters else t.lead
+        else:
+            target = t.lead
+        out = []
+        for cid in [target] + self._mentions(key, comment["body"]):
+            if cid in self._characters and cid != comment["author"] and cid not in out:
+                out.append(cid)
+        return out
+
+    def _format(self, ch: dict, comment: dict, phase_before: str = "") -> str:
+        kind = "reply" if comment.get("reply_to") else ("comment" if comment["kind"] == "text" else comment["kind"])
+        where = f"#{comment['thread_id']}" + (f" of {comment['story_key']}" if comment["story_key"] != ch["story_key"] else "")
+        text = f"[{author_name(comment['author'], self._characters)}] {kind} in {where}: {comment['body']}"
+        opts = comment.get("structured", {}).get("options")
+        if opts:
+            text += f"\n(options: {', '.join(opts)})"
+        phase = self._stories[comment["story_key"]].phase
+        if phase_before and phase != phase_before:
+            text += f"\nPhase is now {phase}."
+        return text
+
+    def _deliver_to(self, ch: dict, comment: dict, phase_before: str = ""):
+        """Push to the character's context and move its attention there."""
+        if self._stories[ch["story_key"]].phase in lc.TERMINAL:
+            return  # retired
+        ctx = self._contexts.get(ch["live_context"]) if ch.get("live_context") else None
         if ctx is None:
             return
-        s = self._stories[key]
-        ch = self._characters.get(s.protagonist or "")
-        role_cfg = self._roles.get(ch["role"]) if ch else None
-        if ch is not None and role_cfg:
-            ctx.meta["systemPrompt"] = self._system_prompt(s, ch, role_cfg)
-        kind = "reply" if comment.get("reply_to") else ("comment" if comment["kind"] == "text" else comment["kind"])
-        text = f"[{author_name(comment['author'], self._characters)}] {kind} in #{comment['thread_id']}: {comment['body']}"
-        phase = s.phase
-        if phase != phase_before:
-            text += f"\nPhase is now {phase}."
-        ctx.send(text)
+        ch["attention"] = comment["thread_id"]
+        self._save_characters()
+        role_cfg = self._roles.get(ch["role"]) or {}
+        ctx.meta["systemPrompt"] = self._system_prompt(self._stories[ch["story_key"]], ch, role_cfg)
+        ctx.send(self._format(ch, comment, phase_before))
+
+    def _route(self, key: str, comment: dict, phase_before: str = ""):
+        for cid in self.addressees(key, comment):
+            self._deliver_to(self._characters[cid], comment, phase_before)
 
     # ---------------------------------------------------------------- author intents
     @Slot(str, str, result=str)
@@ -316,40 +365,59 @@ class StoryStore(QObject):
         role_cfg = self._roles.get(role_name)
         if not role_cfg:
             raise ValueError(f"unknown role {role_name!r}")
+        chr_id, thread_id = new_id("chr_"), new_id("thr_")
+        prev_story, prev_comments = self._stories[key], list(self._comments.get(key, []))
+        self._apply(key, lc.Start(thread_id=thread_id, protagonist=chr_id, note=note), extra={"role": role_cfg["name"]})
+        try:
+            self._cast(key, role_cfg, chr_id=chr_id, thread_id=thread_id, author="human", note=note)
+        except Exception:
+            # Don't leave the story wedged in planning with a protagonist that has no context.
+            self._stories[key], self._comments[key] = prev_story, prev_comments
+            self._save_story(key)
+            self._refresh()
+            raise
+        self._refresh()
+        return chr_id
+
+    def _cast(self, key: str, role_cfg: dict, *, thread_id: str, author: str, note: str, name: str = "",
+              fork_from: str | None = None, chr_id: str | None = None) -> dict:
+        """Cast a character on `key` to lead `thread_id` (spec §2.1 Open a thread, §2.2 call): a record, a live
+        context (fresh from the role, or forked from `fork_from`'s live context), and its first message."""
         provider = role_cfg.get("provider", "claude-code")
         if provider != "claude-code":
-            raise ValueError(f"role {role_name!r} uses provider {provider!r}, which is not implemented yet")
+            raise ValueError(f"role {role_cfg['name']!r} uses provider {provider!r}, which is not implemented yet")
         taken = {ch["name"] for ch in self._characters.values() if ch["story_key"] == key}
-        name, n = role_cfg["name"], 2
+        base = name or role_cfg["name"]
+        name, n = base, 2
         while name in taken:
-            name, n = f"{role_cfg['name']}-{n}", n + 1
-        chr_id, thread_id = new_id("chr_"), new_id("thr_")
-        prev_story = self._stories[key]
-        prev_comments = list(self._comments.get(key, []))
-        self._apply(key, lc.Start(thread_id=thread_id, protagonist=chr_id, note=note), extra={"role": role_cfg["name"]})
+            name, n = f"{base}-{n}", n + 1
+        chr_id = chr_id or new_id("chr_")
         ch = {"id": chr_id, "story_key": key, "role": role_cfg["name"], "name": name, "live_context": None,
-              "attention": thread_id, "inbox": [], "recaps": [], "verbs_log": []}
+              "forked_from": fork_from, "attention": thread_id, "inbox": [], "recaps": [], "verbs_log": []}
         self._characters[chr_id] = ch
         s = self._stories[key]
+        env = {"HARNESS_CHARACTER_ID": chr_id}
+        title = f"{key} · {name}"
         try:
-            cid = self._contexts.create(role_cfg["name"], story_key=key, owner=chr_id, title=f"{key} · {name}",
-                                        system_prompt=self._system_prompt(s, ch, role_cfg),
-                                        env={"HARNESS_CHARACTER_ID": chr_id})
+            if fork_from is None:
+                cid = self._contexts.create(role_cfg["name"], story_key=key, owner=chr_id, title=title,
+                                            system_prompt=self._system_prompt(s, ch, role_cfg), env=env)
+                first = render_brief(s, self._comments[key], self._characters, role_cfg, note)
+            else:
+                src = self._characters[fork_from]
+                src_ctx = self._contexts.get(src["live_context"]) if src.get("live_context") else None
+                if src_ctx is None or src_ctx.status in WORKING or not getattr(src_ctx, "sessionId", ""):
+                    raise lc.Rejected(f"{src['name']} is working or has never run; fork it when it stops")
+                cid = self._contexts.fork(src["live_context"], role_name=role_cfg["name"], owner=chr_id, story_key=key,
+                                          title=title, system_prompt=self._system_prompt(s, ch, role_cfg), env=env)
+                first = getattr(cfg, "FORK_NOTE", "").format(name=name, source=src["name"]) + note
         except Exception:
-            # Belt and braces: the provider check above should already have caught this, but if
-            # context creation still fails, don't leave the story wedged in planning with a
-            # protagonist that has no context (and no way to Start again).
-            self._stories[key] = prev_story
-            self._comments[key] = prev_comments
-            self._save_story(key)
             del self._characters[chr_id]
-            self._refresh()
             raise
         ch["live_context"] = cid
         self._save_characters()
-        self._contexts.get(cid).send(render_brief(s, self._comments[key], self._characters, role_cfg, note))
-        self._refresh()
-        return chr_id
+        self._contexts.get(cid).send(first)
+        return ch
 
     def _system_prompt(self, s: lc.Story, ch: dict, role_cfg: dict) -> str:
         rule = getattr(cfg, "OUTLINE_RULE_REQUIRED", "") if role_cfg.get("outline_first") else getattr(cfg, "OUTLINE_RULE_OPTIONAL", "")
@@ -362,7 +430,7 @@ class StoryStore(QObject):
         before = self._stories[key].phase
         comment = self._apply(key, action)
         if resume:
-            self._deliver(key, comment, before)
+            self._route(key, comment, before)
         return comment
 
     @Slot(str, str)
@@ -406,6 +474,45 @@ class StoryStore(QObject):
         comment = self._author_action(key, lc.Resolve(thread_id=thread_id, by="human", note=note), resume=False)
         self._clear_attention(key, thread_id)
         return comment
+
+    @Slot(str, str, result=str)
+    @intent
+    def openThread(self, key, body):
+        """Spec §2.1 Open a thread: plain → protagonist; "@Name …" → Name; "/call <role> [note]" → a fresh friend;
+        "/fork @Name [note]" → a friend forked from Name. Returns the thread id."""
+        key = self._key(key)
+        s = self._stories[key]
+        body = (body or "").strip()
+        thread_id = new_id("thr_")
+        m_call = re.match(r"/call\s+(\S+)\s*(.*)", body, re.S)
+        m_fork = re.match(r"/fork\s+@([\w-]+)\s*(.*)", body, re.S)
+        m_name = re.match(r"@([\w-]+)\b", body)
+        if m_call or m_fork:
+            if m_call:
+                role_cfg = self._roles.get(m_call.group(1))
+                if not role_cfg:
+                    raise ValueError(f"unknown role {m_call.group(1)!r}")
+                note, fork_from = m_call.group(2).strip() or f"called in as {role_cfg['name']}", None
+            else:
+                source = self._by_name(key, m_fork.group(1))
+                role_cfg = self._roles.get(source["role"]) or {"name": source["role"]}
+                note, fork_from = m_fork.group(2).strip() or "a side question", source["id"]
+            chr_id = new_id("chr_")
+            prev_story, prev_comments = self._stories[key], list(self._comments.get(key, []))
+            self._apply(key, lc.OpenThread(thread_id=thread_id, author="human", lead=chr_id, body=note))
+            try:
+                self._cast(key, role_cfg, chr_id=chr_id, thread_id=thread_id, author="human", note=note, fork_from=fork_from)
+            except Exception:
+                self._stories[key], self._comments[key] = prev_story, prev_comments
+                self._save_story(key)
+                self._refresh()
+                raise
+            self._refresh()
+            return thread_id
+        lead = self._by_name(key, m_name.group(1))["id"] if m_name else s.protagonist
+        comment = self._apply(key, lc.OpenThread(thread_id=thread_id, author="human", lead=lead, body=body))
+        self._route(key, comment)
+        return thread_id
 
     # ---------------------------------------------------------------- asides (spec §3.5)
     def _aside_for(self, comment_id: str) -> str:
