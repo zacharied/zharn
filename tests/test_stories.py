@@ -836,3 +836,30 @@ def test_cast_yield_reaches_the_threads_author(store, contexts):
     r = store.cast_call(chr_id, "claude-fast", "build")
     store.cast_yield(r["character"], "handoff", "built it")
     assert live.sent[-1].startswith(f"[claude-fast] handoff in #{r['thread']}: built it")
+
+
+# ---------------------------------------------------------------- retirement (characters plan, Task 7)
+
+def test_approve_lets_a_working_friend_finish_and_delivers_nothing_after(store, contexts):
+    key, chr_id = started(store)
+    store.cast_yield(chr_id, "handoff", "outline"); store.proceed(key)
+    r = store.cast_call(chr_id, "claude-fast", "build")
+    friend_ctx = contexts.get(store.character(r["character"])["live_context"])
+    store._apply(key, Yield(thread_id=r["thread"], by=r["character"], kind="handoff", body="built"))
+    store.cast_yield(chr_id, "handoff", "done")
+    store.approve(key)
+    assert not friend_ctx.stopped and friend_ctx.status == "working"
+    assert [row["status"] for row in store.cast(key)] == ["retired", "retired"]
+    sent = len(friend_ctx.sent)
+    with pytest.raises(Rejected):
+        store.comment(key, "hello?", r["thread"])                  # read-only after terminal
+    n = len(store.comments(key))
+    settle(store, contexts, r["character"])                        # its turn ends: no quiet check, no pop
+    assert len(friend_ctx.sent) == sent and len(store.comments(key)) == n
+
+
+def test_cancel_stops_every_character(store, contexts):
+    key, chr_id = started(store)
+    r = store.cast_call(chr_id, "claude-fast", "build")
+    store.cancel(key)
+    assert all(contexts.get(store.character(c)["live_context"]).stopped for c in (chr_id, r["character"]))
