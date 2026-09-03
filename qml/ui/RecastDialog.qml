@@ -11,6 +11,7 @@ Popup {
     property string characterId
     property string characterName
     property string currentRole
+    property bool viaReopen: false       // terminal story: reopen + recast + deliver in one intent
     signal recasted(string contextId)    // the new context id, or "" when deferred to the boundary
     modal: true
     anchors.centerIn: Overlay.overlay
@@ -35,7 +36,9 @@ Popup {
             Btn {
                 objectName: "recastConfirm"; primary: true; text: "Recast"
                 onClicked: {
-                    var cid = app.stories.recast(dlg.storyKey, dlg.characterId, roleBox.currentText, modelField.text.trim())
+                    var cid = dlg.viaReopen
+                        ? (app.stories.reopen(dlg.storyKey, "reopened with a fresh memory", roleBox.currentText, modelField.text.trim()), "")
+                        : app.stories.recast(dlg.storyKey, dlg.characterId, roleBox.currentText, modelField.text.trim())
                     dlg.close()
                     dlg.recasted(cid || "")
                 }

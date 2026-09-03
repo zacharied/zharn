@@ -554,10 +554,26 @@ class StoryStore(QObject):
             self.cancel(sub)
         self._refresh()
 
+    @Slot(str)
     @Slot(str, str)
+    @Slot(str, str, str)
+    @Slot(str, str, str, str)
     @intent
-    def reopen(self, key, note=""):
-        self._author_action(key, lc.Reopen(by=self._on_behalf(key), note=note), resume=True)
+    def reopen(self, key, note="", role="", model=""):
+        """Reopen resumes the protagonist (§2.1). With a role/model it recasts instead: the story
+        reopens, the protagonist gets a fresh memory, and the note is delivered to that."""
+        if not role and not model:
+            self._author_action(key, lc.Reopen(by=self._on_behalf(key), note=note), resume=True)
+            return
+        key = self._key(key)
+        action = lc.Reopen(by=self._on_behalf(key), note=note)
+        before = self._stories[key].phase
+        comment = self._apply(key, action)
+        self._recast_now(self._characters[self._stories[key].protagonist], role, model)
+        self._route(key, comment, before)   # _author_action(resume=True), with the recast in between
+        owner = self._characters.get(self._stories[key].author)
+        if owner is not None and comment["author"] == owner["id"] and action.by == owner["id"]:
+            self._deliver_to(owner, comment, before)
 
     @Slot(str, str, result="QVariantMap")
     @Slot(str, str, str, result="QVariantMap")

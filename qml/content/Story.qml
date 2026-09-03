@@ -35,6 +35,10 @@ ContentBase {
         return ch ? ch.name : c.authorName
     }
     function speakerRole(c) {
+        if (c.structured && c.structured.auto_for) {  // the harness yielded for a quiet character
+            var q = character(c.structured.auto_for)
+            return "for " + (q ? q.name : c.structured.auto_for)
+        }
         var ch = character(c.author)
         return ch && ch.role !== ch.name ? ch.role : ""
     }
@@ -72,6 +76,23 @@ ContentBase {
         case "ready for review": return protagonistName() + " handed off — Approve, reply with changes, or send it back to planning."
         default: return "Waiting on you."
         }
+    }
+
+    // Reopen: resume by default; recast when chosen — or when resuming is impossible (spec §2.1:
+    // "Reopen resumes; the UI may offer a recast instead").
+    readonly property var protagonistCtx: {
+        var p = character(story.protagonist)
+        return p && p.live_context ? app.contexts.get(p.live_context) : null
+    }
+    readonly property bool canResume: !!protagonistCtx && protagonistCtx.sessionId !== ""
+    RecastDialog { id: reopenRecast; storyKey: view.tabKey; viaReopen: true }
+    function reopenViaRecast() {
+        var p = character(story.protagonist)
+        if (!p) return
+        reopenRecast.characterId = p.id
+        reopenRecast.characterName = p.name
+        reopenRecast.currentRole = p.role
+        reopenRecast.open()
     }
 
     function openAside(commentId) {
@@ -170,13 +191,25 @@ ContentBase {
                         Btn { objectName: "proceedButton"; visible: view.story.phase === "planning" && view.mine; primary: true; text: "Proceed"; onClicked: app.stories.proceed(tabKey, "") }
                         Btn { objectName: "approveButton"; visible: view.story.phase === "implementing" && view.mine; primary: true; text: "Approve"; onClicked: app.stories.approve(tabKey, "") }
                         Btn { objectName: "backButton"; visible: view.story.phase === "implementing" && view.mine; text: "Back to planning"; onClicked: app.stories.backToPlanning(tabKey, "") }
-                        Btn { objectName: "reopenButton"; visible: view.terminal; text: "Reopen"; onClicked: app.stories.reopen(tabKey, "reopened from the story page") }
+                        SplitBtn {
+                            visible: view.terminal
+                            mainName: "reopenButton"; menuName: "reopenMenu"
+                            text: view.canResume ? "Reopen" : "Reopen (recast)"
+                            primary: false
+                            items: [
+                                { label: "Resume " + view.protagonistName(), hint: "continues with its memory", enabled: view.canResume },
+                                { label: "Recast and reopen…", hint: "fresh memory from the story record" }
+                            ]
+                            onTriggered: view.canResume ? app.stories.reopen(tabKey, "reopened from the story page") : view.reopenViaRecast()
+                            onItemTriggered: (i) => i === 0 ? app.stories.reopen(tabKey, "reopened from the story page") : view.reopenViaRecast()
+                        }
                         Btn { objectName: "cancelButton"; visible: !view.terminal; quiet: true; text: "Cancel"; onClicked: app.stories.cancel(tabKey, "") }
                     }
                 }
             }
             }
 
+            // ---- new thread (after the threads; see the Repeater below)
             // ---- threads
             Repeater {
                 model: view.threads
@@ -361,6 +394,24 @@ ContentBase {
                         }
                     }
                 }
+            }
+
+            // ---- a composer for opening threads: plain → protagonist; @Name; /call <role>; /fork @Name
+            RowLayout {
+                visible: view.started && !view.terminal; Layout.fillWidth: true; Layout.topMargin: 26; spacing: 8
+                TextBox {
+                    id: newThread; objectName: "newThreadInput"
+                    Layout.fillWidth: true; Layout.preferredHeight: 64
+                    label: "New thread"
+                    placeholderText: "Write to " + view.protagonistName() + ", @Name, /call <role>, or /fork @Name for a copy of their memory  (Ctrl+Enter)"
+                    onSubmitted: post()
+                    function post() {
+                        if (!text.trim().length) return
+                        if (app.stories.openThread(tabKey, text)) text = ""
+                    }
+                }
+                Btn { objectName: "newThreadButton"; Layout.alignment: Qt.AlignBottom; text: "Open"
+                      enabled: newThread.text.trim().length > 0; onClicked: newThread.post() }
             }
         }
     }

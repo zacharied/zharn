@@ -198,3 +198,57 @@ def test_aside_button_opens_a_private_context_and_reopens_it(ui):
     assert ui.store.contexts.model.count() == n
     assert next(r for r in ui.store.stories.comments(key) if r["id"] == c["id"])["asideId"] == aside_id
     ui.store.layout.setDockMode("bottom", "strip")
+
+
+def test_new_thread_composer_routes_by_prefix(ui):
+    key = ui.store.stories.create("Composer", "")
+    chr_id = ui.store.stories.start(key, "", "protagonist")
+    ctx = ui.store.contexts.get(ui.store.stories.character(chr_id)["live_context"])
+    assert wait_until(lambda: ctx.status == "idle")
+    open_story(ui, key)
+    ui.focus_and_type(ui.find("newThreadInput"), "why this way?")
+    ui.click(ui.find("newThreadButton"))
+    threads = ui.store.stories.get(key)["threads"]
+    assert threads[-1]["lead"] == chr_id and ui.find("newThreadInput").property("text") == ""
+    assert ui.has(f"thread_{threads[-1]['id']}")
+    ui.focus_and_type(ui.find("newThreadInput"), "/call claude-fast review the outline")
+    ui.click(ui.find("newThreadButton"))
+    cast = ui.store.stories.cast(key)
+    assert len(cast) == 2 and cast[-1]["role"] == "claude-fast"
+    assert ui.store.stories.get(key)["threads"][-1]["lead"] == cast[-1]["id"]
+    assert ui.has(f"castRow_{cast[-1]['id']}")
+
+
+def test_typing_in_a_character_context_is_the_comment_channel(ui):
+    key = ui.store.stories.create("Speak", "")
+    chr_id = ui.store.stories.start(key, "", "protagonist")
+    ctx = ui.store.contexts.get(ui.store.stories.character(chr_id)["live_context"])
+    assert wait_until(lambda: ctx.status == "idle")
+    ui.store.layout.openContent("context", ctx.id, "ctx")
+    QTest.qWait(120)
+    n = len(ui.store.stories.comments(key))
+    ui.focus_and_type(ui.find("promptInput"), "steering note")
+    ui.click(ui.find("sendButton"))
+    comments = ui.store.stories.comments(key)
+    assert len(comments) == n + 1 and comments[-1]["body"] == "steering note" and comments[-1]["author"] == "human"
+    assert ui.find("promptInput").property("text") == ""
+
+
+def test_reopen_menu_offers_recast_and_reopens_on_a_fresh_context(ui):
+    key = ui.store.stories.create("Reopenable", "")
+    chr_id = ui.store.stories.start(key, "", "protagonist")
+    ctx = ui.store.contexts.get(ui.store.stories.character(chr_id)["live_context"])
+    assert wait_until(lambda: ctx.status == "idle")       # quiet check: outline handoff
+    ui.store.stories.proceed(key)
+    assert wait_until(lambda: ui.store.contexts.get(ui.store.stories.character(chr_id)["live_context"]).status == "idle")
+    ui.store.stories.approve(key)
+    open_story(ui, key)
+    old_ctx = ui.store.stories.character(chr_id)["live_context"]
+    assert ui.visible(ui.find("reopenButton")) and ui.find("reopenButton").property("text") == "Reopen"
+    ui.click(ui.find("reopenMenuButton"))
+    ui.click(ui.find("reopenMenuItem_1"))                 # Recast and reopen…
+    ui.choose(ui.find("recastRole"), "claude-fast")
+    ui.click(ui.find("recastConfirm"))
+    ch = ui.store.stories.character(chr_id)
+    assert ch["role"] == "claude-fast" and ch["live_context"] != old_ctx
+    assert ui.store.stories.get(key)["phase"] == "implementing"

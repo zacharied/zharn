@@ -25,7 +25,7 @@ Item {
     function focusInput() { prompt.forceActiveFocus() }
     function post(text) {
         if (!context) return
-        if (isCharacter && story) app.stories.comment(context.storyKey, text, character && character.attention ? character.attention : "")
+        if (isCharacter) app.stories.speak(context.owner, text)   // its attended thread, or a new one to it (§2.3)
         else context.send(text)
     }
 

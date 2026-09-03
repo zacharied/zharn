@@ -961,3 +961,24 @@ def test_recast_of_a_working_character_waits_for_the_turn_boundary(store, contex
     ch = store.character(chr_id)
     assert ch["live_context"] != old and "recast_pending" not in ch
     assert contexts.get(ch["live_context"]).meta["role"] == "protagonist" and contexts.get(ch["live_context"]).meta["roleConfig"]["model"] == "claude-opus-5"
+
+
+def test_reopen_with_a_role_recasts_instead_of_resuming(store, contexts):
+    key, chr_id = started(store)
+    old = store.character(chr_id)["live_context"]
+    contexts.get(old).status = "idle"
+    store.cast_yield(chr_id, "handoff", "outline")
+    store.proceed(key)
+    contexts.get(old).status = "idle"
+    store.cast_yield(chr_id, "handoff", "built")
+    store.approve(key)
+    contexts.get(old).status = "idle"
+    before_old_sent = list(contexts.get(old).sent)
+    store.reopen(key, "try again, differently", "claude-fast")
+    ch = store.character(chr_id)
+    new = ch["live_context"]
+    assert new != old and ch["role"] == "claude-fast"
+    assert store.get(key)["phase"] == "implementing"
+    assert "you are a recast of protagonist" in contexts.get(new).sent[0]
+    assert any("try again, differently" in t for t in contexts.get(new).sent[1:])  # the note reaches the fresh memory
+    assert contexts.get(old).sent == before_old_sent                               # the old one was never resumed
