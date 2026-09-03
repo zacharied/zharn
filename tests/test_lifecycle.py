@@ -4,9 +4,9 @@ import itertools
 
 import pytest
 
-from harness.lifecycle import (ACTIVE, PHASES, TERMINAL, Approve, BackToPlanning, Cancel, Comment, OpenThread,
+from harness.lifecycle import (ACTIVE, PHASES, TERMINAL, Approve, BackToPlanning, Cancel, Comment, Note, OpenThread,
                                Proceed, Recap, Rejected, Reopen, Reply, Resolve, Start, Story, Thread, Yield,
-                               check_invariants, step)
+                               awaits, check_invariants, owes, step)
 
 _ids = itertools.count(1)
 
@@ -79,7 +79,7 @@ def test_to_dict_roundtrip_has_no_ball_key():
 
 @pytest.mark.parametrize("phase", ["backlog", "todo"])
 def test_start_opens_main_thread_casts_protagonist_and_moves_to_planning(phase):
-    s, c = run(fresh(phase), Start(thread_id="t1", protagonist="chr1", note="opening note", role="planner"))
+    s, c = run(fresh(phase), Start(thread_id="t1", protagonist="chr1", note="opening note"))
     assert (s.phase, s.ball) == ("planning", "cast")
     assert s.protagonist == "chr1" and s.main_thread == "t1"
     assert s.main == Thread(id="t1", author="human", lead="chr1", turn="cast", pending_yield=None)
@@ -118,7 +118,7 @@ def test_yield_twice_in_same_thread_is_rejected():
 
 
 def test_only_protagonist_yields_on_main():
-    with pytest.raises(Rejected, match="protagonist"):
+    with pytest.raises(Rejected, match="only the thread's lead yields in it"):
         step(started(), Yield("t1", "chr2", "question", "?"), comment_id="x", now=1.0)
 
 
@@ -318,7 +318,7 @@ def test_side_thread_yield_and_reply_never_touch_the_ball():
 
 def test_side_thread_yield_by_thread_author_rejected():
     s, _ = run(started(), OpenThread(thread_id="t2", author="chr1", lead="chr2", body="do it"))
-    with pytest.raises(Rejected, match="author"):
+    with pytest.raises(Rejected, match="only the thread's lead yields in it"):
         step(s, Yield("t2", "chr1", "handoff", "x"), comment_id="x", now=1.0)
 
 
@@ -537,3 +537,67 @@ def test_every_comment_has_a_context_slot_the_reducer_leaves_empty():
     s = started()
     _, c = run(s, Comment(thread_id="t1", by="chr1", body="hi"))
     assert "context" in c and c["context"] is None
+
+
+# ---------------------------------------------------------------- leads, harness yields, recaps, notes (characters plan)
+
+def with_friend():
+    """(planning, cast) plus side thread t2: human → chr2."""
+    s = started()
+    s, _ = run(s, OpenThread(thread_id="t2", author="human", lead="chr2", body="review this"))
+    return s
+
+
+def test_only_the_threads_lead_yields_in_it():
+    s = with_friend()
+    with pytest.raises(Rejected, match="only the thread's lead yields in it"):
+        run(s, Yield("t2", "chr1", "handoff", "not mine"))
+    with pytest.raises(Rejected, match="only the thread's lead yields in it"):
+        run(s, Yield("t1", "chr2", "handoff", "not mine either"))
+    s2, c = run(s, Yield("t2", "chr2", "handoff", "done"))
+    assert s2.thread("t2").turn == "author" and c["author"] == "chr2"
+
+
+def test_the_harness_yields_for_the_lead():
+    s = with_friend()
+    with pytest.raises(Rejected, match="harness yields only for the thread's lead"):
+        run(s, Yield("t2", "system", "handoff", "went quiet", auto_for="chr1"))
+    s2, c = run(s, Yield("t2", "system", "handoff", "chr2 went quiet: last words", auto_for="chr2"))
+    assert s2.thread("t2").turn == "author" and c["author"] == "system" and c["kind"] == "handoff"
+    assert c["structured"]["auto_for"] == "chr2"
+    s3, _ = run(s2, Reply(thread_id="t2", body="carry on", by="human"))  # the author replies as usual
+    assert s3.thread("t2").turn == "cast"
+
+
+def test_recap_lands_in_the_given_thread_or_main():
+    s = with_friend()
+    _, c = run(s, Recap(by="chr2", body="cleared A", thread_id="t2"))
+    assert c["thread_id"] == "t2" and c["kind"] == "recap"
+    _, c = run(s, Recap(by="chr1", body="on main"))
+    assert c["thread_id"] == "t1"
+
+
+def test_note_is_a_system_comment_that_moves_nothing():
+    s = with_friend()
+    s2, c = run(s, Note(thread_id="t1", body="recast protagonist (rung 1)"))
+    assert c["author"] == "system" and c["kind"] == "system" and c["body"] == "recast protagonist (rung 1)"
+    assert [t.turn for t in s2.threads] == [t.turn for t in s.threads] and s2.phase == s.phase
+    canceled, _ = run(s, Cancel())
+    with pytest.raises(Rejected, match="terminal"):
+        run(canceled, Note(thread_id="t1", body="x"))
+
+
+def test_a_thread_cannot_be_opened_to_its_own_author():
+    with pytest.raises(Rejected, match="cannot be opened to its own author"):
+        run(started(), OpenThread(thread_id="t2", author="chr1", lead="chr1", body="me"))
+
+
+def test_owes_and_awaits_are_read_off_turns():
+    s = with_friend()
+    s, _ = run(s, OpenThread(thread_id="t3", author="chr1", lead="chr3", body="build it"))
+    assert [t.id for t in owes(s, "chr1")] == ["t1"] and [t.id for t in awaits(s, "chr1")] == ["t3"]
+    assert [t.id for t in owes(s, "chr3")] == ["t3"] and awaits(s, "chr3") == []
+    s, _ = run(s, Yield("t3", "chr3", "handoff", "built"))
+    assert owes(s, "chr3") == [] and awaits(s, "chr1") == []          # waiting on chr1 now
+    s, _ = run(s, Yield("t1", "chr1", "question", "which?"))
+    assert owes(s, "chr1") == []

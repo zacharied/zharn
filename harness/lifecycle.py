@@ -76,7 +76,6 @@ class Start:
     thread_id: str
     protagonist: str
     note: str = ""
-    role: str = ""
 
 
 @dataclass
@@ -140,11 +139,20 @@ class Yield:
     options: list[str] = field(default_factory=list)
     open_substories: int = 0
     checks: list[dict] = field(default_factory=list)
+    auto_for: str = ""               # by == "system": the lead the harness is yielding for
 
 
 @dataclass
 class Recap:
     by: str
+    body: str
+    thread_id: str | None = None     # None → main
+
+
+@dataclass
+class Note:
+    """A system comment: something the harness did (a recast, a call-in). Moves nothing."""
+    thread_id: str
     body: str
 
 
@@ -186,6 +194,16 @@ def _with_note(base: str, note: str) -> str:
     return f"{base} — {note}" if note else base
 
 
+def owes(story: Story, character: str) -> list[Thread]:
+    """Threads `character` leads that wait on the cast (AGENT-MODEL §2: what a character owes)."""
+    return [t for t in story.threads if t.lead == character and t.turn == "cast"]
+
+
+def awaits(story: Story, character: str) -> list[Thread]:
+    """Threads `character` opened that wait on their cast (sub-stories are added by the store)."""
+    return [t for t in story.threads if t.author == character and t.turn == "cast"]
+
+
 # ---------------------------------------------------------------- the machine
 
 def step(story: Story, action, *, comment_id: str, now: float) -> tuple[Story, dict]:
@@ -206,6 +224,8 @@ def step(story: Story, action, *, comment_id: str, now: float) -> tuple[Story, d
         _require_started_active(s)
         if any(t.id == action.thread_id for t in s.threads):
             raise Rejected(f"thread {action.thread_id!r} already exists")
+        if action.author == action.lead:
+            raise Rejected("a thread cannot be opened to its own author")
         s.threads.append(Thread(id=action.thread_id, author=action.author, lead=action.lead))
         c = _comment(s, comment_id, now, thread_id=action.thread_id, author=action.author, kind="text", body=action.body)
 
@@ -217,10 +237,11 @@ def step(story: Story, action, *, comment_id: str, now: float) -> tuple[Story, d
         t = _require_thread(s, action.thread_id)
         if t.pending_yield is not None:
             raise Rejected(f"thread {t.id} already waits on its author")
-        if t.id == s.main_thread and action.by != s.protagonist:
-            raise Rejected("only the protagonist yields on the main thread")
-        if action.by == t.author:
-            raise Rejected("a thread's author cannot yield in it")
+        if action.by == "system":
+            if action.auto_for != t.lead:
+                raise Rejected(f"the harness yields only for the thread's lead ({t.lead})")
+        elif action.by != t.lead:
+            raise Rejected(f"only the thread's lead yields in it (thread {t.id} is led by {t.lead})")
         if t.id == s.main_thread and s.phase == "implementing" and action.kind == "handoff" and action.open_substories:
             raise Rejected(f"{action.open_substories} sub-stor{'y is' if action.open_substories == 1 else 'ies are'} still open")
         t.turn, t.pending_yield = "author", comment_id
@@ -229,6 +250,8 @@ def step(story: Story, action, *, comment_id: str, now: float) -> tuple[Story, d
             structured["options"] = list(action.options)
         if action.checks:
             structured["checks"] = list(action.checks)
+        if action.auto_for:
+            structured["auto_for"] = action.auto_for
         c = _comment(s, comment_id, now, thread_id=t.id, author=action.by, kind=action.kind, body=action.body,
                      structured=structured)
 
@@ -271,7 +294,14 @@ def step(story: Story, action, *, comment_id: str, now: float) -> tuple[Story, d
             raise Rejected(f"{s.key} has not been started")
         if s.phase in TERMINAL:
             raise Rejected(f"{s.key} is terminal ({s.phase}); its threads are read-only until Reopen")
-        c = _comment(s, comment_id, now, thread_id=s.main_thread, author=action.by, kind="recap", body=action.body)
+        t = _require_thread(s, action.thread_id) if action.thread_id else s.main
+        c = _comment(s, comment_id, now, thread_id=t.id, author=action.by, kind="recap", body=action.body)
+
+    elif isinstance(action, Note):
+        if s.phase in TERMINAL:
+            raise Rejected(f"{s.key} is terminal ({s.phase}); its threads are read-only until Reopen")
+        t = _require_thread(s, action.thread_id)
+        c = _comment(s, comment_id, now, thread_id=t.id, author="system", kind="system", body=action.body)
 
     elif isinstance(action, Proceed):
         if s.phase != "planning":

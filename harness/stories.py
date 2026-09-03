@@ -300,7 +300,7 @@ class StoryStore(QObject):
         chr_id, thread_id = new_id("chr_"), new_id("thr_")
         prev_story = self._stories[key]
         prev_comments = list(self._comments.get(key, []))
-        self._apply(key, lc.Start(thread_id=thread_id, protagonist=chr_id, note=note, role=role_cfg["name"]))
+        self._apply(key, lc.Start(thread_id=thread_id, protagonist=chr_id, note=note))
         ch = {"id": chr_id, "story_key": key, "role": role_cfg["name"], "name": name, "live_context": None,
               "attention": thread_id, "inbox": [], "recaps": [], "verbs_log": []}
         self._characters[chr_id] = ch
