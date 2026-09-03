@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 import pytest
+from PySide6.QtCore import QObject, Signal
 from PySide6.QtTest import QTest
 
 from harness.__main__ import ROOT
@@ -248,3 +249,28 @@ def test_recycle_releases_the_old_process_without_blocking(store):
     assert time.monotonic() - t0 < 0.5
     assert len(c._retired) == 1
     assert wait_until(lambda: not any(p.running() for p in c._retired), timeout_ms=5000)
+    assert wait_until(lambda: c._retired == [])
+
+
+class _FakeDeadProc(QObject):
+    """A process double that has already exited: `running()` is False and `finished` never fires again."""
+    event = Signal(object)
+    stderrText = Signal(str)
+    finished = Signal(int, str)
+
+    def running(self):
+        return False
+
+    def release(self):
+        pass
+
+
+def test_recycle_does_not_retire_a_process_that_already_finished(store):
+    """M1: only a still-running process needs to be kept referenced until its `finished` fires — a dead one
+    (finished already fired, or never fires again) must not be appended, or it would sit in _retired forever."""
+    cid = store.create("claude-fast", title="t")
+    c = store.get(cid)
+    c._status = "idle"
+    c._proc = _FakeDeadProc()
+    c.recycle()
+    assert c._proc is None and c._retired == []

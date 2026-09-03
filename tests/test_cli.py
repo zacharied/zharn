@@ -4,6 +4,7 @@ import json
 import os
 import socket
 import threading
+import time
 import types
 from collections import deque
 
@@ -71,6 +72,36 @@ def test_request_exits_with_server_error_text_when_not_ok(fake_server):
     assert str(e.value) == "error: KeyError: 'nope'"
 
 
+@posix_only
+def test_request_exits_with_clear_message_when_the_harness_never_replies(tmp_path, monkeypatch):
+    """C2: a clone/worktree/setup on the harness side can run far longer than a short socket timeout; the CLI
+    must say plainly that it gave up waiting, not crash with a raw socket.timeout traceback."""
+    path = str(tmp_path / "ipc.sock")
+    srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    srv.bind(path)
+    srv.listen(1)
+    srv.settimeout(5)
+
+    def serve():
+        conn, _ = srv.accept()
+        with conn:
+            data = b""
+            while not data.endswith(b"\n"):
+                data += conn.recv(65536)
+            time.sleep(2)   # outlive the client's request timeout without ever replying
+
+    t = threading.Thread(target=serve, daemon=True)
+    t.start()
+    monkeypatch.setenv("HARNESS_IPC", path)
+    try:
+        with pytest.raises(SystemExit) as e:
+            cli.request("ping", {}, timeout=0.2)
+        assert str(e.value) == "error: no reply from the harness within 0.2s for ping"
+    finally:
+        srv.close()
+        t.join(timeout=5)
+
+
 # ---------------------------------------------------------------- out()
 
 def test_out_list_of_dicts_prints_known_columns_in_order(capsys):
@@ -115,10 +146,12 @@ def test_out_json_mode_dumps_indented_json(capsys):
 def recorder(monkeypatch):
     """Replace cli.request with a recorder. `replies[cmd]` is a value, or a deque consumed one per call."""
     calls = []
+    kwargs_seen = []
     replies = {}
 
-    def fake_request(cmd, args):
+    def fake_request(cmd, args, **kwargs):
         calls.append((cmd, args))
+        kwargs_seen.append((cmd, kwargs))
         r = replies.get(cmd, {})
         if isinstance(r, deque):
             return r.popleft()
@@ -127,7 +160,7 @@ def recorder(monkeypatch):
     monkeypatch.setattr(cli, "request", fake_request)
     monkeypatch.delenv("HARNESS_CHARACTER_ID", raising=False)
     monkeypatch.delenv("HARNESS_STORY_KEY", raising=False)
-    return types.SimpleNamespace(calls=calls, replies=replies)
+    return types.SimpleNamespace(calls=calls, replies=replies, kwargs_seen=kwargs_seen)
 
 
 @pytest.fixture
@@ -389,6 +422,19 @@ def fake_ipc(tmp_path, monkeypatch):
     srv.close(); t.join(timeout=5)
 
 
+def test_repo_add_and_env_open_use_a_long_request_timeout(recorder, monkeypatch, tmp_path):
+    """C2: repo.add (clone) and env.open (worktree add + setup) can run far longer than the default 30s
+    socket timeout, which is meant for ordinary requests; they must ask for the bounded-but-generous timeout."""
+    monkeypatch.setenv("HARNESS_CHARACTER_ID", "chr_1")
+    recorder.replies["repo.add"] = {"name": "api"}
+    recorder.replies["env.open"] = {"repo": "api", "path": "/wt/api"}
+    cli.main(["repo", "add", str(tmp_path / "api")])
+    cli.main(["env", "open", "api"])
+    timeouts = dict(recorder.kwargs_seen)
+    assert timeouts["repo.add"]["timeout"] == cli.LONG_REQUEST_TIMEOUT_S
+    assert timeouts["env.open"]["timeout"] == cli.LONG_REQUEST_TIMEOUT_S
+
+
 @posix_only
 def test_repo_and_env_verbs(fake_ipc, capsys, tmp_path):
     st = fake_ipc({"name": "api"}, [{"name": "api", "status": "ok"}], {"repo": "api", "path": "/wt/api"}, [])
@@ -427,6 +473,24 @@ def test_run_checks_runs_each_env_and_truncates(tmp_path):
 def test_run_checks_times_out(tmp_path):
     res = cli.run_checks([{"repo": "s", "checks": "sleep 5", "path": str(tmp_path)}], limit=100, timeout=0.2)
     assert res[0]["exit"] == -1 and "timed out" in res[0]["output"]
+
+
+def test_run_checks_output_is_empty_when_limit_is_zero(tmp_path):
+    """M3: `output[-limit:]` with limit=0 slices to the whole string (Python quirk); it must mean "keep none"."""
+    res = cli.run_checks([{"repo": "a", "checks": "echo hi", "path": str(tmp_path)}], limit=0, timeout=30)
+    assert res[0]["exit"] == 0 and res[0]["output"] == ""
+
+
+@posix_only
+def test_run_checks_kills_the_whole_process_group_on_timeout(tmp_path):
+    """M4: a timed-out check must not leave grandchildren (spawned by the shell it ran in) running — the whole
+    process group started for the check has to die, not just the immediate shell."""
+    marker = tmp_path / "child-ran"
+    cmd = f"sh -c 'sleep 3; touch {marker}' & wait"
+    res = cli.run_checks([{"repo": "s", "checks": cmd, "path": str(tmp_path)}], limit=100, timeout=0.3)
+    assert res[0]["exit"] == -1
+    time.sleep(1)   # the backgrounded child's sleep would have finished by now if it survived the timeout
+    assert not marker.exists()
 
 
 @posix_only

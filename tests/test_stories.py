@@ -165,6 +165,12 @@ def test_model_rows_track_changes(store):
     assert store.model.rows()[-1]["key"] == key and seen
 
 
+def test_model_exposes_repos_and_environments_to_qml(store):
+    """M6: the board model must expose repos/environments, not just carry them in the row dict."""
+    role_names = {bytes(v) for v in store.model.roleNames().values()}
+    assert b"repos" in role_names and b"environments" in role_names
+
+
 # ---------------------------------------------------------------- Start
 
 def test_start_casts_protagonist_with_context_brief_and_env(store, contexts, ws):
@@ -1010,6 +1016,18 @@ def test_env_open_creates_the_worktree_records_it_on_the_character_and_the_story
     assert store.cast(key)[0]["environment"] == "client"
     assert store.cast_env_list(chr_id) == [d]
     assert store.cast_env_open(chr_id, "client") == d and store.get(key)["repos"] == ["client"]
+
+
+def test_placement_falls_back_to_the_workspace_dir_when_the_worktree_is_gone(store, ws, repo, contexts):
+    """I4: a character whose worktree was deleted out from under it must still be able to start a turn (and run
+    `env open` again) rather than have the harness try to spawn a process into a path that no longer exists."""
+    import shutil
+    key, chr_id = started(store)
+    d = store.cast_env_open(chr_id, "client")
+    shutil.rmtree(d["path"])
+    ctx = contexts.get(store.character(chr_id)["live_context"])
+    cwd, place_env = store._placement(ctx)
+    assert cwd == str(ws.dir) and place_env == {}
 
 
 def test_env_open_errors_are_the_repos_message(store, repo):

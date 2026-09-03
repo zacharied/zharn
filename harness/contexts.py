@@ -200,8 +200,9 @@ class Context(QObject):
                 sig.disconnect(slot)
             except (RuntimeError, TypeError):
                 pass
-        self._retired.append(old)
-        old.finished.connect(lambda *_: self._retired.remove(old) if old in self._retired else None)
+        if old.running():
+            self._retired.append(old)
+            old.finished.connect(lambda *_: self._retired.remove(old) if old in self._retired else None)
         old.release()
         self.changed.emit()
 

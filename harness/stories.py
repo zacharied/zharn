@@ -22,7 +22,7 @@ from harness.notify import intent
 from harness.qmodels import DictListModel
 
 STORY_ROLES = ["key", "title", "description", "priority", "phase", "ball", "needsYou", "flavor", "author", "protagonist",
-               "castCount", "workingCount", "createdAt"]
+               "castCount", "workingCount", "createdAt", "repos", "environments"]
 WORKING = ("starting", "working")
 VERBS_LOG_MAX = 200
 
@@ -197,11 +197,13 @@ class StoryStore(QObject):
                 for r in self.environments.records(key)]
 
     def _placement(self, ctx) -> tuple[str, dict]:
-        """§4.5: a character's context runs in its environment's path, else where its meta says (the workspace dir)."""
+        """§4.5: a character's context runs in its environment's path, else where its meta says (the workspace dir).
+        A worktree deleted out from under a live character (by hand, or before `env open` re-creates it) must not
+        strand its turn: fall back to the workspace dir rather than spawn into a path that no longer exists."""
         ch = self._characters.get(ctx.meta.get("owner", ""))
         repo = ch.get("environment") if ch else None
         rec = self.environments.get(ch["story_key"], repo) if repo else None
-        if rec is not None:
+        if rec is not None and Path(rec["path"]).is_dir():
             return rec["path"], {"HARNESS_REPO": repo, "HARNESS_ENV": rec["path"]}
         return ctx.meta.get("cwd") or str(self.workspace.dir), {}
 

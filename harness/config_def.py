@@ -99,6 +99,8 @@ RECAP_STALE_TURNS = 20
 HANDOFF_CHECKS = "gate"
 CHECKS_OUTPUT_LIMIT = 4000   # characters of check output kept per repo
 CHECKS_TIMEOUT_S = 1800      # per repo
+GIT_TIMEOUT_S = 600          # bound on any single git subprocess (clone, worktree add/prune, …)
+SETUP_TIMEOUT_S = 600        # bound on a repo's `setup` command in a fresh worktree
 
 # Roles: what a character is cast from. `outline_first` = must get an outline approved before implementing.
 DEFAULT_ROLES = [

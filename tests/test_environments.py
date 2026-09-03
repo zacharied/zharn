@@ -1,6 +1,7 @@
 """Environments (workspace spec §4): records, the parent chain, lazy worktrees, setup, checks plumbing.
 Real temporary git repos via tests/gitfix.py; no network."""
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -9,7 +10,9 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from gitfix import make_repo, commit_file, branch_of, run  # noqa: E402
 
-from harness.environments import EnvError, EnvironmentStore, env_key, head_branch, register_repo  # noqa: E402
+from harness import config as cfg  # noqa: E402
+from harness import environments as env_mod  # noqa: E402
+from harness.environments import EnvError, EnvironmentStore, env_key, git, head_branch, register_repo  # noqa: E402
 from harness.workspace import Workspace  # noqa: E402
 
 
@@ -38,6 +41,38 @@ def test_head_branch_and_detached(tmp_path):
     assert head_branch(p) == "trunk"
     run(p, "checkout", "-q", "--detach")
     assert head_branch(p) == run(p, "rev-parse", "--short", "HEAD")
+
+
+def test_git_suppresses_prompts_and_is_bounded(tmp_path, monkeypatch):
+    """C1: a git call must never sit waiting for credentials, and must not run unbounded."""
+    p = make_repo(tmp_path / "r")
+    calls = []
+    real_run = subprocess.run
+
+    def spy(*args, **kwargs):
+        calls.append(kwargs)
+        return real_run(*args, **kwargs)
+
+    monkeypatch.setattr(env_mod.subprocess, "run", spy)
+    git(p, "rev-parse", "HEAD")
+    assert calls, "git() should shell out via subprocess.run"
+    kw = calls[-1]
+    assert kw["env"]["GIT_TERMINAL_PROMPT"] == "0"
+    assert kw["env"]["GIT_ASKPASS"] == "/bin/echo" and kw["env"]["SSH_ASKPASS"] == "/bin/echo"
+    assert kw["env"]["GIT_SSH_COMMAND"] == "ssh -oBatchMode=yes"
+    assert kw["timeout"] == getattr(cfg, "GIT_TIMEOUT_S", 600)
+
+
+def test_git_times_out_raises_env_error(tmp_path, monkeypatch):
+    p = make_repo(tmp_path / "r")
+    monkeypatch.setattr(cfg, "GIT_TIMEOUT_S", 0.05, raising=False)
+
+    def slow(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd=args[0], timeout=kwargs.get("timeout", 0.05))
+
+    monkeypatch.setattr(env_mod.subprocess, "run", slow)
+    with pytest.raises(EnvError, match="timed out after 0.05s"):
+        git(p, "rev-parse", "HEAD")
 
 
 def test_register_path_defaults_base_to_head_branch(tmp_path, ws):
@@ -127,6 +162,33 @@ def test_setup_runs_once_in_the_worktree_and_is_retried_after_failure(ws, tmp_pa
     es.open("ZH-1", "api")
     es.open("ZH-1", "api")
     assert (path / "setup.log").read_text() == "ran\n" and es.get("ZH-1", "api")["setup_done"] is True
+
+
+def test_setup_times_out_raises_env_error_and_leaves_worktree(ws, tmp_path, monkeypatch):
+    """C1: a hung setup command must not block the app forever."""
+    p = make_repo(tmp_path / "ws" / "api")
+    register_repo(ws, str(p), setup="sleep 5")
+    monkeypatch.setattr(cfg, "SETUP_TIMEOUT_S", 0.2, raising=False)
+    es = store(ws, **{"ZH-1": None})
+    with pytest.raises(EnvError, match="timed out"):
+        es.open("ZH-1", "api")
+    path = ws.local_dir / "worktrees" / "api" / "ZH-1"
+    assert path.is_dir() and es.get("ZH-1", "api")["setup_done"] is False
+
+
+def test_open_recreates_a_deleted_worktree_runs_setup_again(ws, tmp_path):
+    """I3: a re-added worktree is a new worktree — setup runs again in it (spec §3.1, §4.4)."""
+    import shutil
+    p = make_repo(tmp_path / "ws" / "api")
+    log = tmp_path / "setup.log"
+    register_repo(ws, str(p), setup=f"echo ran >> {log}")
+    es = store(ws, **{"ZH-1": None})
+    d = es.open("ZH-1", "api")
+    assert log.read_text().splitlines() == ["ran"]
+    shutil.rmtree(d["path"])
+    es.open("ZH-1", "api")
+    assert log.read_text().splitlines() == ["ran", "ran"]
+    assert es.get("ZH-1", "api")["setup_done"] is True
 
 
 def test_describe_carries_the_repos_checks(ws, tmp_path):

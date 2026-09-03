@@ -13,6 +13,7 @@ try:
 except ModuleNotFoundError:  # Python 3.10
     import tomli as tomllib  # type: ignore[no-redef]
 
+from harness.environments import head_branch   # no cycle: environments imports nothing from workspace
 from harness.fsutil import write_text_atomic
 
 REPO_FIELDS = ("name", "path", "checks", "setup", "base")
@@ -191,5 +192,7 @@ class Workspace:
         d = appdata_dir() / "scratch"
         ws = cls.open(d) if cls.exists(d) else cls.create(d, name="Scratch", prefix="SCR")
         if ws.repo("zharn") is None:
-            ws.add_repo(Path(zharn_root), name="zharn")
+            root = Path(zharn_root)
+            base = head_branch(root) if (root / ".git").exists() else ""
+            ws.add_repo(root, name="zharn", base=base)
         return ws

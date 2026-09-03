@@ -1,7 +1,12 @@
 """Workspace: .zharn/ layout, workspace.toml, keys, repo records (workspace spec §2, §3.1, §5.1, §6)."""
+import sys
 import uuid
+from pathlib import Path
 
 import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from gitfix import make_repo  # noqa: E402
 
 from harness.workspace import Workspace, default_prefix
 
@@ -185,6 +190,22 @@ def test_scratch_is_created_once_with_zharn_registered(monkeypatch, tmp_path):
     assert [r["name"] for r in ws.repos] == ["zharn"] and ws.repo_path(ws.repo("zharn")) == root.resolve()
     again = Workspace.scratch(root)
     assert again.id == ws.id and [r["name"] for r in again.repos] == ["zharn"]
+
+
+def test_scratch_resolves_base_at_registration_from_the_head_branch(monkeypatch, tmp_path):
+    """I5: base is resolved once, at registration time — not left empty to be resolved lazily at open time."""
+    monkeypatch.setenv("ZHARN_APPDATA", str(tmp_path / "ad"))
+    root = make_repo(tmp_path / "zharn-src")
+    ws = Workspace.scratch(root)
+    assert ws.repo("zharn")["base"] == "main"
+
+
+def test_scratch_base_is_empty_for_a_plain_directory(monkeypatch, tmp_path):
+    monkeypatch.setenv("ZHARN_APPDATA", str(tmp_path / "ad"))
+    root = tmp_path / "zharn-src"
+    root.mkdir()
+    ws = Workspace.scratch(root)
+    assert ws.repo("zharn")["base"] == ""
 
 
 def test_scratch_is_never_special_cased():

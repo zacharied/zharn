@@ -480,7 +480,8 @@ def test_repo_and_env_commands_route_and_log():
     assert h("env.list", {"character": "chr_1"}) == []
     assert h("env.checks", {"character": "chr_1", "thread": "t"})["policy"] == "gate"
     assert [c[0] for c in st.calls] == ["repo_add", "repo_list", "env_open", "env_list", "env_checks"]
-    assert [(v[1], v[3]) for v in st.verbs] == [("repo.add", True), ("env.open", True), ("env.list", True), ("env.checks", True)]
+    # M2: env.checks is a query the CLI makes on every handoff, not logged as a verb
+    assert [(v[1], v[3]) for v in st.verbs] == [("repo.add", True), ("env.open", True), ("env.list", True)]
     with pytest.raises(KeyError):
         h("env.open", {"character": "chr_1"})
     assert st.verbs[-1][1] == "env.open" and st.verbs[-1][3] is False
@@ -494,3 +495,14 @@ def test_yield_passes_checks_through():
     assert st.calls[-1] == ("yield", "chr_1", "handoff", "b", [], "", checks)
     h("story.yield", {"character": "chr_1", "kind": "question", "body": "q", "options": ["a"]})
     assert st.calls[-1] == ("yield", "chr_1", "question", "q", ["a"], "", [])
+
+
+def test_yield_logs_only_repo_and_exit_from_checks():
+    """I6: the full checks payload (up to CHECKS_OUTPUT_LIMIT chars of output per repo) must not be written
+    into verbs_log on every handoff — only a summary."""
+    st = FakeEnvStories()
+    h = make_handler(FakeEnvApp(st))
+    checks = [{"repo": "r", "cmd": "long command", "exit": 1, "output": "x" * 4000}]
+    h("story.yield", {"character": "chr_1", "kind": "handoff", "body": "b", "checks": checks})
+    logged_args = st.verbs[-1][2]
+    assert logged_args["checks"] == [{"repo": "r", "exit": 1}]

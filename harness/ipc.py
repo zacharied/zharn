@@ -139,9 +139,11 @@ def make_handler(app_store):
             return roles.roles
         if cmd.startswith(("story.", "repo.", "env.")):
             ch = a.get("character", "")
-            if not ch:
+            if not ch or cmd == "env.checks":   # env.checks: a query the CLI makes on every handoff, not a verb (M2)
                 return story_cmd(cmd, a)
             logged = {k: v for k, v in a.items() if k != "character"}
+            if cmd == "story.yield" and "checks" in logged:   # keep only repo/exit: output can run to
+                logged["checks"] = [{"repo": c["repo"], "exit": c["exit"]} for c in logged["checks"]]  # CHECKS_OUTPUT_LIMIT chars/repo (I6)
             verb = cmd.split(".", 1)[1] if cmd.startswith("story.") else cmd
             try:
                 result = story_cmd(cmd, a)

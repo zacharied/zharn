@@ -5,39 +5,59 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
 
 sys.dont_write_bytecode = True  # never dirty the watched tree (would trigger a reload)
 
+LONG_REQUEST_TIMEOUT_S = 1500.0   # longer than GIT_TIMEOUT_S + SETUP_TIMEOUT_S (600 + 600), for repo.add / env.open
 
-def request(cmd: str, args: dict) -> dict:
+
+def _read_until_newline_nt(path: str, payload: bytes) -> bytes:
+    """No native timeout for a Windows named pipe opened this way; run the blocking round-trip on a daemon
+    thread so the caller can still bail out on its own timeout instead of hanging forever."""
+    with open(path, "r+b", buffering=0) as pipe:
+        pipe.write(payload)
+        data = b""
+        while not data.endswith(b"\n"):
+            chunk = pipe.read(65536)
+            if not chunk:
+                break
+            data += chunk
+        return data
+
+
+def request(cmd: str, args: dict, timeout: float = 30.0) -> dict:
     path = os.environ.get("HARNESS_IPC")
     if not path:
         sys.exit("HARNESS_IPC is not set (run this from inside a harness context)")
     payload = (json.dumps({"cmd": cmd, "args": args}) + "\n").encode()
-    if os.name == "nt":
-        with open(path, "r+b", buffering=0) as pipe:
-            pipe.write(payload)
-            data = b""
-            while not data.endswith(b"\n"):
-                chunk = pipe.read(65536)
-                if not chunk:
-                    break
-                data += chunk
-    else:
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
-            s.settimeout(30)
-            s.connect(path)
-            s.sendall(payload)
-            data = b""
-            while not data.endswith(b"\n"):
-                chunk = s.recv(65536)
-                if not chunk:
-                    break
-                data += chunk
+    try:
+        if os.name == "nt":
+            result: dict = {}
+            t = threading.Thread(target=lambda: result.update(data=_read_until_newline_nt(path, payload)), daemon=True)
+            t.start()
+            t.join(timeout)
+            if t.is_alive():
+                raise TimeoutError
+            data = result["data"]
+        else:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+                s.settimeout(timeout)
+                s.connect(path)
+                s.sendall(payload)
+                data = b""
+                while not data.endswith(b"\n"):
+                    chunk = s.recv(65536)
+                    if not chunk:
+                        break
+                    data += chunk
+    except (socket.timeout, TimeoutError):
+        sys.exit(f"error: no reply from the harness within {timeout}s for {cmd}")
     resp = json.loads(data or b"{}")
     if not resp.get("ok"):
         sys.exit(f"error: {resp.get('error', 'no response')}")
@@ -66,15 +86,28 @@ def out(value, as_json: bool):
 
 
 def run_checks(envs: list[dict], limit: int, timeout: float) -> list[dict]:
-    """Workspace spec §4.6: each repo's `checks` in that environment; output truncated to `limit` characters."""
+    """Workspace spec §4.6: each repo's `checks` in that environment; output truncated to `limit` characters.
+    Runs in its own process group on POSIX so a timeout can kill the whole tree a shell command may have
+    spawned, not just the shell."""
     results = []
     for e in envs:
+        kwargs = {"start_new_session": True} if os.name != "nt" else {}
+        p = subprocess.Popen(e["checks"], shell=True, cwd=e["path"], stdout=subprocess.PIPE,
+                             stderr=subprocess.STDOUT, text=True, **kwargs)
         try:
-            r = subprocess.run(e["checks"], shell=True, cwd=e["path"], capture_output=True, text=True, timeout=timeout)
-            code, output = r.returncode, r.stdout + r.stderr
+            output, _ = p.communicate(timeout=timeout)
+            code = p.returncode
         except subprocess.TimeoutExpired:
+            if os.name != "nt":
+                try:
+                    os.killpg(os.getpgid(p.pid), signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            else:
+                p.kill()
+            p.communicate()
             code, output = -1, f"timed out after {timeout}s"
-        results.append({"repo": e["repo"], "cmd": e["checks"], "exit": code, "output": output[-limit:]})
+        results.append({"repo": e["repo"], "cmd": e["checks"], "exit": code, "output": output[-limit:] if limit else ""})
     return results
 
 
@@ -161,12 +194,12 @@ def main(argv=None):
         if a.verb == "add":
             spec = a.spec if ("://" in a.spec or a.spec.startswith("git@")) else os.path.abspath(a.spec)
             out(request("repo.add", {"character": character(), "spec": spec, "name": a.name, "checks": a.checks,
-                                     "setup": a.setup, "base": a.base}), a.json)
+                                     "setup": a.setup, "base": a.base}, timeout=LONG_REQUEST_TIMEOUT_S), a.json)
         else:
             out(request("repo.list", {}), a.json)
     elif a.noun == "env":
         if a.verb == "open":
-            r = request("env.open", {"character": character(), "repo": a.repo})
+            r = request("env.open", {"character": character(), "repo": a.repo}, timeout=LONG_REQUEST_TIMEOUT_S)
             out(r if a.json else r["path"], a.json)
         else:
             out(request("env.list", {"character": character()}), a.json)
