@@ -50,6 +50,7 @@ class Context(QObject):
         self._interp.session_id = meta.get("sessionId", "")
         self._proc: ClaudeCodeProcess | None = None
         self._proc_cwd: str | None = None
+        self._retired: list[ClaudeCodeProcess] = []  # released processes, kept alive (and referenced) until they exit
         self._unacked = 0  # messages pushed to the process that claude has not echoed (consumed) yet
         self._log_path = store.data_dir / f"{meta['id']}.jsonl"
 
@@ -184,7 +185,9 @@ class Context(QObject):
 
     def recycle(self):
         """Drop an idle process so the next send resumes the session in a fresh one — the way a character
-        changes working directory between turns. A working process is left alone."""
+        changes working directory between turns. A working process is left alone. The old process is released
+        asynchronously (never blocks the GUI thread) but kept referenced in self._retired until it actually
+        exits, so Qt doesn't destroy a still-running QProcess out from under us."""
         if self._proc is None or self._status in ("starting", "working"):
             return
         old, self._proc = self._proc, None
@@ -193,7 +196,9 @@ class Context(QObject):
                 sig.disconnect(slot)
             except (RuntimeError, TypeError):
                 pass
-        old.shutdown()
+        self._retired.append(old)
+        old.finished.connect(lambda *_: self._retired.remove(old) if old in self._retired else None)
+        old.release()
         self.changed.emit()
 
     def _on_event(self, ev: dict):
@@ -360,7 +365,8 @@ class ContextStore(QObject):
             c.stop()
 
     def shutdown(self):
-        """App exit: end child processes cleanly. Contexts resume with --resume on next launch."""
+        """App exit: end child processes cleanly (blocking is fine here). Contexts resume with --resume on
+        next launch. Also finishes off any processes a recycle() released but that haven't exited yet."""
         for c in self.all():
             if c._proc is not None:
                 c._proc.shutdown()
@@ -368,6 +374,9 @@ class ContextStore(QObject):
                 if c._status in ("starting", "working"):
                     c._status = "idle"
                     c.meta["status"] = "idle"
+            for p in list(c._retired):
+                if p.running():
+                    p.shutdown()
         self._persist_index()
 
     @Property(str, notify=revealChanged)

@@ -172,6 +172,15 @@ class ClaudeCodeProcess(QObject):
         self.proc.terminate()
         QTimer.singleShot(3000, lambda: self.proc.kill() if self.running() else None)
 
+    def release(self):
+        """Asynchronous: close stdin (claude exits on EOF), then terminate/kill on timers. For recycling a context
+        mid-session; never blocks the GUI thread."""
+        if not self.running():
+            return
+        self.proc.closeWriteChannel()
+        QTimer.singleShot(2000, lambda: self.proc.terminate() if self.running() else None)
+        QTimer.singleShot(3000, lambda: self.proc.kill() if self.running() else None)
+
     def shutdown(self, wait_ms: int = 2000):
         """Synchronous, for app exit: close stdin (claude exits on EOF), then terminate/kill."""
         if not self.running():

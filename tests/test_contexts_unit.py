@@ -223,3 +223,14 @@ def test_recycle_is_a_no_op_while_working(store):
     c.recycle()
     assert c._proc is proc
     assert wait_until(lambda: c.status == "idle")
+
+
+def test_recycle_releases_the_old_process_without_blocking(store):
+    cid = store.spawn("claude-fast", "hello")
+    c = store.get(cid)
+    assert wait_until(lambda: c.status == "idle")
+    t0 = time.monotonic()
+    c.recycle()
+    assert time.monotonic() - t0 < 0.5
+    assert len(c._retired) == 1
+    assert wait_until(lambda: not any(p.running() for p in c._retired), timeout_ms=5000)
