@@ -191,7 +191,12 @@ class StoryStore(QObject):
             key = self._key(key)
         except KeyError:
             return []
-        return [{**c, "authorName": author_name(c["author"], self._characters)} for c in self._comments.get(key, [])]
+        out = []
+        for c in self._comments.get(key, []):
+            aside = self._aside_for(c["id"])
+            out.append({**c, "authorName": author_name(c["author"], self._characters), "asideId": aside,
+                        "asideEnabled": bool(aside) or bool(self.aside_source(key, c))})
+        return out
 
     @Slot(str, result="QVariantList")
     def cast(self, key):
@@ -375,6 +380,55 @@ class StoryStore(QObject):
         comment = self._author_action(key, lc.Resolve(thread_id=thread_id, by="human", note=note), resume=False)
         self._clear_attention(key, thread_id)
         return comment
+
+    # ---------------------------------------------------------------- asides (spec §3.5)
+    def _aside_for(self, comment_id: str) -> str:
+        for ctx in self._contexts.all():
+            about = ctx.meta.get("about") or {}
+            if about.get("comment_id") == comment_id:
+                return ctx.id
+        return ""
+
+    def aside_source(self, key: str, comment: dict) -> str:
+        """The context an aside on `comment` would fork, or "" when the button is disabled: the memory that
+        wrote the comment if it is still resumable, else the character's live context; never one mid-turn."""
+        ch = self._characters.get(comment["author"])
+        if ch is None:
+            return ""
+        for cid in (comment.get("context"), ch.get("live_context")):
+            ctx = self._contexts.get(cid) if cid else None
+            if ctx is None or not getattr(ctx, "sessionId", ""):
+                continue
+            return "" if ctx.status in ("starting", "working") else cid
+        return ""
+
+    @Slot(str, str, result=str)
+    @intent
+    def aside(self, key, comment_id):
+        """Open (or reopen) the aside on a character's comment: a private bare context forked from the memory
+        that wrote it. Nothing about it enters the story record."""
+        key = self._key(key)
+        existing = self._aside_for(comment_id)
+        if existing:
+            return existing
+        comment = next((c for c in self._comments.get(key, []) if c["id"] == comment_id), None)
+        if comment is None:
+            raise KeyError(comment_id)
+        ch = self._characters.get(comment["author"])
+        if ch is None:
+            raise lc.Rejected("asides are for characters' comments")
+        source = self.aside_source(key, comment)
+        if not source:
+            raise lc.Rejected(f"{ch['name']} is working or its memory is gone; try again when it stops")
+        s = self._stories[key]
+        n = next((i + 1 for i, t in enumerate(s.threads) if t.id == comment["thread_id"]), 0)
+        quoted = "\n> ".join(comment["body"].splitlines()) or "(empty)"
+        prompt = getattr(cfg, "ASIDE_SYSTEM_PROMPT", "").format(name=ch["name"], story_key=key, thread_id=n, body=quoted)
+        cid = self._contexts.fork(source, role_name=getattr(cfg, "DEFAULT_BARE_ROLE", "claude-default"), owner="human",
+                                  title=f"aside on #{n} · {ch['name']}", system_prompt=prompt,
+                                  about={"story_key": key, "comment_id": comment_id})
+        self._refresh()
+        return cid
 
     @Slot(str, str, result="QVariantMap")
     @Slot(str, str, str, result="QVariantMap")

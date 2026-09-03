@@ -277,7 +277,8 @@ Known churn: every intent re-parses the whole tree and rebuilds all groups (fine
    ladder, phase-aware system prompts. Minions are Claude's native `Agent` tool for now;
    `AskUserQuestion` does not exist under `-p`, so `yield --question` is the only way to ask.
    Migrate tasks → stories, code `Thread` → `Context`. **Partly done (main thread; characters
-   and delivery spec'd 2026-08-31, implementation next).**
+   and delivery spec'd 2026-08-31, implementation next). Asides shipped 2026-09-02 (`Comment.context`,
+   `ContextStore.fork`, `stories.aside`); the QML button is pending in the UI thread.**
 4. **Skills**: vendor superpowers' discipline skills into `harness/skills/`, write
    `being-a-character` + the phase skills, `tests/skills/` runner with `verbs_log` assertions.
 5. **Story tab + board rework**: threads with per-cell action bars, option buttons, `@`/`/call`,

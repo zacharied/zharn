@@ -14,6 +14,7 @@ from harness.workspace import Workspace
 class StubContext:
     def __init__(self, cid, meta):
         self.id, self.meta, self.status, self.sent, self.stopped = cid, meta, "idle", [], False
+        self.sessionId = "sess-" + cid
 
     def send(self, text):
         self.sent.append(text)
@@ -31,6 +32,7 @@ class StubContexts(QObject):
         super().__init__()
         self.by_id = {}
         self.created = []
+        self.forked = []
 
     def create(self, role_name, **kw):
         if role_name == "codex-review":
@@ -46,6 +48,19 @@ class StubContexts(QObject):
 
     def contexts_for(self, key):
         return [c for c in self.by_id.values() if c.meta.get("story_key") == key]
+
+    def all(self):
+        return list(self.by_id.values())
+
+    def fork(self, source_id, **kw):
+        if source_id not in self.by_id:
+            raise KeyError(source_id)
+        if self.by_id[source_id].status in ("starting", "working"):
+            raise ValueError(f"{source_id} is working; fork it when it stops")
+        cid = f"ctx_{len(self.by_id) + 1}"
+        self.by_id[cid] = StubContext(cid, {"forkedFrom": source_id, **kw})
+        self.forked.append((source_id, kw))
+        return cid
 
 
 class StubRoles:
@@ -472,3 +487,62 @@ def test_cast_comments_record_the_context_that_wrote_them(store, contexts, ws):
     rows = [json.loads(l) for l in (ws.stories_dir / key / "threads.jsonl").read_text().splitlines()]
     assert [r.get("context") for r in rows if r["type"] == "comment"] == [None, live, None]
     assert StoryStore(ws, contexts, StubRoles()).comments(key)[1]["context"] == live
+
+
+# ---------------------------------------------------------------- asides (spec §3.5)
+
+def test_comment_rows_say_whether_an_aside_can_be_opened(store, contexts):
+    key, chr_id = started(store)
+    live = contexts.get(store.character(chr_id)["live_context"])
+    store.cast_comment(chr_id, "I think pyte")
+    assert live.status == "working"                                          # still digesting the brief
+    assert store.comments(key)[1]["asideEnabled"] is False
+    live.status = "idle"
+    start_row, cast_row = store.comments(key)
+    assert (start_row["asideEnabled"], start_row["asideId"]) == (False, "")   # human comment
+    assert (cast_row["asideEnabled"], cast_row["asideId"]) == (True, "")
+
+
+def test_aside_forks_the_writing_context_as_a_pinned_bare_context(store, contexts, monkeypatch):
+    monkeypatch.setattr(cfg, "DEFAULT_BARE_ROLE", "claude-fast", raising=False)
+    key, chr_id = started(store)
+    c = store.cast_comment(chr_id, "Line one\nline two")
+    contexts.get(c["context"]).status = "idle"
+    aside = store.aside(key, c["id"])
+    (source, kw), = contexts.forked
+    assert source == c["context"] and kw["role_name"] == "claude-fast" and kw["owner"] == "human"
+    assert kw["about"] == {"story_key": key, "comment_id": c["id"]} and kw["title"] == "aside on #1 · protagonist"
+    assert "story_key" not in kw and "env" not in kw  # a bare context: no HARNESS_STORY_KEY / HARNESS_CHARACTER_ID
+    prompt = kw["system_prompt"]
+    assert "protagonist" in prompt and "#1" in prompt and "> Line one\n> line two" in prompt and key in prompt
+    assert store.aside(key, c["id"]) == aside and len(contexts.forked) == 1  # idempotent: reopen
+    row = store.comments(key)[1]
+    assert (row["asideId"], row["asideEnabled"]) == (aside, True)
+
+
+def test_aside_rejections_report(store, contexts):
+    key, chr_id = started(store)
+    human = store.comments(key)[0]
+    with pytest.raises(Rejected, match="characters' comments"):
+        store.aside(key, human["id"])
+    c = store.cast_comment(chr_id, "busy")
+    contexts.get(c["context"]).status = "working"
+    with pytest.raises(Rejected, match="working"):
+        store.aside(key, c["id"])
+    with pytest.raises(KeyError):
+        store.aside(key, "cmt_nope")
+    assert store.notifier.errors and "aside" in store.notifier.errors[-1]
+
+
+def test_aside_prefers_the_context_that_wrote_the_comment_then_the_live_one(store, contexts):
+    key, chr_id = started(store)
+    c = store.cast_comment(chr_id, "before recast")
+    contexts.get(c["context"]).status = "idle"
+    live = contexts.create("claude-fast", owner=chr_id)          # a recast successor
+    contexts.get(live).status = "idle"
+    store._characters[chr_id]["live_context"] = live
+    assert store.aside_source(key, c) == c["context"]            # the memory that wrote it
+    del contexts.by_id[c["context"]]                              # ...unless it is gone
+    assert store.aside_source(key, c) == live
+    contexts.get(live).status = "working"
+    assert store.aside_source(key, c) == ""

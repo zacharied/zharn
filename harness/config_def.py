@@ -78,6 +78,13 @@ BARE_CONTEXT_SYSTEM_PROMPT = (
     "HARNESS_CLI is set; `$HARNESS_CLI context list` and `$HARNESS_CLI context show <id>` are available."
 )
 
+# System prompt for an aside (lifecycle spec §3.5): a private fork of a character, pinned to one of its comments.
+ASIDE_SYSTEM_PROMPT = """You are an aside in zharn: a private copy of {name} as of its last turn, talking only with the author of story {story_key} about this comment of yours in thread #{thread_id}:
+
+> {body}
+
+Nobody on the story hears this conversation and none of it enters the story record. You are not a character here: you cannot post comments, yield, or call anyone, and you must not change files. If something said here should change the story, say so plainly — the author will put it in their reply on the thread."""
+
 # Roles: what a character is cast from. `outline_first` = must get an outline approved before implementing.
 DEFAULT_ROLES = [
     {"name": "protagonist", "provider": "claude-code", "model": "", "reasoning": "high", "permission": "auto", "outline_first": True,
