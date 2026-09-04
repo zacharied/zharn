@@ -1,78 +1,63 @@
-"""The Documents panel's backend (proposal docs/superpowers/proposals/2026-09-03-documents-panel.md):
-a heading parser, the markdown corpus of the workspace's registered repos, the flat row view the panel
-renders, heading search, and DocumentsStore — the QObject QML sees as `app.documents`."""
+"""The Documents panel's backend (spec docs/specs/documents-panel.md): the headings Qt's markdown
+engine makes of a document, the markdown corpus of the workspace's registered repos, the flat row view
+the panel renders, heading search, and DocumentsStore — the QObject QML sees as `app.documents`."""
 from __future__ import annotations
 
 import os
 import re
 from pathlib import Path
 
-_ATX = re.compile(r"^ {0,3}(#{1,6})(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$")
-_FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
-_SETEXT_1 = re.compile(r"^ {0,3}=+[ \t]*$")
-_SETEXT_2 = re.compile(r"^ {0,3}-+[ \t]*$")
+from PySide6.QtGui import QTextDocument
+
 _NUMBER = re.compile(r"^(\d+(?:\.\d+)*)\.?[ \t]+(\S.*)$")
 
 
 def split_number(text: str) -> tuple[str, str]:
-    """'4.6 Checks' -> ('4.6', 'Checks'); '2. Workspace' -> ('2', 'Workspace'); anything else -> ('', text)."""
+    """'4.6 Checks' -> ('4.6', 'Checks'); '2. Workspace' -> ('2', 'Workspace'); anything else -> ('', text.strip())."""
     m = _NUMBER.match(text.strip())
     return (m.group(1), m.group(2).strip()) if m else ("", text.strip())
 
 
-def parse_headings(text: str) -> list[dict]:
-    """Every ATX or setext heading outside fenced code, in source order, as
-    {index, level, number, title, line}. `index` is the ordinal among all headings — the same ordinal Qt's
-    markdown engine gives the heading block, which is how the document tab finds it (spec §3, §4)."""
-    out: list[dict] = []
-    fence: tuple[str, int] | None = None   # (char, length) of the open fence
-    lines = text.split("\n")
-    prev_blank = True
-    prev_is_para = False                   # previous line could be the text of a setext heading
+def _heading_blocks(doc: QTextDocument):
+    """(level, text, position) of every heading block of a rendered document, in order — the one walk
+    both `headings_of` and `_heading_positions_of` go through, so the two can never disagree."""
+    block = doc.begin()
+    while block.isValid():
+        level = block.blockFormat().headingLevel()
+        if level:
+            yield level, block.text(), block.position()
+        block = block.next()
 
-    def add(level: int, raw: str, line: int):
+
+def _rendered(text: str) -> QTextDocument:
+    doc = QTextDocument()
+    doc.setMarkdown(text)
+    return doc
+
+
+def headings_of(text: str) -> list[dict]:
+    """Every heading of `text` as {index, level, number, title}, in order. A heading is whatever Qt's
+    markdown engine renders as a heading block — the same engine the document tab renders with, so
+    `index` here is the tab's ordinal (spec: sections)."""
+    out = []
+    for level, raw, _ in _heading_blocks(_rendered(text)):
         number, title = split_number(raw)
-        out.append({"index": len(out), "level": level, "number": number, "title": title, "line": line})
-
-    for i, line in enumerate(lines):
-        stripped = line.strip()
-        if fence:
-            m = _FENCE.match(line)
-            if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= fence[1] and line.strip() == m.group(1):
-                fence = None
-            prev_is_para = False
-            prev_blank = True
-            continue
-        m = _FENCE.match(line)
-        if m:
-            fence = (m.group(1)[0], len(m.group(1)))
-            prev_is_para = False
-            prev_blank = True
-            continue
-        m = _ATX.match(line)
-        if m and stripped:
-            add(len(m.group(1)), m.group(2) or "", i)
-            prev_is_para = False
-            prev_blank = False
-            continue
-        if prev_is_para and not prev_blank:
-            if _SETEXT_1.match(line):
-                add(1, lines[i - 1], i - 1)
-                prev_is_para = False
-                prev_blank = False
-                continue
-            if _SETEXT_2.match(line):
-                add(2, lines[i - 1], i - 1)
-                prev_is_para = False
-                prev_blank = False
-                continue
-        prev_blank = not stripped
-        prev_is_para = bool(stripped) and not line.startswith("    ") and not stripped.startswith(("|", ">", "-", "*", "+"))
+        out.append({"index": len(out), "level": level, "number": number, "title": title})
     return out
 
 
+def heading_positions(text: str) -> list[int]:
+    """Character positions of the heading blocks Qt's markdown engine makes of `text` — the same engine
+    TextArea uses in MarkdownText mode, so ordinal n here is ordinal n in the tab."""
+    return _heading_positions_of(_rendered(text))
+
+
+def _heading_positions_of(doc: QTextDocument) -> list[int]:
+    return [pos for _, _, pos in _heading_blocks(doc)]
+
+
 def title_and_sections(headings: list[dict]) -> tuple[str, list[dict]]:
-    """Spec §1: the first heading, when it is the document's only H1, is the title and not a section."""
+    """The first heading, when it is the document's only H1, is the title and not a section."""
     if headings and headings[0]["level"] == 1 and sum(1 for h in headings if h["level"] == 1) == 1:
         return headings[0]["title"], headings[1:]
     return "", list(headings)
@@ -87,7 +72,7 @@ def _skip_dir(name: str) -> bool:
 
 def read_document(name: str, path: Path, rel: str) -> dict:
     text = path.read_text(encoding="utf-8", errors="replace")
-    title, sections = title_and_sections(parse_headings(text))
+    title, sections = title_and_sections(headings_of(text))
     return {
         "key": f"{name}/{rel}", "repo": name, "rel": rel, "name": Path(rel).name[:-3] if rel.lower().endswith(".md") else Path(rel).name,
         "path": str(path), "mtime": path.stat().st_mtime_ns, "title": title, "sections": sections,
@@ -142,8 +127,8 @@ def _section_tree(sections: list[dict]) -> list[dict]:
     return roots
 
 
-def _row(id, kind, level, title, *, number="", has_children=False, expanded=False, key="", ordinal=-1, count=0, column=False):
-    return {"id": id, "kind": kind, "level": level, "title": title, "number": number, "hasChildren": has_children,
+def _row(row_id, kind, level, title, *, number="", has_children=False, expanded=False, key="", ordinal=-1, count=0, column=False):
+    return {"id": row_id, "kind": kind, "level": level, "title": title, "number": number, "hasChildren": has_children,
             "expanded": expanded, "key": key, "ordinal": ordinal, "count": count, "column": column}
 
 
@@ -219,7 +204,7 @@ def ancestor_ids(doc: dict, index: int) -> list[str]:
 
 # ---------------------------------------------------------------- search
 def search(docs: list[dict], query: str) -> list[dict]:
-    """Spec §2: every word must occur in the document name or in a heading's number+title, case-insensitively.
+    """Every word must occur in the document name or in a heading's number+title, case-insensitively.
     Groups in corpus order; a document whose name matches is a group with no sections."""
     words = [w for w in query.lower().split() if w]
     if not words:
@@ -239,29 +224,11 @@ def search(docs: list[dict], query: str) -> list[dict]:
 
 
 from PySide6.QtCore import Property, QObject, QTimer, Signal, Slot
-from PySide6.QtGui import QTextDocument
 
 from harness.notify import intent
 from harness.qmodels import DictListModel
 
 ROW_ROLES = ["id", "kind", "level", "title", "number", "hasChildren", "expanded", "key", "ordinal", "count", "column"]
-
-
-def heading_positions(text: str) -> list[int]:
-    """Character positions of the heading blocks Qt's markdown engine makes of `text` — the same engine
-    TextArea uses in MarkdownText mode, so ordinal n here is ordinal n in the tab."""
-    doc = QTextDocument()
-    doc.setMarkdown(text)
-    return _heading_positions_of(doc)
-
-
-def _heading_positions_of(doc: QTextDocument) -> list[int]:
-    out, block = [], doc.begin()
-    while block.isValid():
-        if block.blockFormat().headingLevel():
-            out.append(block.position())
-        block = block.next()
-    return out
 
 
 class DocumentsStore(QObject):

@@ -1,5 +1,6 @@
-"""The Documents panel's backend (proposal 2026-09-03-documents-panel): heading parser, corpus scan, the
-flat row view over an expansion set, search, and the store. No QML here; the UI is tests/test_ui_documents.py."""
+"""The Documents panel's backend (spec docs/specs/documents-panel.md): the headings Qt makes of a
+document, corpus scan, the flat row view over an expansion set, search, and the store. No QML here; the
+UI is tests/test_ui_documents.py."""
 import sys
 from pathlib import Path
 
@@ -7,17 +8,17 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.documents import parse_headings, split_number, title_and_sections  # noqa: E402
+from harness.documents import headings_of, heading_positions, split_number, title_and_sections  # noqa: E402
 
 
 def heads(text):
-    return [(h["level"], h["number"], h["title"]) for h in parse_headings(text)]
+    return [(h["level"], h["number"], h["title"]) for h in headings_of(text)]
 
 
-def test_atx_headings_in_order_with_lines():
-    hs = parse_headings("# T\n\ntext\n\n## A\n### A.1\n## B\n")
-    assert [(h["index"], h["level"], h["title"], h["line"]) for h in hs] == [
-        (0, 1, "T", 0), (1, 2, "A", 4), (2, 3, "A.1", 5), (3, 2, "B", 6)]
+def test_headings_in_order_with_their_ordinal():
+    hs = headings_of("# T\n\ntext\n\n## A\n### A.1\n## B\n")
+    assert [(h["index"], h["level"], h["title"]) for h in hs] == [
+        (0, 1, "T"), (1, 2, "A"), (2, 3, "A.1"), (3, 2, "B")]
 
 
 def test_headings_inside_fenced_code_are_not_headings():
@@ -52,18 +53,46 @@ def test_numbers_split_off_the_title():
 
 
 def test_first_and_only_h1_is_the_title():
-    title, secs = title_and_sections(parse_headings("# Doc\n## A\n## B\n"))
+    title, secs = title_and_sections(headings_of("# Doc\n## A\n## B\n"))
     assert title == "Doc" and [s["title"] for s in secs] == ["A", "B"]
     assert [s["index"] for s in secs] == [1, 2]
 
 
 def test_several_h1s_are_all_sections_and_there_is_no_title():
-    title, secs = title_and_sections(parse_headings("# Plan\n## Constraints\n# Task 1\n# Task 2\n"))
+    title, secs = title_and_sections(headings_of("# Plan\n## Constraints\n# Task 1\n# Task 2\n"))
     assert title == "" and [s["title"] for s in secs] == ["Plan", "Constraints", "Task 1", "Task 2"]
 
 
 def test_no_headings_at_all():
-    assert title_and_sections(parse_headings("just text\n")) == ("", [])
+    assert title_and_sections(headings_of("just text\n")) == ("", [])
+
+
+# What Qt's markdown engine does with the shapes a hand-written parser gets wrong. These are not our
+# rules — they are the renderer's, pinned so a Qt upgrade that moves a heading (and so every ordinal
+# the document tab scrolls by) fails here rather than in the panel.
+HARD_SHAPES = [
+    ("yaml front matter is not a setext heading",
+     "---\ntitle: x\n---\n\n# Doc\n\n## A\n", [(1, "", "Doc"), (2, "", "A")]),
+    ("a heading inside an HTML comment is no heading, and its text joins the block above",
+     "# T\n\n<!--\n## hidden\n-->\n\n## Real\n", [(1, "", "T## hidden-->"), (2, "", "Real")]),
+    ("a heading inside a blockquote is a heading",
+     "# T\n\n> ## quoted\n\ntext\n", [(1, "", "T"), (2, "", "quoted")]),
+    ("a heading inside a list item is a heading",
+     "# T\n\n- ## in a list\n\ntext\n", [(1, "", "T"), (2, "", "in a list")]),
+    ("a heading indented under a list item is a heading",
+     "# T\n\n- item\n\n  ## indented\n\ntext\n", [(1, "", "T"), (2, "", "indented")]),
+    ("a table delimiter row is not a setext heading",
+     "# T\n\n| a | b |\n|---|---|\n| 1 | 2 |\n", [(1, "", "T")]),
+    ("an unclosed fence swallows the rest of the document",
+     "# T\n\n```\n## code\n\n## after\n", [(1, "", "T")]),
+    ("a multi-line paragraph over a setext rule is one heading",
+     "# T\n\nline one\nline two\n---\n", [(1, "", "T"), (2, "", "line one line two")]),
+]
+
+
+@pytest.mark.parametrize("name,text,expected", HARD_SHAPES, ids=[c[0] for c in HARD_SHAPES])
+def test_qt_decides_what_a_heading_is(name, text, expected):
+    assert heads(text) == expected
 
 
 from harness.documents import (EXCLUDED_DIRS, all_row_ids, ancestor_ids, build_rows, default_expanded,  # noqa: E402
@@ -323,10 +352,25 @@ def test_a_missing_repo_is_skipped(tmp_path, corpus):
     assert {d["repo"] for d in s.documents()} == {"zharn"}
 
 
+def _qt_headings(text):
+    """An independent walk of Qt's heading blocks, so the guard below doesn't test documents.py with itself."""
+    from PySide6.QtGui import QTextDocument
+    doc = QTextDocument()
+    doc.setMarkdown(text)
+    out, block = [], doc.begin()
+    while block.isValid():
+        level = block.blockFormat().headingLevel()
+        if level:
+            out.append((level, block.position()))
+        block = block.next()
+    return out
+
+
 @pytest.mark.parametrize("path", sorted(p for p in ROOT.rglob("*.md") if ".git" not in p.parts and "_out" not in p.parts))
-def test_parser_agrees_with_qt_about_which_blocks_are_headings(path):
-    """Spec §3: a section's index is its ordinal among Qt's heading blocks — the tab relies on it."""
+def test_the_headings_and_their_positions_are_one_walk_over_every_document_in_the_repo(path):
+    """A section's index is its ordinal among Qt's heading blocks and the tab scrolls to the position of
+    that same block: headings_of and heading_positions must never drift apart."""
     text = path.read_text(encoding="utf-8")
-    ours = [(h["level"], h["index"]) for h in parse_headings(text)]
-    theirs = heading_positions(text)
-    assert len(ours) == len(theirs), f"{path}: parsed {len(ours)} headings, Qt renders {len(theirs)}"
+    qt = _qt_headings(text)
+    assert [h["level"] for h in headings_of(text)] == [level for level, _ in qt], path
+    assert heading_positions(text) == [pos for _, pos in qt], path
