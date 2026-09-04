@@ -83,7 +83,8 @@ reset. (An invariant of the layout, not a migration: it holds for any panel a fo
 * **View state.** Expansion is a set of row ids in the store (state that survives a QML reload lives in
   Python, DESIGN §1); a repo or directory id enters the set the first time a scan sees it, which is how
   §2's defaults hold. The store exposes `rows()`: the flat list of *visible* rows given the expansion
-  state — `[{id, kind, level, title, number, hasChildren, expanded, key, index}]` — so the panel is a
+  state — `[{id, kind, level, title, number, hasChildren, expanded, key, ordinal}]`, `ordinal` being a
+  section's heading index — so the panel is a
   `ListView` over a `DictListModel` and never walks a tree in QML. `toggle(id)`, `collapseAll()`,
   `expandTo(key, index)` (expand the document and the ancestors of a section) are intents.
 * **Position.** `setPosition(key, index)` is called by the document tab as it scrolls; `position(key)` reads
@@ -103,8 +104,9 @@ The `document` content kind becomes a read-only markdown view, the first real fi
 "read-mostly file viewer" slot (DESIGN §5). v1 is deliberately small:
 
 * A `TextArea` with `textFormat: TextEdit.MarkdownText`, read-only, selectable, in a `Flickable`, at the story
-  page's measure (max width 820, 20/28 px margins), the theme's UI face for prose and mono for code. Headings
-  in the UI face at 20/17/14 px, weight 600, an H2 carrying a top rule as in the mockup.
+  page's measure (max width 820, 20/28 px margins), the theme's UI face at the theme size for prose. Heading
+  sizes, code styling and rules are Qt's markdown defaults for now; the mockup's typography is the viewer's
+  later business, not this change's.
 * It reads its text from `app.documents.text(key)`. On `documentsChanged` for its key it reloads and keeps
   its scroll position.
 * **Section positions.** `app.documents.headingPositions(key)` returns, per section index, the character
