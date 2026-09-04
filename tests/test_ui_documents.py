@@ -155,3 +155,12 @@ def test_shrinking_the_open_document_on_reload_keeps_the_scroll_in_bounds(ui):
 
     assert wait_until(in_bounds)
     assert wait_until(lambda: ui.store.documents.position(LONG_KEY) == -1)      # the shrunk doc fits at the top
+
+
+def test_a_scroll_request_beats_a_reload_landing_in_the_same_tick(ui):
+    show(ui)
+    repo = OUT / "ui-documents-repo"
+    (repo / "docs/long.md").write_text(LONG_DOC)   # a reload back to a long document (tab still open)...
+    ui.store.documents.open(LONG_KEY, 5)           # ...scrollRequested fires synchronously here...
+    ui.store.documents.rescan()                    # ...and documentsChanged fires synchronously here, same tick
+    assert wait_until(lambda: ui.store.documents.position(LONG_KEY) == 5)
