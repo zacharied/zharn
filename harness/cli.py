@@ -251,7 +251,12 @@ def main(argv=None):
         elif a.verb == "cast": out(request("story.cast", {"key": a.key, **({"character": ch} if ch else {})}), a.json)
         elif a.verb == "proceed":
             args = {"character": ch, "note": a.note} if ch and not a.key else {"key": a.key, "note": a.note, **({"character": ch} if ch else {})}
-            out(request("story.proceed", args), a.json)
+            r = request("story.proceed", args)
+            if a.json or not isinstance(r, dict) or not r.get("skill"):
+                out(r, a.json)
+            else:   # spec §2.2: stdout is the implementing-a-story skill
+                out({k: v for k, v in r.items() if k != "skill"}, False)
+                print("\n" + r["skill"])
         elif a.verb == "comment":
             args = {"character": ch, "body": a.body, "thread": a.thread, "to": a.to} if ch else {"key": a.story, "body": a.body, "thread": a.thread}
             out(request("story.comment", args), a.json)

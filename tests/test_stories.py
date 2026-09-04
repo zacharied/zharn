@@ -805,7 +805,7 @@ def test_cast_call_opens_a_thread_led_by_a_fresh_friend(store, contexts):
     t = store.story(key).thread(r["thread"])
     assert (t.author, t.lead, r["name"]) == (chr_id, r["character"], "Implementor")
     friend = store.character(r["character"])
-    assert contexts.get(friend["live_context"]).sent[0].rstrip().endswith("build the screen model") and friend["attention"] == r["thread"]
+    assert "build the screen model" in contexts.get(friend["live_context"]).sent[0] and friend["attention"] == r["thread"]
     assert store.awaits(store.character(chr_id)) == [r["thread"]]
 
 
@@ -1138,3 +1138,89 @@ def test_situation_line_names_the_environment(store, repo):
     ctx = store._contexts.get(store.character(chr_id)["live_context"])
     store.comment(key, "reply")
     assert f"in client at {d['path']}" in ctx.sent[-1].splitlines()[0]
+
+
+# ---------------------------------------------------------------- the phase skill in messages (spec §5.3)
+
+def test_a_fresh_brief_ends_with_the_phase_skill_and_records_it(store, contexts):
+    key, chr_id = started(store)
+    first = contexts.get("ctx_1").sent[0]
+    assert first.rstrip().endswith(skills.phase_skill("planning")) and store.character(chr_id)["phase_seen"] == "planning"
+
+
+def test_a_fork_gets_no_skill_and_copies_phase_seen(store, contexts):
+    key, chr_id = started(store)
+    contexts.get(store.character(chr_id)["live_context"]).status = "idle"
+    r = store.cast_call(chr_id, "claude-fast", "second opinion", fork=True)
+    friend = store.character(r["character"])
+    assert friend["phase_seen"] == "planning"
+    assert skills.phase_skill("planning") not in contexts.get(friend["live_context"]).sent[0]
+
+
+def test_proceed_delivers_the_implementing_skill_once(store, contexts):
+    key, chr_id = started(store)
+    ctx = contexts.get("ctx_1")
+    store.cast_yield(chr_id, "handoff", "outline")
+    store.proceed(key, "go")
+    build = skills.phase_skill("implementing")
+    assert ctx.sent[-1].rstrip().endswith(build) and store.character(chr_id)["phase_seen"] == "implementing"
+    store.comment(key, "same phase")
+    assert build not in ctx.sent[-1] and ctx.sent[-1].startswith("[situation] phase implementing")
+
+
+def test_back_to_planning_and_reopen_deliver_the_new_phase_skill(store, contexts):
+    key, chr_id = started(store)
+    ctx = contexts.get("ctx_1")
+    store.cast_yield(chr_id, "handoff", "outline"); store.proceed(key)
+    store.cast_yield(chr_id, "handoff", "built")
+    store.backToPlanning(key, "rethink")
+    assert ctx.sent[-1].rstrip().endswith(skills.phase_skill("planning")) and store.character(chr_id)["phase_seen"] == "planning"
+    store.cancel(key)
+    store.reopen(key, "one more")
+    assert ctx.sent[-1].rstrip().endswith(skills.phase_skill("implementing")) and store.character(chr_id)["phase_seen"] == "implementing"
+
+
+def test_an_inbox_item_popped_after_a_proceed_carries_the_new_skill(store, contexts):
+    """Proposal §7: a friend cast in planning learns of Proceed at its next delivery — here an inbox pop."""
+    key, chr_id = started(store)
+    r = store.cast_call(chr_id, "claude-fast", "read the docs")
+    friend = store.character(r["character"])
+    fctx = contexts.get(friend["live_context"])
+    assert friend["phase_seen"] == "planning"
+    store.openThread(key, "@claude-fast btw")                      # the friend is working → its inbox
+    assert store.character(r["character"])["inbox"]
+    store.cast_yield(chr_id, "handoff", "outline"); store.proceed(key)
+    settle(store, contexts, r["character"])                         # its turn ends: the item pops
+    assert fctx.sent[-1].startswith("[situation] phase implementing")
+    assert fctx.sent[-1].rstrip().endswith(skills.phase_skill("implementing"))
+    assert store.character(r["character"])["phase_seen"] == "implementing"
+
+
+def test_cast_proceed_returns_the_skill_and_the_next_delivery_does_not_repeat_it(store, contexts):
+    key = store.create("Plain", "no outline rule")
+    chr_id = store.start(key, "go", "claude-fast")
+    ctx = contexts.get(store.character(chr_id)["live_context"])
+    r = store.cast_proceed(chr_id, "bounded")
+    assert r["kind"] == "system" and r["skill"] == skills.phase_skill("implementing")
+    assert store.character(chr_id)["phase_seen"] == "implementing"
+    store.comment(key, "hi")
+    assert skills.phase_skill("implementing") not in ctx.sent[-1]
+
+
+def test_a_friend_cast_in_implementing_gets_the_implementing_skill(store, contexts):
+    key, chr_id = started(store)
+    store.cast_yield(chr_id, "handoff", "outline"); store.proceed(key)
+    r = store.cast_call(chr_id, "claude-fast", "build it")
+    friend = store.character(r["character"])
+    assert contexts.get(friend["live_context"]).sent[0].rstrip().endswith(skills.phase_skill("implementing"))
+    assert friend["phase_seen"] == "implementing"
+
+
+def test_a_recast_brief_ends_with_the_current_skill(store, contexts):
+    key, chr_id = started(store)
+    store.cast_yield(chr_id, "handoff", "outline"); store.proceed(key)
+    contexts.get(store.character(chr_id)["live_context"]).status = "idle"
+    new = store.recast(key, chr_id)
+    first = contexts.get(new).sent[0]
+    assert "## Situation" in first and first.rstrip().endswith(skills.phase_skill("implementing"))
+    assert store.character(chr_id)["phase_seen"] == "implementing"

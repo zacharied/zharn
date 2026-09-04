@@ -521,3 +521,12 @@ def test_handoff_posts_with_checks_when_they_pass_or_despite_or_attach(fake_ipc,
     assert yields[0]["checks"] == [{"repo": "api", "cmd": "test -f ok.txt", "exit": 0, "output": ""}]
     assert yields[1]["checks"][0]["exit"] == 1 and yields[2]["checks"][0]["exit"] == 1 and yields[3]["checks"] == []
     assert all(y["kind"] == "handoff" for y in yields)
+
+
+def test_story_proceed_prints_the_skill_after_the_comment(recorder, monkeypatch, capsys):
+    monkeypatch.setenv("HARNESS_CHARACTER_ID", "chr1")
+    recorder.replies["story.proceed"] = {"id": "cmt_1", "kind": "system", "skill": "# Implementing\n\nBuild."}
+    cli.main(["story", "proceed"])
+    assert capsys.readouterr().out == "id: cmt_1\nkind: system\n\n# Implementing\n\nBuild.\n"
+    cli.main(["--json", "story", "proceed"])
+    assert json.loads(capsys.readouterr().out)["skill"] == "# Implementing\n\nBuild."

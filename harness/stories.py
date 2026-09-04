@@ -377,6 +377,23 @@ class StoryStore(QObject):
             text += f"\n(options: {', '.join(opts)})"
         return self.situation(ch) + "\n" + text
 
+    def _phase_skill_due(self, ch: dict) -> str:
+        """Spec §5.3: the phase skill rides a message whenever the story's phase differs from what this character was
+        last told — not from the action that moved the phase, since an inbox item can be popped after the Proceed
+        that preceded it. Terminal phases carry none. Updates phase_seen; the caller saves."""
+        phase = self._stories[ch["story_key"]].phase
+        if phase in lc.TERMINAL or ch.get("phase_seen") == phase:
+            return ""
+        ch["phase_seen"] = phase
+        return skills.phase_skill(phase)
+
+    def _push(self, ch: dict, ctx, comment: dict):
+        """One delivery to a live context: the situation line, the comment, and the phase skill when it is new."""
+        text = self._format(ch, comment)
+        skill = self._phase_skill_due(ch)
+        self._save_characters()
+        ctx.send(text + (f"\n\n{skill}" if skill else ""))
+
     def _deliver_to(self, ch: dict, comment: dict):
         """Spec §2.3 delivery: mid-turn, the attended thread is pushed now and everything else waits in the inbox;
         a waiting or idle character is woken by whatever arrives and attends its thread."""
@@ -392,7 +409,7 @@ class StoryStore(QObject):
             return
         ch["attention"] = comment["thread_id"]
         self._save_characters()
-        ctx.send(self._format(ch, comment))
+        self._push(ch, ctx, comment)
 
     def _route(self, key: str, comment: dict):
         for cid in self.addressees(key, comment):
@@ -445,7 +462,7 @@ class StoryStore(QObject):
                 ch["attention"] = comment["thread_id"]
                 self._save_characters()
                 if ctx is not None:
-                    ctx.send(self._format(ch, comment))
+                    self._push(ch, ctx, comment)
                 break
         self._save_characters()
         self._refresh()
@@ -522,9 +539,11 @@ class StoryStore(QObject):
         try:
             if fork_from is None:
                 cid = self._contexts.create(role_cfg["name"], story_key=key, owner=chr_id, title=title, env=env)
-                first = render_brief(s, self._comments[key], self._characters, note, substories=self._substories(key))
+                first = render_brief(s, self._comments[key], self._characters, note, substories=self._substories(key),
+                                     skill=self._phase_skill_due(ch))
             else:
                 src = self._characters[fork_from]
+                ch["phase_seen"] = src.get("phase_seen")   # its conversation already holds the skill (spec §5.3)
                 src_ctx = self._contexts.get(src["live_context"]) if src.get("live_context") else None
                 if src_ctx is None or src_ctx.status in WORKING or not getattr(src_ctx, "sessionId", ""):
                     raise lc.Rejected(f"{src['name']} is working or has never run; fork it when it stops")
@@ -708,6 +727,8 @@ class StoryStore(QObject):
                  and getattr(old, "turns", 0) - ch.get("recap_turns", 0) <= getattr(cfg, "RECAP_STALE_TURNS", 20))
         rung = "rung 1: fresh recap" if fresh else "rung 3: no fresh recap"
         ch["role"] = role_cfg["name"]
+        ch["phase_seen"] = None                     # a fresh context: the brief ends with the current phase skill
+        skill = self._phase_skill_due(ch)
         situation = (f"you are a recast of {ch['name']}; your predecessor's recap is above. "
                      f"You were attending #{ch.get('attention') or s.main_thread}; {len(ch.get('inbox', []))} items wait in your inbox; "
                      f"you await {', '.join(self.awaits(ch)) or 'nothing'} and owe {', '.join('#' + t for t in self.owes(ch)) or 'nothing'}.")
@@ -722,7 +743,7 @@ class StoryStore(QObject):
             old.stop()
         self._apply(key, lc.Note(thread_id=s.main_thread, body=f"recast {ch['name']} as {role_cfg['name']} ({rung})"))
         self._contexts.get(cid).send(render_brief(s, self._comments[key], self._characters, "",
-                                                  substories=self._substories(key), situation=situation))
+                                                  substories=self._substories(key), situation=situation, skill=skill))
         self._refresh()
         return cid
 
@@ -946,7 +967,10 @@ class StoryStore(QObject):
             approved = {"from": ["planning", "author"], "to": ["implementing", "cast"]}
             if not any(c.get("structured", {}).get("transition") == approved for c in comments[last_planning + 1:]):
                 raise lc.Rejected("your role requires an approved outline first: `yield --handoff` the outline and wait for Proceed")
-        return self._apply(key, lc.Proceed(by=character_id, note=note))
+        c = self._apply(key, lc.Proceed(by=character_id, note=note))
+        ch["phase_seen"] = "implementing"           # the skill goes out on stdout (§2.2); the next delivery must not repeat it
+        self._save_characters()
+        return {**c, "skill": skills.phase_skill("implementing")}
 
     def cast_resolve(self, character_id, thread_id, note="") -> dict:
         key, ch = self._char(character_id)
