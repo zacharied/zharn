@@ -61,8 +61,9 @@ def main():
         if "slow" in prompt:
             time.sleep(1.5)
         elif "yield-question" in prompt:
-            cli = os.environ["HARNESS_CLI"].split() + ["story", "yield", "--question", "--body", "which one?", "--options", "a,b"]
-            r = subprocess.run(cli, capture_output=True, text=True, env=os.environ)
+            cli = os.environ["HARNESS_CLI"].split() + ["story", "yield", "--question"]
+            doc = json.dumps({"body": "", "questions": [{"text": "which one?", "options": ["a", "b"]}]})
+            r = subprocess.run(cli, input=doc, capture_output=True, text=True, env=os.environ)
             tool_turn("Bash", {"command": "zharn story yield --question …"}, (r.stdout + r.stderr).strip(), is_error=r.returncode != 0)
         elif "yield-handoff" in prompt:
             cli = os.environ["HARNESS_CLI"].split() + ["story", "yield", "--handoff", "--body", "done"]

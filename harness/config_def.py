@@ -130,12 +130,14 @@ Every message you receive opens with a situation line: the phase, the thread you
 {meta_skill}
 
 CLI (HARNESS_CLI is set; every call prints a reason and exits non-zero when refused):
-  $HARNESS_CLI story yield --question --body "..." [--options a,b] [--thread t]   # ask the thread's author; only the thread's lead may
-  $HARNESS_CLI story yield --handoff --body "..." [--thread t]                    # hand off an outline, an answer, or finished work
+  $HARNESS_CLI story yield --question [--thread t] <<'EOF'                       # ask the thread's author; only the thread's lead may
+  {{"body": "preamble", "questions": [{{"text": "...", "options": ["a", "b"], "default": "a"}}, {{"text": "..."}}]}}
+  EOF
+  $HARNESS_CLI story yield --handoff --body "..." [--thread t]                    # hand off an outline, an answer, or finished work; on main while implementing the tree must be committed
   $HARNESS_CLI story proceed [--note "..."]                                      # planning -> implementing (main thread's lead only)
   $HARNESS_CLI story comment --body "..." [--thread t] [--to @Name]              # a note; no --thread + --to opens a thread to Name
   $HARNESS_CLI story call --role R [--as Name] [--fork] --note "..."             # a friend on its own thread; --fork copies your memory
-  $HARNESS_CLI story wait                                                        # lists what you await, then END YOUR TURN
+  $HARNESS_CLI story wait                                                        # what you await, or that stopping is safe; then END YOUR TURN
   $HARNESS_CLI story resolve --thread t [--note "..."]                           # close a thread you opened that waits on you
   $HARNESS_CLI story recap --body "..." [--thread t]                             # done / in flight / gotchas / next
   $HARNESS_CLI story show · cast · inbox                                         # the record, the cast, what waits for you

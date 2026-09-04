@@ -1,8 +1,10 @@
 """Unit tests for harness.cli (pure stdlib): request() transport, out() formatting, main() arg parsing.
 The end-to-end CLI-over-IPC path lives in test_agents.py::test_cli_over_ipc."""
+import io
 import json
 import os
 import socket
+import subprocess
 import threading
 import time
 import types
@@ -306,14 +308,48 @@ def test_story_list_show_create_start(recorder, monkeypatch):
                               ("story.start", {"key": "ABC-1", "note": "go", "role": "protagonist"})]
 
 
-def test_story_yield_uses_character_from_env(recorder, monkeypatch, capsys):
+def _git_repo(path):
+    """A committed repo at `path` (a clean tree for the handoff's tree gate)."""
+    path.mkdir(parents=True, exist_ok=True)
+    (path / "README.md").write_text("hello\n")
+    for args in (["init", "-q", "-b", "main"], ["add", "README.md"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init"]):
+        subprocess.run(["git", *args], cwd=path, check=True, capture_output=True)
+    return path
+
+
+def test_story_yield_question_reads_a_document_from_stdin(recorder, monkeypatch):
     monkeypatch.setenv("HARNESS_CHARACTER_ID", "chr1")
     recorder.replies["story.yield"] = {"id": "c1", "kind": "question"}
-    cli.main(["story", "yield", "--question", "--body", "which?", "--options", "a,b", "--thread", "t2"])
-    assert recorder.calls == [("story.yield", {"character": "chr1", "kind": "question", "body": "which?", "options": ["a", "b"], "thread": "t2", "checks": []})]
+    doc = {"body": "Two things.", "questions": [{"text": "a or b?", "options": ["a", "b"], "default": "a"}, {"text": "why?"}]}
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(doc)))
+    cli.main(["story", "yield", "--question", "--thread", "main"])
+    assert recorder.calls == [("story.yield", {"character": "chr1", "kind": "question", "body": "Two things.",
+                                               "questions": doc["questions"], "thread": "main", "checks": []})]
     recorder.replies["env.checks"] = {"run": False, "environments": [], "policy": "gate", "limit": 100, "timeout": 30}
     cli.main(["story", "yield", "--handoff", "--body", "done"])
-    assert recorder.calls[-1][1]["kind"] == "handoff" and recorder.calls[-1][1]["options"] == []
+    assert recorder.calls[-1][1]["kind"] == "handoff" and recorder.calls[-1][1]["questions"] == [] and recorder.calls[-1][1]["body"] == "done"
+
+
+def test_story_yield_question_refuses_body_and_bad_json(recorder, monkeypatch):
+    monkeypatch.setenv("HARNESS_CHARACTER_ID", "chr1")
+    with pytest.raises(SystemExit, match="--body belongs to --handoff"):
+        cli.main(["story", "yield", "--question", "--body", "which?"])
+    monkeypatch.setattr("sys.stdin", io.StringIO("{not json"))
+    with pytest.raises(SystemExit, match="not JSON"):
+        cli.main(["story", "yield", "--question"])
+    monkeypatch.setattr("sys.stdin", io.StringIO("[]"))
+    with pytest.raises(SystemExit, match="JSON object"):
+        cli.main(["story", "yield", "--question"])
+    with pytest.raises(SystemExit, match="a handoff needs --body"):
+        cli.main(["story", "yield", "--handoff"])
+    assert recorder.calls == []
+
+
+def test_dirty_trees_reports_status_per_repo(tmp_path):
+    clean, dirty = _git_repo(tmp_path / "clean"), _git_repo(tmp_path / "dirty")
+    (dirty / "new.py").write_text("x")
+    assert cli.dirty_trees([{"repo": "a", "path": str(clean)}, {"repo": "b", "path": str(dirty)}]) == [{"repo": "b", "path": str(dirty), "status": "?? new.py"}]
+    assert cli.dirty_trees([{"repo": "c", "path": str(tmp_path / "missing")}]) == []
 
 
 def test_story_yield_requires_exactly_one_kind_and_a_character(recorder, monkeypatch):
@@ -324,7 +360,7 @@ def test_story_yield_requires_exactly_one_kind_and_a_character(recorder, monkeyp
         cli.main(["story", "yield", "--question", "--handoff", "--body", "x"])
     monkeypatch.delenv("HARNESS_CHARACTER_ID")
     with pytest.raises(SystemExit) as e:
-        cli.main(["story", "yield", "--question", "--body", "x"])
+        cli.main(["story", "yield", "--handoff", "--body", "x"])
     assert "HARNESS_CHARACTER_ID" in str(e.value)
     assert recorder.calls == []
 
@@ -494,7 +530,28 @@ def test_run_checks_kills_the_whole_process_group_on_timeout(tmp_path):
 
 
 @posix_only
+def test_handoff_refuses_a_dirty_tree_before_running_checks(fake_ipc, tmp_path, capsys):
+    repo = _git_repo(tmp_path / "api"); (repo / "hello.py").write_text("changed")
+    st = fake_ipc({"run": True, "policy": "gate", "limit": 100, "timeout": 30,
+                   "environments": [{"repo": "api", "checks": "false", "path": str(repo)}]})
+    with pytest.raises(SystemExit) as e:
+        cli.main(["story", "yield", "--handoff", "--body", "done", "--despite-checks"])
+    assert "handoff refused: uncommitted changes in api" in str(e.value) and "commit them and retry" in str(e.value)
+    assert "?? hello.py" in capsys.readouterr().err
+    assert [r["cmd"] for r in st["received"]] == ["env.checks"]     # the checks never ran, nothing posted
+
+
+def test_handoff_skips_repos_without_checks(fake_ipc, tmp_path):
+    repo = _git_repo(tmp_path / "plain")
+    st = fake_ipc({"run": True, "policy": "gate", "limit": 100, "timeout": 30,
+                   "environments": [{"repo": "plain", "checks": "", "path": str(repo)}]}, {"id": "c1"})
+    cli.main(["story", "yield", "--handoff", "--body", "done"])
+    assert [r["args"]["checks"] for r in st["received"] if r["cmd"] == "story.yield"] == [[]]
+
+
+@posix_only
 def test_handoff_runs_checks_and_gates_on_failure(fake_ipc, tmp_path, capsys):
+    tmp_path = _git_repo(tmp_path / "api")
     plan = {"run": True, "policy": "gate", "limit": 100, "timeout": 30,
             "environments": [{"repo": "api", "checks": "test -f ok.txt", "path": str(tmp_path)}]}
     st = fake_ipc(plan)
@@ -507,7 +564,10 @@ def test_handoff_runs_checks_and_gates_on_failure(fake_ipc, tmp_path, capsys):
 
 @posix_only
 def test_handoff_posts_with_checks_when_they_pass_or_despite_or_attach(fake_ipc, tmp_path):
+    tmp_path = _git_repo(tmp_path / "api")
     (tmp_path / "ok.txt").write_text("")
+    subprocess.run(["git", "add", "ok.txt"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "ok"], cwd=tmp_path, check=True)
     env = {"repo": "api", "checks": "test -f ok.txt", "path": str(tmp_path)}
     st = fake_ipc({"run": True, "policy": "gate", "limit": 100, "timeout": 30, "environments": [env]}, {"id": "c1"},
                   {"run": True, "policy": "attach", "limit": 100, "timeout": 30, "environments": [{**env, "checks": "false"}]}, {"id": "c2"},

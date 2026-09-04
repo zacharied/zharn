@@ -189,7 +189,15 @@ move between environments *of its story* between turns by calling `env open` aga
 Processes receive `HARNESS_WORKSPACE` (dir), and, when the character has an environment,
 `HARNESS_REPO` (name) and `HARNESS_ENV` (path).
 
-### 4.6 Checks
+### 4.6 The gates at a handoff: the tree, then the checks
+
+**The tree first.** At a handoff on the main thread of an `implementing` story, the CLI runs
+`git status --porcelain` in every environment of the story. Any output — modified, staged or
+untracked files alike — refuses the handoff and prints it per repo: "handoff refused: uncommitted
+changes in fixture — commit them and retry". There is no flag past it: a story's work reaches its
+parent branch through Approve, which merges the story's branch, and what is not committed is not
+in the story. Side threads are not gated; friends share the protagonist's tree, and the
+protagonist's main handoff is where the work is declared done.
 
 `checks` is per repo (§3.1). At a handoff on the main thread of
 an `implementing` story, the CLI — inside the character's turn, so the harness process never

@@ -168,7 +168,7 @@ def test_story_start_yield_over_cli_and_reply(harness):
     assert ctx.owner == chr_id and ctx.storyKey == key
     assert wait_until(lambda: store.stories.get(key)["ball"] == "author", timeout_ms=15000), store.stories.get(key)
     q = store.stories.comments(key)[-1]
-    assert q["kind"] == "question" and q["structured"]["options"] == ["a", "b"] and q["authorName"] == "protagonist"
+    assert q["kind"] == "question" and q["structured"]["questions"] == [{"text": "which one?", "options": ["a", "b"]}] and q["authorName"] == "protagonist"
     assert store.stories.get(key)["flavor"] == "question" and store.notify.status == f"{key} needs you: question"
     assert store.stories.character(chr_id)["verbs_log"][-1]["verb"] == "yield"
     assert wait_until(lambda: ctx.status == "idle", timeout_ms=15000)
@@ -176,7 +176,7 @@ def test_story_start_yield_over_cli_and_reply(harness):
     assert store.stories.get(key)["ball"] == "cast"
     assert wait_until(lambda: ctx.status == "idle" and rows(ctx)[-1]["role"] == "assistant", timeout_ms=15000)
     assert rows(ctx)[-1]["text"].startswith("echo: ")
-    assert "[you] reply in #thr_" in rows(ctx)[-2]["text"]
+    assert "[you] reply in #main: a" in rows(ctx)[-2]["text"]
 
 
 def test_cli_story_show_over_ipc(harness):

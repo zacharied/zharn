@@ -316,6 +316,8 @@ def test_handoff_over_the_cli_carries_the_checks(app_store):
     st.proceed(key)                                  # planning → implementing; resumes the protagonist
     assert wait_until(lambda: ctx.status == "idle" and st.get(key)["ball"] == "author", timeout_ms=15000)
     (Path(d["path"]) / "ok.txt").write_text("")
+    for args in (["add", "ok.txt"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "ok"]):
+        subprocess.run(["git", *args], cwd=d["path"], check=True, capture_output=True)   # the tree gate (§4.6) wants it committed
     st.comment(key, "yield-handoff")                 # the fake runs `story yield --handoff` from inside the character
 
     def posted():

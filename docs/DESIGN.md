@@ -289,7 +289,10 @@ Known churn: every intent re-parses the whole tree and rebuilds all groups (fine
    prompt is split by volatility — a stable system prompt built at every spawn and never stored, the situation line and
    the phase skill in messages (`Character.phase_seen`; spec §5.3); `tests/skills/` runs three scenarios against real
    `claude -p` behind `HARNESS_PAID_TESTS=1`, blanking the skill under test for the baseline; the paid run landed
-   2026-09-04 on Sonnet 5 (`HARNESS_PAID_MODEL`), its `baseline.json`/`skilled.json` beside each scenario. **Deferred:**
+   2026-09-04 on Sonnet 5 (`HARNESS_PAID_MODEL`), its `baseline.json`/`skilled.json` beside each scenario. What that run
+   taught (proposal `2026-09-04-paid-run-frictions.md`, shipped the same day): a question yield is a JSON document on
+   stdin, one record per question, rendered as a button row each; `wait` rejects only the go-quiet case; the main thread
+   is `#main` wherever the harness speaks; an implementing handoff on main refuses a dirty tree. **Deferred:**
    `writing-skills`, a separate `yielding` skill, shrinking the situation line.
 5. **Story tab + board rework**: threads with per-cell action bars, option buttons, `@`/`/call`,
    cast panel (attention, inbox, context meter, Recast), needs-you highlighting and count,

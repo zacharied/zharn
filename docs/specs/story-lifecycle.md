@@ -73,14 +73,14 @@ outputs; rejections raise with the reason the CLI prints. Every phase-changing c
 
 | Verb | Who | Precondition | Effect |
 |---|---|---|---|
-| `yield --question --body … [--options a,b] [--thread t]` | `t`'s lead (default `t` = attended thread) | thread has no pending yield | `question` comment; thread turn → author |
-| `yield --handoff --body … [--attach …] [--thread t]` | `t`'s lead | as above; main thread in `implementing`: no open sub-stories, and the harness first runs each touched repo's `checks` in the story's environment for it ([workspace spec](workspace-model.md) §4.6), attaching `[{repo, cmd, exit, output}]` | `handoff` comment; thread turn → author |
+| `yield --question [--thread t]` — a JSON document on stdin: `{body?, questions: [{text, options?, default?}]}` | `t`'s lead (default `t` = attended thread) | thread has no pending yield; at least one question, each with non-empty `text`, `options` a list of strings (absent or empty: free text), `default` a string. Invalid JSON is refused by the CLI; a wrong shape by the store | `question` comment, `structured.questions` normalized (`options` always a list, `default` only when given); thread turn → author |
+| `yield --handoff --body … [--despite-checks] [--thread t]` | `t`'s lead | as above; main thread in `implementing`: no open sub-stories, every environment of the story has a clean tree (no flag past it), then each repo's `checks` run in its environment, attaching `[{repo, cmd, exit, output}]` ([workspace spec](workspace-model.md) §4.6) | `handoff` comment; thread turn → author |
 | `resolve --thread t [--note …]` | `t`'s author | as §2.1 Resolve: turn = author, not the main thread | As §2.1 Resolve: system comment, yield closed, lead neither resumed nor notified, turn → resolved |
 | `proceed [--note …]` | protagonist (main's lead) | `(planning, cast)`; if the role has `outline_first`, an outline handoff must have been Proceed-ed since the most recent entry into planning | System comment on main → `(implementing, cast)`. **stdout is the `implementing-a-story` skill**; `phase_seen` := implementing. |
 | `recap --body … [--thread t]` | any | — | `recap` comment in `t` (default: attended thread, else main); recorded as the character's latest recap. No transition. |
 | `comment --body … [--thread t] [--reply-to id] [--to @Name…] [--attach …]` | any | default `t` = attended thread | `text` comment, delivered per §3.2. No transition. |
 | `call --role R [--as Name] [--fork] --note …` | any | — | Cast a friend: new thread authored by the caller, led by the friend, `note` as root. `--fork`: the friend's context is a clone of the caller's live context (`Character.forked_from` = caller). Prints id/name. A friend that should read another thread is told so in the note and comments there as a guest. |
-| `wait` | any | `awaits ≠ ∅` | A guard, not a block: prints what the caller awaits (threads by lead, sub-stories) and "end your turn". Rejected when nothing is awaited: "you await nothing and owe #t — yield instead". The harness wakes the character with whatever arrives next (§2.3). |
+| `wait` | any | not (`awaits = ∅` and `owes ≠ ∅`) | A guard, not a block: prints what the caller awaits (threads by lead, sub-stories) and "end your turn"; with nothing awaited and nothing owed it says so and that a reply will wake it. Rejected only in the one state where stopping would go quiet: "you await nothing and owe #t — yield instead". The harness wakes the character with whatever arrives next (§2.3). |
 | `create --title … [--description …] [--start --role R]` | any | — | Sub-story with `author = <this character>`, `parent_story = <this story>`. Its yields reach the character like any comment (§3.2); `wait` covers it. |
 | `reply <key> --thread t --body …` · `resolve <key> --thread t [--note …]` · `proceed <key>` · `approve <key>` · `cancel <key>` · `recast <key> …` | author of `<key>` | — | Author actions of §2.1. Rejected otherwise. |
 | `inbox` · `show [<key>]` · `list` · `cast [<key>]` | any | — | Read-only. |
@@ -125,8 +125,8 @@ in this order:
 | Human types in a character's context view | Posted as a human comment in the character's attended thread (root comment addressed to it, if it attends nothing) |
 | Story becomes terminal | Every character retires: Cancel stops each live context now; Approve lets a mid-turn context finish its turn (its verbs are already rejected). Nothing is delivered to a retired character; Reopen resumes the protagonist |
 
-`AskUserQuestion` does not exist under `claude -p` (verified 2026-08-31); `yield --question
---options` is the only way to ask.
+`AskUserQuestion` does not exist under `claude -p` (verified 2026-08-31); `yield --question`
+with `options` is the only way to ask.
 
 ### 2.4 Invariants (asserted in tests)
 
@@ -223,7 +223,8 @@ Comment
   kind:   text | question | handoff | recap | system,
   body:   markdown,
   mentions: [character_id],
-  structured: { options?: [str], answers?: [str],
+  structured: { questions?: [{text, options: [str], default?: str}],   # question yields, in the document's order
+                answers?: [str],                                       # the reply's picks by question index, "" where none
                 check?: {cmd, exit, output},
                 transition?: {from: [phase, ball], to: [phase, ball]} },
   attachments: [ {path, is_image} ],
@@ -232,7 +233,9 @@ Comment
 
 * A thread whose turn = author renders the matching action bar (main thread: the story's cell
   actions; other threads: Reply · Resolve).
-* `question.options` render as buttons; a click posts the reply.
+* `question.questions` render as numbered rows, each with its `default` named and a button per option. Picks
+  accumulate per thread; Reply is enabled by a pick or composer text and posts one comment — `N. <pick>` per
+  picked question, then the text — with the picks as `answers`. The picked button of each row stays marked.
 * `is_image` attachments render inline.
 
 ## 5. Skills
@@ -275,7 +278,7 @@ checklist, flowchart only at decision points; descriptions are triggers, never w
 sub-story is out — the harness will yield for you and say so; (2) status is not yours to set;
 (3) everything you say to anyone is a comment; (4) the phase skill in your conversation is
 mandatory — re-read it with the Skill tool when unsure; (5) when told your context is low,
-`recap` before anything else; (6) questions carry options and are batched into one yield;
+`recap` before anything else; (6) one question yield carries every question as a record, options where choices exist;
 handoffs carry evidence — what changed, how verified, where to look first.
 `planning-a-story`: classify (spike / bounded / outline) → bounded: `proceed`; spike: minions
 read, then `yield --handoff` with the answer; outline: everything you must ask in one
@@ -302,7 +305,9 @@ role's instructions and its outline rule. Nothing volatile is in it, so every re
 sends the same bytes and the cache prefix over the resumed conversation survives. Bare contexts and
 asides have their own stored prompts (§3.5).
 
-**Situation line.** Every delivery opens with one, then the comment:
+**Situation line.** Every delivery opens with one, then the comment. Threads are named as a character may
+name them: the main thread is `#main` (`--thread main` resolves to it in every verb that takes a thread),
+any other by its id, with ` of KEY` when the thread belongs to another story:
 
 ```
 [situation] phase <phase> · attending #<thread> · you owe <threads> · you await <threads or nothing> · in <repo> at <path>
@@ -341,8 +346,8 @@ under real `claude -p`, only under `HARNESS_PAID_TESTS=1`, on the CLI's default 
 `HARNESS_PAID_MODEL` names one (it overrides every role, friends included, for that run); assertions
 read `verbs_log`, not transcripts; the last run's baseline and skilled logs are committed beside the
 scenario as evidence, each recording the model that ran. Scenarios: outline-before-proceed (an `outline_first` role: one question yield, one
-outline handoff, no edits), handoff-not-silence (implementing: a handoff with evidence, not a
-harness yield), batch-questions (planning with three unknowns: one yield with options).
+outline handoff, no edits), handoff-not-silence (implementing: a committed handoff with evidence, not a
+harness yield), batch-questions (planning with three unknowns: one yield whose document carries options).
 New/edited skills: baseline failure first.
 
 ## 6. UI

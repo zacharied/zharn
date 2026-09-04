@@ -26,19 +26,20 @@ def test_scenarios_are_the_three_of_the_spec():
 
 def test_violations_checks_must_must_not_max_and_flags():
     exp = {"must": [{"verb": "yield", "args": {"kind": "question"}}], "must_not": [{"verb": "proceed"}],
-           "max": {"yield": 1}, "no_auto_yield": True, "question_has_options": True, "clean_tree": True}
-    good = {"verbs_log": [v("yield", kind="question", options=["a", "b"])], "auto_yields": 0, "dirty": ""}
+           "max": {"yield": 1}, "no_auto_yield": True, "question_has_options": True, "clean_tree": True, "committed": True}
+    good = {"verbs_log": [v("yield", kind="question", questions=[{"text": "q", "options": ["a", "b"]}])], "auto_yields": 0, "dirty": "", "committed": True}
     assert runner.violations(exp, good) == []
-    bad = {"verbs_log": [v("yield", kind="question", options=[]), v("yield", kind="handoff"), v("proceed", ok=False)],
-           "auto_yields": 1, "dirty": " M hello.py"}
+    bad = {"verbs_log": [v("yield", kind="question", questions=[{"text": "q", "options": []}]), v("yield", kind="handoff"), v("proceed", ok=False)],
+           "auto_yields": 1, "dirty": " M hello.py", "committed": False}
     out = runner.violations(exp, bad)
     assert any("forbidden" in x for x in out) and any("yield ×2 > 1" in x for x in out)
     assert any("harness yielded" in x for x in out) and any("without options" in x for x in out) and any("edited" in x for x in out)
+    assert any("not committed" in x for x in out)
 
 
 def test_violations_must_defaults_to_accepted_calls():
     exp = {"must": [{"verb": "proceed"}]}
-    assert runner.violations(exp, {"verbs_log": [v("proceed", ok=False)], "auto_yields": 0, "dirty": ""}) == ["missing {'verb': 'proceed'}"]
+    assert runner.violations(exp, {"verbs_log": [v("proceed", ok=False)], "auto_yields": 0, "dirty": "", "committed": False}) == ["missing {'verb': 'proceed'}"]
 
 
 def test_blanked_tree_keeps_frontmatter_and_drops_the_body(tmp_path):

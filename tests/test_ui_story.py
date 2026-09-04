@@ -69,9 +69,9 @@ def test_start_casts_protagonist_and_shows_phase_and_ball(ui):
     assert wait_until(lambda: ctx.status == "idle"), (ctx.status, ctx.lastError)
 
 
-def test_question_yield_renders_options_and_clicking_one_replies(ui):
+def test_question_yield_renders_rows_and_reply_posts_the_picks(ui):
     key = ui.store.stories.create("Q", "")
-    ui.store.stories.start(key, "yield-question", "protagonist")     # the fake protagonist asks (options a,b)
+    ui.store.stories.start(key, "yield-question", "protagonist")     # the fake protagonist asks one question (a, b)
     open_story(ui, key)
     assert wait_until(lambda: any(r["kind"] == "question" for r in ui.store.stories.comments(key)))
     c = next(r for r in ui.store.stories.comments(key) if r["kind"] == "question")
@@ -80,11 +80,19 @@ def test_question_yield_renders_options_and_clicking_one_replies(ui):
     expected = sum(1 for r in ui.store.stories.list() if r["needsYou"])   # other stories may need you too
     assert expected >= 1 and ui.find("needsYouCount").property("text").startswith(f"{expected} need")
     assert ui.visible(ui.find(f"cardBadge_{key}"))
-    ui.click(ui.find(f"optionButton_{c['id']}_1"))
+    assert ui.find(f"questionRow_{c['id']}_0").property("text") == "1. which one?"
+    assert not ui.find("replyButton").property("enabled")
+    ui.click(ui.find(f"optionButton_{c['id']}_0_1"))
+    assert ui.store.stories.get(key)["ball"] == "author"              # a pick alone posts nothing
+    assert ui.find("replyButton").property("enabled") and ui.find(f"optionButton_{c['id']}_0_1").property("icon_") == "check"
+    ui.focus_and_type(ui.find("replyInput"), "and quickly")
+    ui.click(ui.find("replyButton"))
     assert ui.store.stories.get(key)["ball"] == "cast"
     last = ui.store.stories.comments(key)[-1]
-    assert last["body"] == "b" and last["reply_to"] == c["id"]
-    assert not ui.visible(ui.find("needsYouBanner"))
+    assert last["body"] == "1. b\nand quickly" and last["reply_to"] == c["id"] and last["structured"]["answers"] == ["b"]
+    assert not ui.visible(ui.find("needsYouBanner"))                  # before the fake's turn ends and the harness yields for it
+    assert ui.find(f"optionButton_{c['id']}_0_1").property("icon_") == "check"     # the pick stays marked
+    assert ui.find(f"optionButton_{c['id']}_0_0").property("icon_") == "" and ui.find("replyInput").property("text") == ""
 
 
 def test_reply_composer_posts_a_human_comment(ui):

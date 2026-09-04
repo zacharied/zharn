@@ -28,7 +28,7 @@ Minions read, friends build, you hold the plot. A file you read stays in your co
 3. Each task you build: `zharn:test-driven-development`. Each task a friend built: reply in its thread with what to fix, or `resolve` it.
 4. After each delegated task lands, a reviewer friend (`call --role reviewer`) reads it (`zharn:requesting-code-review`). Reviews are always friends — never you, never a minion.
 5. `wait` after casting; end your turn; the handoffs wake you.
-6. Before the handoff: `zharn:verification-before-completion`. Run the repo's checks yourself first; a refused handoff is a wasted turn.
+6. Before the handoff: `zharn:verification-before-completion`, then commit in your environment. Run the repo's checks yourself first; a refused handoff is a wasted turn.
 
 ## The handoff
 
@@ -40,7 +40,7 @@ How verified: <the commands you ran and what they printed — counts, not adject
 Where to look first: <the one file or test that shows the change working>
 ```
 
-Checks attach mechanically. Open sub-stories block the handoff: finish or cancel them first.
+The tree is clean: a handoff with uncommitted changes is refused, and there is no flag past it. The handoff names the commit. Checks attach mechanically. Open sub-stories block the handoff: finish or cancel them first.
 
 ## Rationalizations
 
@@ -52,6 +52,7 @@ Checks attach mechanically. Open sub-stories block the handoff: finish or cancel
 | "Tests probably pass" | Run them. `zharn:verification-before-completion`: evidence before claims. |
 | "I'll ask the author a quick question mid-build" | A question yields the main thread and stops the build. Decide and note the decision in the handoff, or batch it with everything else you need. |
 | "I'll hand off now and finish the rest after" | A handoff says the work is done. Half-done work is a `comment`; then keep going. |
+| "I'll leave committing to the author" | Approve merges the branch; what isn't committed isn't in the story. Commit, then hand off. |
 
 ## Red flags
 
@@ -65,5 +66,6 @@ Checks attach mechanically. Open sub-stories block the handoff: finish or cancel
 - [ ] In your environment (`env open`)
 - [ ] Tasks split; delegated ones out; `wait`
 - [ ] Every change test-first; every delegated task reviewed by a friend
+- [ ] Committed in your environment; the handoff names the commit
 - [ ] Checks run and green (or `--despite-checks`, and say why in the handoff body)
 - [ ] Handoff: what changed / how verified / where to look first

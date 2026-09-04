@@ -54,7 +54,9 @@ protagonist's `yield`/`proceed`; nobody sets a status. When the ball is yours th
 Inside a character `HARNESS_CLI`, `HARNESS_CONTEXT_ID`, `HARNESS_STORY_KEY`, `HARNESS_CHARACTER_ID`,
 `HARNESS_WORKSPACE` and `HARNESS_IPC` are set:
 
-    $HARNESS_CLI story yield --question --body "pg or sqlite?" --options pg,sqlite   # ball → author
+    $HARNESS_CLI story yield --question <<'EOF'                                     # ball → author
+    {"body": "One decision.", "questions": [{"text": "pg or sqlite?", "options": ["pg", "sqlite"], "default": "sqlite"}]}
+    EOF
     $HARNESS_CLI story yield --handoff --body "what changed / how verified / where to look"
     $HARNESS_CLI story proceed | recap --body … | comment --body … | show
 

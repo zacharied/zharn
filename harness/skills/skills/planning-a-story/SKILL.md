@@ -35,7 +35,7 @@ In doubt between two, take the heavier one. The ratchet is one way: complexity f
 |---|---|
 | Spike | Minions read and try; you `yield --handoff` the answer with what was tried. Anything built is labeled throwaway. |
 | Bounded | `proceed --note "<what changes, how it is tested>"` — unless your role requires an outline (your system prompt says so); then a short outline handoff. |
-| Outline | Ask everything you must in one `yield --question`; when answered, `yield --handoff` the outline; end your turn and wait for Proceed. |
+| Outline | Ask everything you must in one `yield --question` (one record per question); when answered, `yield --handoff` the outline; end your turn and wait for Proceed. |
 
 ## The outline
 
@@ -43,7 +43,15 @@ A handoff whose body has, in this order: the steps; the files each step touches;
 
 ## Asking
 
-One `yield --question` carries every unknown. Number them; give `--options` for the ones with natural choices; say your default for each. The author answers once.
+One `yield --question` carries every unknown as its own record: `text`, `options` for the ones with natural choices, `default` for yours. The harness numbers them; the author answers once.
+
+```
+$HARNESS_CLI story yield --question <<'EOF'
+{"body": "Three decisions before I plan.",
+ "questions": [{"text": "File format?", "options": ["toml", "json", "yaml"], "default": "toml"},
+               {"text": "Anything else the config should carry?"}]}
+EOF
+```
 
 ## Rationalizations
 

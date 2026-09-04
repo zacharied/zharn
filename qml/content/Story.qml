@@ -58,9 +58,9 @@ ContentBase {
         return phase === "planning" ? "Handoff · outline" : "Handoff · ready for review"
     }
     function isPending(c) { for (var i = 0; i < threads.length; i++) if (threads[i].pendingYield === c.id) return true; return false }
-    function pickedOption(c) {  // the reply that answered this question, if any
-        for (var i = 0; i < comments.length; i++) if (comments[i].reply_to === c.id) return comments[i].body
-        return ""
+    function replyTo(c) { for (var i = 0; i < comments.length; i++) if (comments[i].reply_to === c.id) return comments[i]; return null }
+    function answersTo(c) {  // the picks of the reply that answered this question, by question index
+        var r = replyTo(c); return r && r.structured && r.structured.answers ? r.structured.answers : []
     }
     function turnText(t) {
         if (!t) return ""
@@ -262,6 +262,12 @@ ContentBase {
                     readonly property string turn: view.turnText(modelData)
                     readonly property bool waitsOnYou: modelData.turn === "author" && modelData.author === "human"
                     property bool open: modelData.isMain
+                    // picks for the pending question (spec §4): one per question, posted together by Reply
+                    property var picks: []
+                    readonly property string pendingId: modelData.pendingYield || ""
+                    onPendingIdChanged: picks = []
+                    readonly property bool anyPick: picks.some(function (x) { return !!x })
+                    function pick(qi, option) { var p = picks.slice(); while (p.length <= qi) p.push(""); p[qi] = p[qi] === option ? "" : option; picks = p }
                     Layout.fillWidth: true; Layout.topMargin: modelData.isMain ? 22 : 6; spacing: 0
                     objectName: "thread_" + modelData.id
 
@@ -301,10 +307,10 @@ ContentBase {
                                 readonly property bool isYield: modelData.kind === "question" || modelData.kind === "handoff"
                                 readonly property bool isReply: !!modelData.reply_to
                                 readonly property bool pending: line.isYield && view.isPending(modelData)
-                                readonly property var options: (modelData.structured && modelData.structured.options) ? modelData.structured.options : []
+                                readonly property var questions: (modelData.structured && modelData.structured.questions) ? modelData.structured.questions : []
                                 readonly property var checks: (modelData.structured && modelData.structured.checks) ? modelData.structured.checks : []
-                                readonly property string picked: options.length ? view.pickedOption(modelData) : ""
-                                readonly property bool answerable: options.length > 0 && pending && th.waitsOnYou
+                                readonly property var answered: questions.length ? view.answersTo(modelData) : []
+                                readonly property bool answerable: questions.length > 0 && pending && th.waitsOnYou
                                 readonly property bool isCharacter: !!view.character(modelData.author)
                                 objectName: "comment_" + modelData.id
                                 HoverHandler { id: lineHover }
@@ -366,18 +372,30 @@ ContentBase {
                                        text: line.modelData.body; textFormat: Text.MarkdownText; wrapMode: Text.Wrap; lineHeight: 1.35
                                        color: app.theme.text; font.pixelSize: app.theme.fontSize
                                        onLinkActivated: (link) => Qt.openUrlExternally(link) }
-                                // choices
-                                Flow {
-                                    visible: line.options.length > 0; Layout.fillWidth: true; Layout.topMargin: 8; spacing: 6
-                                    Repeater {
-                                        model: line.options
-                                        delegate: Btn {
-                                            required property int index
-                                            required property var modelData
-                                            objectName: "optionButton_" + line.modelData.id + "_" + index
-                                            small: true; text: modelData; enabled: line.answerable
-                                            icon_: line.picked === modelData ? "check" : ""
-                                            onClicked: app.stories.comment(tabKey, modelData)
+                                // the questions: one numbered row each, its options as buttons
+                                Repeater {
+                                    model: line.questions
+                                    delegate: ColumnLayout {
+                                        id: qrow
+                                        required property int index
+                                        required property var modelData
+                                        Layout.fillWidth: true; Layout.topMargin: 8; spacing: 4
+                                        Text { objectName: "questionRow_" + line.modelData.id + "_" + qrow.index; Layout.fillWidth: true; wrapMode: Text.Wrap
+                                               text: (qrow.index + 1) + ". " + qrow.modelData.text + (qrow.modelData["default"] ? "  ·  default " + qrow.modelData["default"] : "")
+                                               color: app.theme.text; font.pixelSize: app.theme.fontSize; lineHeight: 1.35 }
+                                        Flow {
+                                            visible: qrow.modelData.options.length > 0; Layout.fillWidth: true; spacing: 6
+                                            Repeater {
+                                                model: qrow.modelData.options
+                                                delegate: Btn {
+                                                    required property int index
+                                                    required property var modelData
+                                                    objectName: "optionButton_" + line.modelData.id + "_" + qrow.index + "_" + index
+                                                    small: true; text: modelData; enabled: line.answerable
+                                                    icon_: ((line.pending ? th.picks[qrow.index] : line.answered[qrow.index]) || "") === modelData ? "check" : ""
+                                                    onClicked: th.pick(qrow.index, modelData)
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -433,10 +451,15 @@ ContentBase {
                                 label: th.waitsOnYou ? "Reply to " + view.speaker({ author: th.modelData.lead }) : "Comment for " + view.speaker({ author: th.modelData.lead })
                                 placeholderText: th.waitsOnYou ? "Your reply answers the pending yield  (Ctrl+Enter)" : "Arrives between turns  (Ctrl+Enter)"
                                 onSubmitted: post()
-                                function post() { if (text.trim().length) { app.stories.comment(tabKey, text, th.modelData.isMain ? "" : th.modelData.id); text = "" } }
+                                function post() {
+                                    var body = text.trim(), tid = th.modelData.isMain ? "" : th.modelData.id
+                                    if (th.waitsOnYou && (th.anyPick || body.length)) { app.stories.answer(tabKey, tid, th.picks, body); text = ""; th.picks = [] }
+                                    else if (body.length) { app.stories.comment(tabKey, body, tid); text = "" }
+                                }
                             }
                             Btn { objectName: th.modelData.isMain ? "replyButton" : "replyButton_" + th.modelData.id; Layout.alignment: Qt.AlignBottom
-                                  primary: th.waitsOnYou; text: th.waitsOnYou ? "Reply" : "Comment"; enabled: reply.text.trim().length > 0; onClicked: reply.post() }
+                                  primary: th.waitsOnYou; text: th.waitsOnYou ? "Reply" : "Comment"
+                                  enabled: reply.text.trim().length > 0 || (th.waitsOnYou && th.anyPick); onClicked: reply.post() }
                         }
                     }
                 }

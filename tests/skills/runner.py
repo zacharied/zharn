@@ -78,10 +78,13 @@ def violations(expected: dict, result: dict) -> list[str]:
         out.append(f"the harness yielded for the character {result['auto_yields']} time(s)")
     if expected.get("question_has_options"):
         for e in log:
-            if e["verb"] == "yield" and e["ok"] and e["args"].get("kind") == "question" and not e["args"].get("options"):
+            if e["verb"] == "yield" and e["ok"] and e["args"].get("kind") == "question" \
+                    and not any(q.get("options") for q in (e["args"].get("questions") or [])):
                 out.append("a question yield without options")
     if expected.get("clean_tree") and result["dirty"]:
         out.append("the tree was edited: " + result["dirty"])
+    if expected.get("committed") and not result["committed"]:
+        out.append("the work was not committed: " + (result["dirty"] or "no environment"))
     return out
 
 
@@ -96,6 +99,14 @@ def _wait_for_quiet(store, key, QTest):
             if not any(c.status in ("starting", "working") for c in store.contexts.contexts_for(key)):
                 return
     raise TimeoutError(f"{key}: a turn exceeded {TURN_TIMEOUT_S}s")
+
+
+def _committed(store, key, repo: Path) -> bool:
+    """Every environment of the story is clean and at least one commit past the fixture's HEAD (the tree gate, §4.6)."""
+    base = git(repo, "rev-parse", "HEAD")
+    envs = [Path(r["path"]) for r in store.stories.environments.records(key)]
+    return bool(envs) and all(p.is_dir() and not git(p, "status", "--porcelain") and git(p, "log", "--oneline", f"{base}..HEAD")
+                              for p in envs)
 
 
 def _dirty(store, key, repo: Path) -> str:
@@ -161,6 +172,7 @@ def run_scenario(name: str, *, omit: str | list[str] | None, workdir: Path, mode
                               "body": c["body"][:600]} for c in comments],
                 "auto_yields": sum(1 for c in comments if c.get("structured", {}).get("auto_for")),
                 "dirty": _dirty(store, key, repo),
+                "committed": _committed(store, key, repo),
                 "cost_usd": round(sum(c.costUsd for c in store.contexts.contexts_for(key)), 4)}
     finally:
         if store is not None:

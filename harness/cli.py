@@ -85,12 +85,26 @@ def out(value, as_json: bool):
         print(value)
 
 
+def dirty_trees(envs: list[dict]) -> list[dict]:
+    """Workspace spec §4.6, the tree gate: the environments with uncommitted work, by `git status --porcelain`."""
+    out = []
+    for e in envs:
+        if not os.path.isdir(e["path"]):
+            continue
+        r = subprocess.run(["git", "status", "--porcelain"], cwd=e["path"], capture_output=True, text=True)
+        if r.returncode == 0 and r.stdout.strip():
+            out.append({"repo": e["repo"], "path": e["path"], "status": r.stdout.strip()})
+    return out
+
+
 def run_checks(envs: list[dict], limit: int, timeout: float) -> list[dict]:
-    """Workspace spec §4.6: each repo's `checks` in that environment; output truncated to `limit` characters.
-    Runs in its own process group on POSIX so a timeout can kill the whole tree a shell command may have
-    spawned, not just the shell."""
+    """Workspace spec §4.6: each repo's `checks` in that environment; a repo without `checks` contributes nothing.
+    Output truncated to `limit` characters. Runs in its own process group on POSIX so a timeout can kill the
+    whole tree a shell command may have spawned, not just the shell."""
     results = []
     for e in envs:
+        if not e.get("checks"):
+            continue
         kwargs = {"start_new_session": True} if os.name != "nt" else {}
         p = subprocess.Popen(e["checks"], shell=True, cwd=e["path"], stdout=subprocess.PIPE,
                              stderr=subprocess.STDOUT, text=True, **kwargs)
@@ -138,8 +152,10 @@ def main(argv=None):
     c = stp.add_parser("create"); c.add_argument("--title", required=True); c.add_argument("--description", default="")
     c.add_argument("--start", action="store_true", help="Start it now (characters: a sub-story you author)"); c.add_argument("--role", default="")
     s = stp.add_parser("start"); s.add_argument("key"); s.add_argument("--note", default=""); s.add_argument("--role", default="")
-    y = stp.add_parser("yield"); y.add_argument("--question", action="store_true"); y.add_argument("--handoff", action="store_true")
-    y.add_argument("--body", required=True); y.add_argument("--options", default=""); y.add_argument("--thread", default="")
+    y = stp.add_parser("yield", help='--question reads a JSON document from stdin: {"body": "...", "questions": [{"text", "options"?, "default"?}]}; '
+                                     '--handoff takes --body')
+    y.add_argument("--question", action="store_true"); y.add_argument("--handoff", action="store_true")
+    y.add_argument("--body", default=""); y.add_argument("--thread", default="")
     y.add_argument("--despite-checks", action="store_true", help="post a handoff even though checks failed")
     pr = stp.add_parser("proceed"); pr.add_argument("key", nargs="?", default=""); pr.add_argument("--note", default="")
     rc = stp.add_parser("recap"); rc.add_argument("--body", required=True); rc.add_argument("--thread", default="")
@@ -231,19 +247,36 @@ def main(argv=None):
         elif a.verb == "yield":
             if a.question == a.handoff:
                 sys.exit("yield needs exactly one of --question / --handoff")
-            opts = [o.strip() for o in a.options.split(",") if o.strip()]
-            checks = []
-            if a.handoff:   # §4.6: checks run here, in your turn, before the handoff posts
-                plan = request("env.checks", {"character": character(), "thread": a.thread})
-                checks = run_checks(plan["environments"], plan["limit"], plan["timeout"])
-                failed = [c for c in checks if c["exit"] != 0]
-                if failed and plan["policy"] == "gate" and not a.despite_checks:
-                    for c in failed:
-                        print(f"[{c['repo']}] {c['cmd']} → exit {c['exit']}\n{c['output']}", file=sys.stderr)
-                    sys.exit("handoff refused: checks failed in " + ", ".join(c["repo"] for c in failed)
-                             + " — fix and retry, or pass --despite-checks")
-            out(request("story.yield", {"character": character(), "kind": "question" if a.question else "handoff",
-                                        "body": a.body, "options": opts, "thread": a.thread, "checks": checks}), a.json)
+            if a.question:   # lifecycle spec §2.2: the document on stdin; its shape is checked by the store
+                if a.body:
+                    sys.exit("a question is a JSON document on stdin; --body belongs to --handoff")
+                try:
+                    doc = json.loads(sys.stdin.read())
+                except ValueError as e:
+                    sys.exit(f"the question document is not JSON: {e}")
+                if not isinstance(doc, dict):
+                    sys.exit('the question document must be a JSON object: {"body": "...", "questions": [...]}')
+                out(request("story.yield", {"character": character(), "kind": "question", "body": str(doc.get("body") or ""),
+                                            "questions": doc.get("questions"), "thread": a.thread, "checks": []}), a.json)
+                return
+            if not a.body:
+                sys.exit("a handoff needs --body")
+            # §4.6: the gates run here, in your turn — the tree first, then each repo's checks — before the handoff posts
+            plan = request("env.checks", {"character": character(), "thread": a.thread})
+            dirty = dirty_trees(plan["environments"]) if plan["run"] else []
+            if dirty:
+                for d in dirty:
+                    print(f"[{d['repo']}] {d['path']}\n{d['status']}", file=sys.stderr)
+                sys.exit("handoff refused: uncommitted changes in " + ", ".join(d["repo"] for d in dirty) + " — commit them and retry")
+            checks = run_checks(plan["environments"], plan["limit"], plan["timeout"])
+            failed = [c for c in checks if c["exit"] != 0]
+            if failed and plan["policy"] == "gate" and not a.despite_checks:
+                for c in failed:
+                    print(f"[{c['repo']}] {c['cmd']} → exit {c['exit']}\n{c['output']}", file=sys.stderr)
+                sys.exit("handoff refused: checks failed in " + ", ".join(c["repo"] for c in failed)
+                         + " — fix and retry, or pass --despite-checks")
+            out(request("story.yield", {"character": character(), "kind": "handoff", "body": a.body, "questions": [],
+                                        "thread": a.thread, "checks": checks}), a.json)
         elif a.verb == "recap": out(request("story.recap", {"character": character(), "body": a.body, "thread": a.thread}), a.json)
         elif a.verb == "call": out(request("story.call", {"character": character(), "role": a.role, "note": a.note, "as": a.as_name, "fork": a.fork}), a.json)
         elif a.verb == "wait": out(request("story.wait", {"character": character()}), a.json)
