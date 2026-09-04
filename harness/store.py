@@ -141,7 +141,8 @@ class AppStore(QObject):
     hotChanged = Signal()
 
     def __init__(self, session: Session, layout_store: LayoutStore, content, theme: dict,
-                 contexts=None, roles=None, stories=None, workspace=None, workspace_store=None, notifier=None):
+                 contexts=None, roles=None, stories=None, workspace=None, workspace_store=None, notifier=None,
+                 documents=None):
         super().__init__()
         self._session = session
         self._layout = layout_store
@@ -149,6 +150,7 @@ class AppStore(QObject):
         self._contexts, self._roles = contexts, roles
         self._stories, self._workspace = stories, workspace
         self._workspace_store = workspace_store
+        self._documents = documents
         self._notify = notifier or Notifier()
         self._notify.setParent(self)
         self._ipc_path = ""
@@ -181,6 +183,10 @@ class AppStore(QObject):
     @Property(QObject, constant=True)
     def workspace(self):
         return self._workspace_store
+
+    @Property(QObject, constant=True)
+    def documents(self):
+        return self._documents
 
     @Property(str, constant=True)
     def workspaceDir(self):

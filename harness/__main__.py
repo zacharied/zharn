@@ -73,16 +73,21 @@ def build(argv=None, force_poll=False):
     contexts = ContextStore(ROOT, data_dir / "contexts", roles, workspace_dir=workspace.dir)
     stories = StoryStore(workspace, contexts, roles)
     workspace_store = WorkspaceStore(workspace, stories)
+    from harness.documents import DocumentsStore
+    documents = DocumentsStore(workspace, layout_store)
+    workspace_store.workspaceChanged.connect(documents.rescan)   # a repo registered or unregistered: rescan now
     notifier = Notifier()
-    for s in (layout_store, roles, contexts, stories, workspace_store):
+    for s in (layout_store, roles, contexts, stories, workspace_store, documents):
         s.notifier = notifier  # @intent slots report here; the status bar shows it
     store = AppStore(session, layout_store, content, cfg.THEME, contexts=contexts, roles=roles,
-                     stories=stories, workspace=workspace, workspace_store=workspace_store, notifier=notifier)
+                     stories=stories, workspace=workspace, workspace_store=workspace_store, notifier=notifier,
+                     documents=documents)
     # Unique per app instance, not just per process: tests build several apps in one process, and a torn-down
     # QLocalServer unlinks its socket by name — it must never be the live one's.
     ipc = IpcServer(f"zharn-{os.getpid()}-{uuid.uuid4().hex[:6]}", make_handler(store), parent=store)
     store._ipc_path = ipc.path
     contexts.extra_env = lambda: {"HARNESS_IPC": ipc.path}
+    documents.start(cfg.DOCS_RESCAN_MS)
     reloader = Reloader(store, load_theme, force_poll=force_poll or bool(os.environ.get("HOT_POLL")),
                         poll_ms=getattr(cfg, "WATCH_POLL_MS", 250))
     return app, store, reloader

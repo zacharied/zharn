@@ -59,6 +59,9 @@ THEME = {
 # File-watcher poll interval when inotify is unavailable (WSL drvfs, exhausted watches)
 WATCH_POLL_MS = 250
 
+# The Documents panel re-lists the registered repos' *.md files this often (proposal 2026-09-03-documents-panel §3)
+DOCS_RESCAN_MS = 2000
+
 # ---- agents -----------------------------------------------------------------------------
 # The claude-code CLI (`claude`). Override per machine with HARNESS_CLAUDE_CMD (tests use a fake).
 CLAUDE_CMD = ["claude"]

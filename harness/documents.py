@@ -236,3 +236,203 @@ def search(docs: list[dict], query: str) -> list[dict]:
         if secs or hit(d["name"]):
             out.append({"key": d["key"], "name": d["name"], "repo": d["repo"], "sections": secs})
     return out
+
+
+from PySide6.QtCore import Property, QObject, QTimer, Signal, Slot
+from PySide6.QtGui import QTextDocument
+
+from harness.notify import intent
+from harness.qmodels import DictListModel
+
+ROW_ROLES = ["id", "kind", "level", "title", "number", "hasChildren", "expanded", "key", "ordinal", "count", "column"]
+
+
+def heading_positions(text: str) -> list[int]:
+    """Character positions of the heading blocks Qt's markdown engine makes of `text` — the same engine
+    TextArea uses in MarkdownText mode, so ordinal n here is ordinal n in the tab."""
+    doc = QTextDocument()
+    doc.setMarkdown(text)
+    return _heading_positions_of(doc)
+
+
+def _heading_positions_of(doc: QTextDocument) -> list[int]:
+    out, block = [], doc.begin()
+    while block.isValid():
+        if block.blockFormat().headingLevel():
+            out.append(block.position())
+        block = block.next()
+    return out
+
+
+class DocumentsStore(QObject):
+    """The markdown corpus of the workspace's registered repos, the panel's expansion state, and each
+    document's reading position. State that must survive a QML reload lives here (DESIGN §1)."""
+    documentsChanged = Signal()
+    positionChanged = Signal(str)
+    scrollRequested = Signal(str, int)
+    notifier = None
+
+    def __init__(self, workspace, layout_store, parent=None):
+        super().__init__(parent)
+        self._ws = workspace
+        self.layout = layout_store
+        self._docs: list[dict] = []
+        self._by_key: dict[str, dict] = {}
+        self._expanded: set[str] = set()
+        self._seen: set[str] = set()          # repo/dir ids that have had their default expansion applied
+        self._positions: dict[str, int] = {}
+        self._pending_scroll: dict[str, int] = {}
+        self._model = DictListModel(ROW_ROLES, self)
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self.rescan)
+
+    def start(self, interval_ms: int):
+        self.rescan()
+        self._timer.start(interval_ms)
+
+    # ---------------------------------------------------------------- corpus
+    def rescan(self) -> bool:
+        """Re-list every registered repo; re-read the files whose mtime changed. True when anything changed."""
+        old = {d["key"]: d for d in self._docs}
+        new: list[dict] = []
+        changed = False
+        for rec in self._ws.repos:
+            if self._ws.repo_status(rec["name"]) != "ok":
+                continue
+            path = Path(self._ws.repo_path(rec))
+            for root, dirs, files in os.walk(path):
+                dirs[:] = sorted(d for d in dirs if not _skip_dir(d))
+                for f in files:
+                    if not f.lower().endswith(".md"):
+                        continue
+                    p = Path(root) / f
+                    rel = p.relative_to(path).as_posix()
+                    key = f"{rec['name']}/{rel}"
+                    prev = old.get(key)
+                    try:
+                        mtime = p.stat().st_mtime_ns
+                    except OSError:
+                        continue
+                    if prev and prev["mtime"] == mtime:
+                        new.append(prev)
+                    else:
+                        new.append(read_document(rec["name"], p, rel))
+                        changed = True
+        new.sort(key=lambda d: (d["repo"].lower(), d["rel"].lower()))
+        if len(new) != len(old) or changed:
+            self._docs = new
+            self._by_key = {d["key"]: d for d in new}
+            for id_ in default_expanded(new):
+                if id_ not in self._seen:
+                    self._seen.add(id_)
+                    self._expanded.add(id_)
+            self._refresh()
+            self.documentsChanged.emit()
+            return True
+        return False
+
+    def documents(self) -> list[dict]:
+        return list(self._docs)
+
+    def document(self, key: str) -> dict | None:
+        return self._by_key.get(key)
+
+    @Slot(str, result=str)
+    def text(self, key: str) -> str:
+        d = self._by_key.get(key)
+        if not d:
+            return ""
+        try:
+            return Path(d["path"]).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return ""
+
+    # ---------------------------------------------------------------- rows
+    @Property(QObject, constant=True)
+    def model(self):
+        return self._model
+
+    def _refresh(self):
+        self._model.reset(build_rows(self._docs, self._expanded))
+
+    @Slot(result="QVariantList")
+    def rows(self) -> list[dict]:
+        return build_rows(self._docs, self._expanded)
+
+    @Slot(str)
+    @intent
+    def toggle(self, id_: str):
+        if id_ in self._expanded:
+            self._expanded.discard(id_)
+        else:
+            self._expanded.add(id_)
+        self._refresh()
+
+    @Slot()
+    @intent
+    def collapseAll(self):
+        self._expanded.clear()
+        self._refresh()
+
+    @Slot(str, int)
+    @intent
+    def expandTo(self, key: str, index: int):
+        d = self._by_key.get(key)
+        if not d:
+            return
+        self._expanded.update(ancestor_ids(d, index))
+        # the repo and every directory above the document
+        self._expanded.add(d["repo"])
+        for r in build_rows(self._docs, set(all_row_ids(self._docs))):
+            if r["kind"] == "dir" and r["id"].startswith(d["repo"] + "/") and d["rel"].startswith(r["id"][len(d["repo"]) + 1:] + "/"):
+                self._expanded.add(r["id"])
+        self._refresh()
+
+    # ---------------------------------------------------------------- position and opening
+    @Slot(str, result=int)
+    def position(self, key: str) -> int:
+        return self._positions.get(key, -1)
+
+    @Slot(str, int)
+    @intent
+    def setPosition(self, key: str, index: int):
+        """Called by the document tab as it scrolls with the ordinal of the topmost heading (-1 above the first).
+        The title heading is not a section, so it reads as the document row."""
+        d = self._by_key.get(key)
+        if not d:
+            return
+        if index >= 0 and not any(s["index"] == index for s in d["sections"]):
+            index = -1
+        before = set(self._expanded)
+        self._expanded.update(ancestor_ids(d, index))
+        if self._positions.get(key, -1) != index or before != self._expanded:
+            self._positions[key] = index
+            if before != self._expanded:
+                self._refresh()
+            self.positionChanged.emit(key)
+
+    @Slot(str)
+    @Slot(str, int)
+    @intent
+    def open(self, key: str, index: int = -1):
+        d = self._by_key.get(key)
+        if not d:
+            return
+        self.layout.openContent("document", key, Path(d["rel"]).name)
+        self.expandTo(key, index)
+        self._pending_scroll[key] = index
+        self.scrollRequested.emit(key, index)
+
+    @Slot(str, result=int)
+    def takeScroll(self, key: str) -> int:
+        return self._pending_scroll.pop(key, -2)
+
+    # ---------------------------------------------------------------- search, rendering
+    @Slot(str, result="QVariantList")
+    def search(self, query: str) -> list[dict]:
+        return search(self._docs, query)
+
+    @Slot(QObject, result="QVariantList")
+    def headingPositionsIn(self, qdoc) -> list[int]:
+        """`qdoc` is a TextEdit's `textDocument` (QQuickTextDocument); its QTextDocument is the rendered one."""
+        return _heading_positions_of(qdoc.textDocument())

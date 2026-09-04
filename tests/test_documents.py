@@ -179,3 +179,122 @@ def test_search_matches_document_names_as_groups_without_sections(corpus):
     docs = scan_repo("zharn", corpus)
     assert [(g["name"], g["sections"]) for g in search(docs, "readme")] == [("README", [])]
     assert search(docs, "") == []
+
+
+from PySide6.QtCore import QObject, Signal  # noqa: E402
+
+from harness.documents import ROW_ROLES, DocumentsStore, heading_positions  # noqa: E402
+from harness.workspace import Workspace  # noqa: E402
+
+ROOT = Path(__file__).resolve().parent.parent
+
+
+class FakeLayout(QObject):
+    """Records openContent calls; the real LayoutStore is exercised by the UI tests."""
+    layoutChanged = Signal()
+
+    def __init__(self):
+        super().__init__()
+        self.opened = []
+
+    def openContent(self, kind, key, title, group_id=""):
+        self.opened.append((kind, key, title))
+
+
+@pytest.fixture
+def store(tmp_path, corpus):
+    ws = Workspace.create(tmp_path / "ws", name="W", prefix="W")
+    ws.add_repo(corpus)
+    layout = FakeLayout()
+    s = DocumentsStore(ws, layout)
+    s.rescan()
+    s.layout = layout
+    return s
+
+
+def test_store_scans_registered_repos_and_fills_the_model(store):
+    assert [d["repo"] for d in store.documents()][:1] == ["zharn"]
+    assert store.model.count() == 9                      # Task 2's default rows
+    assert store.model.roleNames() and set(ROW_ROLES) == {"id", "kind", "level", "title", "number", "hasChildren",
+                                                         "expanded", "key", "ordinal", "count", "column"}
+    assert store.document("zharn/README.md")["name"] == "README"
+    assert store.text("zharn/README.md").startswith("# zharn")
+
+
+def test_toggle_and_collapse_all(store):
+    key = "zharn/docs/specs/workspace-model.md"
+    store.toggle(key)
+    assert [r["title"] for r in store.rows() if r["kind"] == "sec"] == ["Concepts", "Environments", "Stories"]
+    store.toggle(key)
+    assert not [r for r in store.rows() if r["kind"] == "sec"]
+    store.collapseAll()
+    assert [r["kind"] for r in store.rows()] == ["repo"]
+
+
+def test_expand_to_a_section_opens_its_ancestors(store):
+    key = "zharn/docs/specs/workspace-model.md"
+    store.collapseAll()
+    store.expandTo(key, 4)
+    assert [r["title"] for r in store.rows() if r["kind"] == "sec"] == ["Concepts", "Environments", "Kinds", "Checks", "Stories"]
+
+
+def test_open_opens_the_tab_expands_the_document_and_requests_a_scroll(store):
+    key = "zharn/docs/specs/workspace-model.md"
+    got = []
+    store.scrollRequested.connect(lambda k, i: got.append((k, i)))
+    store.open(key, 4)
+    assert store.layout.opened == [("document", key, "workspace-model.md")]
+    assert got == [(key, 4)] and store.takeScroll(key) == 4 and store.takeScroll(key) == -2
+    assert any(r["id"] == key + "#4" for r in store.rows())
+    store.open(key)
+    assert got[-1] == (key, -1)
+
+
+def test_set_position_records_it_and_expands_the_enclosing_section(store):
+    key = "zharn/docs/specs/workspace-model.md"
+    changed = []
+    store.positionChanged.connect(changed.append)
+    store.setPosition(key, 4)
+    assert store.position(key) == 4 and changed == [key]
+    assert any(r["id"] == key + "#4" for r in store.rows())
+    store.setPosition(key, 0)                              # the title heading is not a section: the document row
+    assert store.position(key) == -1
+    assert store.position("zharn/nothing.md") == -1
+
+
+def test_rescan_picks_up_an_edited_file_and_a_new_one(store, corpus):
+    n = []
+    store.documentsChanged.connect(lambda: n.append(1))
+    assert store.rescan() is False
+    write(corpus, "README.md", "# zharn\n## Run\n## Test\n## More\n")
+    import os, time
+    os.utime(corpus / "README.md", ns=(time.time_ns(), time.time_ns()))
+    assert store.rescan() is True and len(n) == 1
+    assert [s["title"] for s in store.document("zharn/README.md")["sections"]] == ["Run", "Test", "More"]
+    write(corpus, "docs/new.md", "# New\n")
+    assert store.rescan() is True
+    assert store.document("zharn/docs/new.md")["title"] == "New"
+    (corpus / "docs/new.md").unlink()
+    assert store.rescan() is True and store.document("zharn/docs/new.md") is None
+
+
+def test_search_goes_through_the_store(store):
+    assert [g["name"] for g in store.search("check")] == ["workspace-model", "2026-09-03-environments"]
+
+
+def test_a_missing_repo_is_skipped(tmp_path, corpus):
+    ws = Workspace.create(tmp_path / "ws2", name="W", prefix="W")
+    ws.add_repo(corpus)
+    ws.add_repo(tmp_path / "gone", name="gone")
+    s = DocumentsStore(ws, FakeLayout())
+    s.rescan()
+    assert {d["repo"] for d in s.documents()} == {"zharn"}
+
+
+@pytest.mark.parametrize("path", sorted(p for p in ROOT.rglob("*.md") if ".git" not in p.parts and "_out" not in p.parts))
+def test_parser_agrees_with_qt_about_which_blocks_are_headings(path):
+    """Spec §3: a section's index is its ordinal among Qt's heading blocks — the tab relies on it."""
+    text = path.read_text(encoding="utf-8")
+    ours = [(h["level"], h["index"]) for h in parse_headings(text)]
+    theirs = heading_positions(text)
+    assert len(ours) == len(theirs), f"{path}: parsed {len(ours)} headings, Qt renders {len(theirs)}"
