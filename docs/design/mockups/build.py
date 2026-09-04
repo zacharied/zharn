@@ -31,6 +31,8 @@ ICONS = {
     "x": '<path d="M4.5 4.5l7 7M11.5 4.5l-7 7"/>',
     "home": '<path d="M2.5 8L8 3l5.5 5M4 7v6h8V7"/>',
     "role": '<circle cx="8" cy="5.5" r="2.5"/><path d="M3 14c0-2.8 2.2-4.5 5-4.5s5 1.7 5 4.5"/>',
+    "documents": '<path d="M4 2.5h5.5L13 6v7.5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1z"/><path d="M9.5 2.5V6H13M5.5 9h5M5.5 11.5h3.5"/>',
+    "collapse": '<path d="M4 3l4 3.5L12 3M4 13l4-3.5 4 3.5"/>',
     "aside": '<path stroke-dasharray="2.6 1.9" d="M2.5 3.5h11v7h-6.5L4 13v-2.5H2.5z"/>',
 }
 
@@ -369,14 +371,14 @@ def toolbar():
   <div class="tb-btn">{ic('settings')}</div>
 </div>"""
 
-def strip_left(active):
+def strip_left(active, documents=False):
     def b(name, icon, badge="", dot=False):
         on = " on" if name == active else ""
         extra = f'<span class="badge">{badge}</span>' if badge else ('<span class="dot"></span>' if dot else "")
         return f'<div class="sbtn{on}" title="{name}">{ic(icon, 20)}{extra}</div>'
     return f"""
 <div class="strip left">
-  {b('Stories','stories','2')}{b('Files','files')}{b('Git','git')}
+  {b('Stories','stories','2')}{b('Files','files')}{b('Documents','documents') if documents else ''}{b('Git','git')}
   <div class="gap"></div>
   {b('Contexts','contexts',dot=True)}{b('Terminal','terminal')}
 </div>"""
@@ -705,6 +707,213 @@ def welcome():
 </div></div>"""
     return page("zharn — start", body, 1000, 600)
 
+# ---------------------------------------------------------------- documents panel (the document map) + document tab
+DOCS_CSS = r"""
+.dtree{padding:4px 0;overflow:auto;flex:1}
+.dr{display:flex;align-items:center;gap:6px;height:24px;padding:0 10px;white-space:nowrap;color:var(--text);min-width:0}
+.dr:hover{background:var(--hover)}
+.dr.sel{background:var(--sel)}
+.dr .ic{color:var(--dim);flex:none}
+.dr .ic.blank{visibility:hidden}
+.dr .t{flex:1;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.dr.repo{font-weight:600}
+.dr.repo .n{margin-left:auto;font-weight:400;color:var(--muted);font-variant-numeric:tabular-nums}
+.dr.dir .t{color:var(--muted)}
+.dr.doc.open .t{font-weight:500}
+.dr .k{font:12px var(--mono);color:var(--muted);width:24px;text-align:right;flex:none}
+.dr.sel .k{color:#B7C9F2}
+.dr.dim .t,.dr.dim .k{color:var(--dim)}
+.dr .t b{font-weight:600;color:var(--accent-hi)}
+.dr.wrap{height:auto;min-height:24px;padding-top:4px;padding-bottom:4px;white-space:normal;align-items:flex-start}
+.dr.wrap .t{white-space:normal;line-height:1.3}
+.dr.doc .n{margin-left:auto;font-size:11px;color:var(--dim)}
+.dfilter{margin:4px 8px 4px 8px;height:26px;border:1px solid var(--accent);box-shadow:0 0 0 2px rgba(53,116,240,.25);border-radius:4px;background:var(--bg);display:flex;align-items:center;gap:6px;padding:0 8px;font-size:12.5px;color:var(--text);flex:none}
+.dfilter .ic{color:var(--muted)}
+.dfilter .cur{display:inline-block;width:1px;height:14px;background:var(--text);vertical-align:-2px}
+/* document tab: read-mostly markdown */
+.docv{flex:1;overflow:hidden;min-height:0;position:relative}
+.docv-in{max-width:820px;padding:20px 28px 40px 28px}
+.docv h1{font:600 20px/1.25 var(--ui)}
+.docv h2{font:600 17px/1.3 var(--ui);margin-top:28px;padding-top:14px;border-top:1px solid var(--border)}
+.docv h3{font:600 14px/1.35 var(--ui);margin-top:24px}
+.docv h2 .k,.docv h3 .k{font:500 .85em var(--mono);color:var(--muted);margin-right:8px}
+.docv p{margin-top:10px;line-height:1.55;font-size:13.5px;color:var(--text)}
+.docv p.note{color:var(--muted);font-style:italic}
+.docv ul{margin-top:8px;padding-left:20px;line-height:1.55;font-size:13.5px}
+.docv li{margin-top:4px}
+.docv code{font:12px var(--mono);background:rgba(255,255,255,.06);padding:1px 4px;border-radius:3px}
+.docv pre{margin-top:10px;padding:8px 12px;background:var(--panel);border:1px solid var(--border);border-radius:4px;font:12px/1.5 var(--mono);color:var(--text)}
+.docv .sb{position:absolute;top:0;right:0;width:10px;height:100%}
+.docv .sb i{position:absolute;left:2px;width:6px;border-radius:3px;background:var(--btn-border);opacity:.6}
+/* the 1:1 page */
+.states{display:flex;gap:28px;padding:24px 28px;align-items:flex-start}
+.state{display:flex;flex-direction:column;gap:8px}
+.state .cap{font-size:12px;color:var(--muted)}
+.state .toolwin{height:860px;border:1px solid var(--border);border-radius:6px;overflow:hidden}
+"""
+
+def drow(kind, level, title, chev="leaf", key=None, sel=False, dim=False, n="", open_=False, wrap=False):
+    """One map row. level: 0 = repo. chev: down | right | leaf (blank, keeps siblings aligned).
+    key: the section number parsed off a numbered heading; None = no column, "" = column kept blank."""
+    cls = f"dr {kind}" + (" sel" if sel else "") + (" dim" if dim else "") + (" open" if open_ else "") + (" wrap" if wrap else "")
+    chevron = ic(chev, 14) if chev in ("down", "right") else ("" if chev is None else ic("right", 14, "blank"))
+    k = f'<span class="k">{key}</span>' if key is not None else ""
+    nn = f'<span class="n">{n}</span>' if n else ""
+    return f'<div class="{cls}" style="padding-left:{10 + 18 * level}px">{chevron}{k}<span class="t">{title}</span>{nn}</div>'
+
+def documents_toolwin(state="reading"):
+    """state: reading (workspace-model open at §4.6) · filter (typed "check") · plain (README open, unnumbered)."""
+    R = drow
+    if state == "reading":
+        rows = [
+            R("repo", 0, "zharn", "down", n="11"),
+            R("dir", 1, "docs", "down"),
+            R("dir", 2, "specs", "down"),
+            R("doc", 3, "story-lifecycle", "right"),
+            R("doc", 3, "workspace-model", "down", open_=True),
+            R("sec", 4, "Concepts", key="1"),
+            R("sec", 4, "Workspace", "right", key="2"),
+            R("sec", 4, "Repos", "right", key="3"),
+            R("sec", 4, "Environments", "down", key="4"),
+            R("sec", 5, "Kinds", key="4.1"),
+            R("sec", 5, "The parent chain", key="4.2"),
+            R("sec", 5, "Records", key="4.3"),
+            R("sec", 5, "Lazy acquisition", key="4.4"),
+            R("sec", 5, "Context placement", key="4.5"),
+            R("sec", 5, "Checks", key="4.6", sel=True),
+            R("sec", 5, "Collisions", key="4.7"),
+            R("sec", 4, "Stories in a workspace", "right", key="5"),
+            R("sec", 4, "Storage", key="6"),
+            R("sec", 4, "Start screen and opening a folder", key="7"),
+            R("sec", 4, "CLI", key="8"),
+            R("sec", 4, "Tests", key="9"),
+            R("sec", 4, "Out of scope", key="10"),
+            R("dir", 2, "superpowers/plans", "down"),
+            R("doc", 3, "2026-08-31-story-foundation", "right"),
+            R("doc", 3, "2026-09-02-asides", "right"),
+            R("doc", 3, "2026-09-02-characters-delivery", "right"),
+            R("doc", 3, "2026-09-03-environments", "right"),
+            R("doc", 2, "AGENT-MODEL", "right"),
+            R("doc", 2, "DESIGN", "right"),
+            R("dir", 1, "poc", "down"),
+            R("doc", 2, "README", "right"),
+            R("doc", 1, "CLAUDE", "right"),
+            R("doc", 1, "README", "right"),
+            R("repo", 0, "bb-plugins", "right", n="4"),
+            R("repo", 0, "pywinpty-shim", "right", n="1"),
+        ]
+        filt = ""
+    elif state == "filter":
+        # a results list, not a folded tree: matching sections grouped under their document, titles wrap
+        rows = [
+            R("doc", 0, "workspace-model", None, n="zharn", open_=True),
+            R("sec", 1, "<b>Check</b>s", key="4.6"),
+            R("doc", 0, "2026-09-02-characters-delivery", None, n="zharn", open_=True),
+            R("sec", 1, "Task 5: Turn end — attention clears, the quiet <b>check</b>, one inbox pop", wrap=True),
+            R("doc", 0, "2026-09-03-environments", None, n="zharn", open_=True),
+            R("sec", 1, "Task 6: IPC and CLI — repo/env verbs, <b>check</b>s at handoff", wrap=True),
+        ]
+        filt = f'<div class="dfilter">{ic("search", 14)}check<span class="cur"></span></div>'
+    else:
+        rows = [
+            R("repo", 0, "zharn", "down", n="11"),
+            R("dir", 1, "docs", "right"),
+            R("dir", 1, "poc", "right"),
+            R("doc", 1, "CLAUDE", "right"),
+            R("doc", 1, "README", "down", open_=True),
+            R("sec", 2, "Run"),
+            R("sec", 2, "Stories, characters, contexts"),
+            R("sec", 2, "Test", sel=True),
+            R("repo", 0, "bb-plugins", "right", n="4"),
+            R("repo", 0, "pywinpty-shim", "right", n="1"),
+        ]
+        filt = ""
+    return f"""
+<div class="toolwin left">
+  <div class="tw-head"><span class="t">Documents</span><span class="sp"></span>
+    <span class="a">{ic('collapse')}</span><span class="a">{ic('minus')}</span></div>
+  {filt}
+  <div class="dtree">{''.join(rows)}</div>
+</div>"""
+
+def document_tabs():
+    def tab(icon, label, on=False, live=False):
+        return (f'<div class="tab{" on" if on else ""}">{ic(icon,14)}<span>{label}</span>'
+                f'{"<span class=live></span>" if live else ""}<span class="cl">{ic("close",12)}</span></div>')
+    return f"""
+<div class="tabs">
+  {tab('home','Welcome')}
+  {tab('story','ZH-12  Terminal panel on pyte', live=True)}
+  {tab('documents','workspace-model.md', on=True)}
+  <span class="sp"></span><span class="a">{ic('splitv')}</span><span class="a">{ic('splith')}</span>
+</div>"""
+
+def document_page():
+    """docs/specs/workspace-model.md, scrolled so §4.6 is in view (the map's selected row)."""
+    return f"""
+<div class="docv"><div class="docv-in" style="margin-top:-318px">
+  <h3><span class="k">4.5</span>Context placement</h3>
+  <p>A context's working directory is decided at every spawn, not at creation, so a character may move between
+  environments <i>of its story</i> between turns by calling <code>env open</code> again. The rules:</p>
+  <ul><li>A character's context runs in its environment's path, else the workspace dir.</li>
+  <li>Minions inherit the process directory through the provider's native agent tool.</li>
+  <li>A friend cast by <code>call</code> (fresh or <code>--fork</code>) starts in the caller's environment.</li>
+  <li>A recast keeps the character's environment.</li>
+  <li>The protagonist starts in the workspace dir.</li></ul>
+  <p>Processes receive <code>HARNESS_WORKSPACE</code> (dir), and, when the character has an environment,
+  <code>HARNESS_REPO</code> (name) and <code>HARNESS_ENV</code> (path).</p>
+  <h3><span class="k">4.6</span>Checks</h3>
+  <p><code>checks</code> is per repo (§3.1). At a handoff on the main thread of an <code>implementing</code> story, the CLI —
+  inside the character's turn, so the harness process never waits on a test suite — lists the story's environments,
+  runs each repo's <code>checks</code> in that environment, and attaches <code>[{{repo, cmd, exit, output}}]</code> to the
+  handoff comment. Output is truncated to <code>config.CHECKS_OUTPUT_LIMIT</code> characters. A repo with no
+  <code>checks</code> contributes nothing.</p>
+  <p>What a failing check does is a knob, <code>config.HANDOFF_CHECKS</code>, because the trade is token burn against
+  red handoffs:</p>
+  <ul><li><code>"gate"</code> (default) — the handoff is refused, the failures are printed to the character, and the
+  character fixes and retries; <code>--despite-checks</code> posts the handoff anyway with the results attached.</li>
+  <li><code>"attach"</code> — the handoff always posts, results attached; the author sees the red.</li></ul>
+  <h3><span class="k">4.7</span>Collisions</h3>
+  <p>The same repo registered in two workspaces means both create worktrees in one <code>.git</code>. Branch names
+  collide only if both workspaces share a prefix <i>and</i> a story number; zharn does not defend against this beyond
+  reporting the git error. Choose distinct prefixes.</p>
+  <h2><span class="k">5</span>Stories in a workspace</h2>
+  <h3><span class="k">5.1</span>Keys</h3>
+  <p>A story's key is <code>&lt;prefix&gt;-&lt;n&gt;</code>; <code>n</code> is the workspace's counter, never reused.</p>
+  <h3><span class="k">5.2</span>Aliases</h3>
+  <p>A story keeps every key it has had. <code>aliases</code> in <code>story.json</code> lists the old ones; every lookup
+  by key (UI, CLI, <code>@mention</code>) resolves aliases.</p>
+  <h3><span class="k">5.3</span>Move</h3>
+  <p><b>Move story to workspace</b> (author only) re-keys the story with the target's prefix and counter, appends the
+  old key to <code>aliases</code>, and re-homes its environments.</p>
+</div><div class="sb"><i style="top:46%;height:18%"></i></div></div>"""
+
+def documents_window():
+    body = f"""<div class="frame"><div class="win">
+  {toolbar()}
+  <div class="body">
+    {strip_left('Documents', documents=True)}
+    {documents_toolwin('reading')}
+    <div class="center">{document_tabs()}{document_page()}</div>
+    {strip_right('Cast')}
+    {cast_toolwin()}
+  </div>
+  {status_bar()}
+</div></div>"""
+    return page("zharn — documents panel", body, 1440, 900, extra_css=DOCS_CSS)
+
+def documents_closeup():
+    def st(cap, state):
+        return f'<div class="state"><span class="cap">{cap}</span>{documents_toolwin(state)}</div>'
+    body = f"""<div class="frame" style="position:static;transform:none;width:100%;min-height:100%;box-shadow:none">
+      <div class="states">
+        {st('reading workspace-model.md at §4.6', 'reading')}
+        {st('typed “check” — matching sections, grouped by document', 'filter')}
+        {st('README.md — unnumbered headings, no number column', 'plain')}
+      </div></div>"""
+    return page("zharn — documents panel, 1:1", body, extra_css=DOCS_CSS + "html,body{overflow:auto;background:var(--bg)}")
+
+
 OUT = {
     "01-main-window.html": main_window,
     "02-story-thread-1to1.html": closeup,
@@ -713,6 +922,8 @@ OUT = {
     "05-workspace-page.html": workspace_window,
     "06-workspace-1to1.html": workspace_closeup,
     "07-cast-1to1.html": cast_closeup,
+    "08-documents.html": documents_window,
+    "09-documents-1to1.html": documents_closeup,
 }
 if __name__ == "__main__":
     for name, fn in OUT.items():
