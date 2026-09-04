@@ -278,6 +278,31 @@ def test_rescan_picks_up_an_edited_file_and_a_new_one(store, corpus):
     assert store.rescan() is True and store.document("zharn/docs/new.md") is None
 
 
+def test_rescan_survives_a_file_that_vanishes_between_the_stat_and_the_read(store, corpus, monkeypatch):
+    """A file can be deleted or mid-write between rescan's freshness stat and read_document's read: that
+    must not blow up the scan or lose the other documents (review finding, fix round 1)."""
+    import harness.documents as docmod
+    real_read_document = docmod.read_document
+    victim = str(corpus / "README.md")
+
+    def flaky(name, path, rel):
+        if str(path) == victim:
+            raise OSError("vanished mid-scan")
+        return real_read_document(name, path, rel)
+
+    monkeypatch.setattr(docmod, "read_document", flaky)
+    write(corpus, "README.md", "# zharn\n## Changed\n")
+    import os, time
+    os.utime(corpus / "README.md", ns=(time.time_ns(), time.time_ns()))
+    assert store.rescan() is True                          # does not raise
+    assert store.document("zharn/README.md") is None        # skipped for this scan
+    assert store.document("zharn/CLAUDE.md") is not None    # the rest of the corpus survives
+
+    monkeypatch.setattr(docmod, "read_document", real_read_document)
+    assert store.rescan() is True
+    assert store.document("zharn/README.md")["title"] == "zharn"   # picked up again once it stops erroring
+
+
 def test_search_goes_through_the_store(store):
     assert [g["name"] for g in store.search("check")] == ["workspace-model", "2026-09-03-environments"]
 

@@ -316,7 +316,14 @@ class DocumentsStore(QObject):
                     if prev and prev["mtime"] == mtime:
                         new.append(prev)
                     else:
-                        new.append(read_document(rec["name"], p, rel))
+                        try:
+                            doc = read_document(rec["name"], p, rel)
+                        except OSError:
+                            # vanished or was mid-write between the stat above and this read; skip it for
+                            # this scan and let the next one pick it up (or drop it, if it's really gone)
+                            changed = True
+                            continue
+                        new.append(doc)
                         changed = True
         new.sort(key=lambda d: (d["repo"].lower(), d["rel"].lower()))
         if len(new) != len(old) or changed:
