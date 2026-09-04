@@ -6,9 +6,10 @@ import pytest
 
 from harness.lifecycle import (ACTIVE, PHASES, TERMINAL, Approve, BackToPlanning, Cancel, Comment, Note, OpenThread,
                                Proceed, Recap, Rejected, Reopen, Reply, Resolve, Start, Story, Thread, Yield,
-                               awaits, check_invariants, owes, step)
+                               awaits, check_invariants, owes, question_lines, step, thread_label)
 
 _ids = itertools.count(1)
+Q = [{"text": "?"}]   # the smallest question document
 
 
 def cid() -> str:
@@ -62,7 +63,7 @@ def test_ball_is_derived_from_main_turn_only_while_active():
     assert fresh("backlog").ball is None and fresh("todo").ball is None
     s = started()
     assert s.ball == "cast" and s.main.turn == "cast"
-    s, _ = run(s, Yield("t1", "chr1", "question", "?"))
+    s, _ = run(s, Yield("t1", "chr1", "question", "?", questions=Q))
     assert s.ball == "author"
     assert at("done", None).ball is None and at("canceled", None).ball is None
 
@@ -105,21 +106,78 @@ def test_start_rejected_once_started(phase):
 @pytest.mark.parametrize("kind", ["question", "handoff"])
 def test_yield_on_main_flips_ball_to_author_and_records_transition(kind):
     s = started()
-    s, c = run(s, Yield("t1", "chr1", kind, "body", options=["a", "b"]))
+    s, c = run(s, Yield("t1", "chr1", kind, "body", questions=[{"text": "a or b?", "options": ["a", "b"]}] if kind == "question" else []))
     assert s.ball == "author" and s.main.pending_yield == c["id"]
-    assert c["kind"] == kind and c["author"] == "chr1" and c["structured"]["options"] == ["a", "b"]
+    assert c["kind"] == kind and c["author"] == "chr1"
     assert c["structured"]["transition"] == {"from": ["planning", "cast"], "to": ["planning", "author"]}
 
 
+def test_question_yield_carries_normalized_questions():
+    s = started()
+    qs = [{"text": " Format? ", "options": ["toml", "json"], "default": "toml"}, {"text": "Anything else?"}]
+    s, c = run(s, Yield("t1", "chr1", "question", "Three things.", questions=qs))
+    assert c["structured"]["questions"] == [{"text": "Format?", "options": ["toml", "json"], "default": "toml"},
+                                            {"text": "Anything else?", "options": []}]
+
+
+@pytest.mark.parametrize("bad, msg", [
+    ([], "at least one question"),
+    ("nope", "a list"),
+    ([{"options": ["a"]}], "question 1: text"),
+    ([{"text": "", "options": ["a"]}], "question 1: text"),
+    ([{"text": "q"}, {"text": "q", "options": "a,b"}], "question 2: options"),
+    ([{"text": "q", "options": ["a", ""]}], "question 1: options"),
+    ([{"text": "q", "default": 3}], "question 1: default"),
+])
+def test_question_yield_rejects_a_bad_document(bad, msg):
+    with pytest.raises(Rejected, match=msg):
+        run(started(), Yield("t1", "chr1", "question", "", questions=bad))
+
+
+def test_handoff_yield_takes_no_questions():
+    with pytest.raises(Rejected, match="a handoff carries no questions"):
+        run(started(), Yield("t1", "chr1", "handoff", "done", questions=[{"text": "q"}]))
+
+
+def test_reply_carries_answers():
+    s = started()
+    s, q = run(s, Yield("t1", "chr1", "question", "", questions=[{"text": "a or b?", "options": ["a", "b"]}, {"text": "why?"}]))
+    s, r = run(s, Comment("t1", "human", "1. a\nbecause", answers=["a", ""]))
+    assert r["reply_to"] == q["id"] and r["structured"]["answers"] == ["a", ""]
+    s, _ = run(s, Yield("t1", "chr1", "question", "", questions=[{"text": "again?"}]))
+    s, r2 = run(s, Comment("t1", "human", "plain text"))
+    assert r2["reply_to"] and "answers" not in r2["structured"]
+
+
+def test_main_resolves_to_the_main_thread_and_labels():
+    s = started()
+    assert thread_label(s, "t1") == "main"
+    s, c = run(s, Yield("main", "chr1", "question", "", questions=[{"text": "q"}]))
+    assert c["thread_id"] == "t1" and s.ball == "author"
+    s, _ = run(s, Reply("main", "sure"))
+    s, _ = run(s, OpenThread("t2", "chr1", "chr2", "hi"))
+    assert thread_label(s, "t2") == "t2"
+    with pytest.raises(Rejected, match="has not been started"):
+        step(fresh(), Comment("main", "human", "x"), comment_id="x", now=1.0)
+
+
+def test_question_lines():
+    assert question_lines([{"text": "Format?", "options": ["toml", "json"], "default": "toml"},
+                           {"text": "Where?", "options": ["root", "user dir"]},
+                           {"text": "Else?", "options": [], "default": "no"},
+                           {"text": "Free?", "options": []}]) == ["1. Format? (toml, json; default toml)", "2. Where? (root, user dir)",
+                                                                  "3. Else? (default no)", "4. Free?"]
+
+
 def test_yield_twice_in_same_thread_is_rejected():
-    s, _ = run(started(), Yield("t1", "chr1", "question", "?"))
+    s, _ = run(started(), Yield("t1", "chr1", "question", "?", questions=Q))
     with pytest.raises(Rejected, match="already waits"):
-        step(s, Yield("t1", "chr1", "question", "again"), comment_id="x", now=1.0)
+        step(s, Yield("t1", "chr1", "question", "again", questions=Q), comment_id="x", now=1.0)
 
 
 def test_only_protagonist_yields_on_main():
     with pytest.raises(Rejected, match="only the thread's lead yields in it"):
-        step(started(), Yield("t1", "chr2", "question", "?"), comment_id="x", now=1.0)
+        step(started(), Yield("t1", "chr2", "question", "?", questions=Q), comment_id="x", now=1.0)
 
 
 def test_yield_bad_kind_rejected():
@@ -129,14 +187,14 @@ def test_yield_bad_kind_rejected():
 
 def test_yield_unknown_thread_rejected():
     with pytest.raises(Rejected, match="thread"):
-        step(started(), Yield("nope", "chr1", "question", "x"), comment_id="x", now=1.0)
+        step(started(), Yield("nope", "chr1", "question", "x", questions=Q), comment_id="x", now=1.0)
 
 
 def test_main_handoff_while_implementing_blocked_by_open_substories():
     s = at("implementing", "cast")
     with pytest.raises(Rejected, match="sub-stor"):
         step(s, Yield("t1", "chr1", "handoff", "done", open_substories=1), comment_id="x", now=1.0)
-    s2, c = run(s, Yield("t1", "chr1", "question", "q", open_substories=1))  # questions are not blocked
+    s2, c = run(s, Yield("t1", "chr1", "question", "q", questions=Q, open_substories=1))  # questions are not blocked
     assert s2.ball == "author"
 
 
@@ -150,7 +208,7 @@ def test_implementing_handoff_carries_checks():
 @pytest.mark.parametrize("phase", ["done", "canceled"])
 def test_yield_on_terminal_story_rejected(phase):
     with pytest.raises(Rejected, match="terminal"):
-        step(at(phase, None), Yield("t1", "chr1", "question", "?"), comment_id="x", now=1.0)
+        step(at(phase, None), Yield("t1", "chr1", "question", "?", questions=Q), comment_id="x", now=1.0)
 
 
 # ---------------------------------------------------------------- Reply
@@ -409,7 +467,7 @@ def test_comment_in_resolved_thread_reopens_it_to_cast():
 def test_yield_in_resolved_thread_reopens_it_straight_to_author():
     s, _ = waiting_side_thread()
     s, _ = run(s, Resolve(thread_id="t2", by="human"))
-    s, c = run(s, Yield("t2", "chr2", "question", "one more?"))
+    s, c = run(s, Yield("t2", "chr2", "question", "one more?", questions=Q))
     assert s.thread("t2").turn == "author" and s.thread("t2").pending_yield == c["id"]
 
 
@@ -522,7 +580,7 @@ def test_every_phase_transition_has_exactly_one_causing_comment():
     s = fresh()
     log = []
     for a in [Start(thread_id="t1", protagonist="chr1"), Comment("t1", "chr1", "hi"),
-              Yield("t1", "chr1", "question", "?"), Reply("t1", "a"), Yield("t1", "chr1", "handoff", "plan"),
+              Yield("t1", "chr1", "question", "?", questions=Q), Reply("t1", "a"), Yield("t1", "chr1", "handoff", "plan"),
               Proceed(by="human"), Recap(by="chr1", body="r"), Yield("t1", "chr1", "handoff", "built"),
               BackToPlanning(), Proceed(by="chr1"), Yield("t1", "chr1", "handoff", "built2"), Approve(), Reopen(note="x"), Cancel()]:
         before = (s.phase, s.ball)
@@ -599,7 +657,7 @@ def test_owes_and_awaits_are_read_off_turns():
     assert [t.id for t in owes(s, "chr3")] == ["t3"] and awaits(s, "chr3") == []
     s, _ = run(s, Yield("t3", "chr3", "handoff", "built"))
     assert owes(s, "chr3") == [] and awaits(s, "chr1") == []          # waiting on chr1 now
-    s, _ = run(s, Yield("t1", "chr1", "question", "which?"))
+    s, _ = run(s, Yield("t1", "chr1", "question", "which?", questions=Q))
     assert owes(s, "chr1") == []
 
 

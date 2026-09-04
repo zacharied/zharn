@@ -84,6 +84,7 @@ class Reply:
     thread_id: str
     body: str
     by: str = "human"
+    answers: list[str] = field(default_factory=list)   # by question index, "" where nothing was picked
 
 
 @dataclass
@@ -137,7 +138,7 @@ class Yield:
     by: str
     kind: str
     body: str
-    options: list[str] = field(default_factory=list)
+    questions: list[dict] = field(default_factory=list)   # question yields: [{text, options?, default?}], the document's records
     open_substories: int = 0
     checks: list[dict] = field(default_factory=list)
     auto_for: str = ""               # by == "system": the lead the harness is yielding for
@@ -162,6 +163,7 @@ class Comment:
     thread_id: str
     by: str
     body: str
+    answers: list[str] = field(default_factory=list)   # carried into the Reply when this comment answers a question
 
 
 # ---------------------------------------------------------------- helpers
@@ -177,11 +179,56 @@ def _cell(story: Story) -> list:
     return [story.phase, story.ball]
 
 
+def thread_label(story: Story, thread_id: str) -> str:
+    """How the harness names a thread to a character: the main thread is `main`, any other is its id."""
+    return "main" if thread_id == story.main_thread else thread_id
+
+
 def _require_thread(story: Story, thread_id: str) -> Thread:
+    if thread_id == "main":
+        if story.main_thread is None:
+            raise Rejected(f"{story.key} has not been started")
+        thread_id = story.main_thread
     try:
         return story.thread(thread_id)
     except KeyError:
         raise Rejected(f"no thread {thread_id!r} on {story.key}") from None
+
+
+def normalize_questions(raw) -> list[dict]:
+    """The question document's records, checked and filled: `text` non-empty, `options` a list (maybe empty),
+    `default` kept only when given. The harness numbers them; a bad shape is a rejection like any other."""
+    if not isinstance(raw, list):
+        raise Rejected("questions must be a list of {text, options?, default?}")
+    if not raw:
+        raise Rejected("a question yield needs at least one question")
+    out = []
+    for i, q in enumerate(raw, 1):
+        if not isinstance(q, dict) or not isinstance(q.get("text"), str) or not q["text"].strip():
+            raise Rejected(f"question {i}: text must be a non-empty string")
+        opts = q.get("options") or []
+        if not isinstance(opts, list) or not all(isinstance(o, str) and o.strip() for o in opts):
+            raise Rejected(f"question {i}: options must be a list of non-empty strings")
+        rec = {"text": q["text"].strip(), "options": [o.strip() for o in opts]}
+        if q.get("default") is not None:
+            if not isinstance(q["default"], str):
+                raise Rejected(f"question {i}: default must be a string")
+            rec["default"] = q["default"]
+        out.append(rec)
+    return out
+
+
+def question_lines(questions: list[dict]) -> list[str]:
+    """How a character reads a question yield: one numbered line per record."""
+    lines = []
+    for i, q in enumerate(questions, 1):
+        notes = []
+        if q.get("options"):
+            notes.append(", ".join(q["options"]))
+        if q.get("default"):
+            notes.append(f"default {q['default']}")
+        lines.append(f"{i}. {q['text']}" + (f" ({'; '.join(notes)})" if notes else ""))
+    return lines
 
 
 def _require_started_active(story: Story):
@@ -247,8 +294,10 @@ def step(story: Story, action, *, comment_id: str, now: float) -> tuple[Story, d
             raise Rejected(f"{action.open_substories} sub-stor{'y is' if action.open_substories == 1 else 'ies are'} still open")
         t.turn, t.pending_yield = "author", comment_id
         structured: dict = {}
-        if action.options:
-            structured["options"] = list(action.options)
+        if action.kind == "question":
+            structured["questions"] = normalize_questions(action.questions)
+        elif action.questions:
+            raise Rejected("a handoff carries no questions; use --body")
         if action.checks:
             structured["checks"] = list(action.checks)
         if action.auto_for:
@@ -263,7 +312,8 @@ def step(story: Story, action, *, comment_id: str, now: float) -> tuple[Story, d
         if action.by != t.author:
             raise Rejected(f"only the thread's author ({t.author}) can reply here")
         pending, t.turn, t.pending_yield = t.pending_yield, "cast", None
-        c = _comment(s, comment_id, now, thread_id=t.id, author=action.by, kind="text", body=action.body, reply_to=pending)
+        c = _comment(s, comment_id, now, thread_id=t.id, author=action.by, kind="text", body=action.body, reply_to=pending,
+                     structured={"answers": list(action.answers)} if action.answers else None)
 
     elif isinstance(action, Resolve):
         if s.phase in TERMINAL:
@@ -285,7 +335,7 @@ def step(story: Story, action, *, comment_id: str, now: float) -> tuple[Story, d
             raise Rejected(f"{s.key} is terminal ({s.phase}); its threads are read-only until Reopen")
         t = _require_thread(s, action.thread_id)
         if t.turn == "author" and action.by == t.author:
-            return step(story, Reply(thread_id=t.id, body=action.body, by=action.by), comment_id=comment_id, now=now)
+            return step(story, Reply(thread_id=t.id, body=action.body, by=action.by, answers=action.answers), comment_id=comment_id, now=now)
         if t.turn == "resolved":
             t.turn = "cast"  # any comment reopens a resolved thread (§2.2 reopen rule)
         c = _comment(s, comment_id, now, thread_id=t.id, author=action.by, kind="text", body=action.body)
