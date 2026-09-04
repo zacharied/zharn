@@ -104,7 +104,7 @@ No sidebar. The window is:
 ```
 
 * **Dock (left/right/bottom)** hosts only **dockable panels**: board, contexts (the old
-  bb sidebar becomes just another panel), git status, filesystem, terminal, agent log, roles.
+  bb sidebar becomes just another panel), git status, filesystem, documents, terminal, agent log, roles.
   States: docked-visible, collapsed-to-strip, slide-over (overlay `Item`, not a window), floating
   (`Window`).
 * **MCC** is a tab group that can show *any* content: a panel, a document, a thread, a task, a
@@ -115,12 +115,16 @@ No sidebar. The window is:
 * **Look: JetBrains New UI (dark), by convention.** Main toolbar (workspace widget, New story);
   40px icon strips — the left strip carries the left dock's panels at the top and the bottom
   dock's at the bottom, the right strip the right dock's; 36px tool-window headers and editor
-  tabs; a 26px status bar. Default layout: left Stories · Files · Git, right Cast (follows the
+  tabs; a 26px status bar. Default layout: left Stories · Files · Documents · Git, right Cast (follows the
   active story tab), bottom Contexts · Terminal; the workspace page (repos, Relocate/Unregister) is an
   editor tab opened from the toolbar's workspace widget. Tokens live in `config_def.THEME` (chrome,
   semantic: needsYou/live/settled/danger, one soft color per phase, type, metrics); components in
   `qml/ui/` (Icon, IconButton, Btn, Chip, StatusDot, Ball, Meter, ToolWindowHeader, TextBox,
-  Field, Combo, ContextView); icons are monochrome SVGs in `qml/icons/` recolored on request by
+  Field, Combo, ContextView). The Documents tool window maps every markdown document in the
+  registered repos as a tree of sections — the row is the heading, the selection follows the
+  active document tab's reading position, and typing filters by heading (proposal
+  docs/superpowers/proposals/2026-09-03-documents-panel.md until it graduates to a spec). Icons
+  are monochrome SVGs in `qml/icons/` recolored on request by
   `harness/icons.py` (`image://icon/<name>/<rrggbb>`); Inter + JetBrains Mono ship in `qml/fonts/`.
   The story page is typeset as a script (speakers in small mono caps, system comments as stage
   directions, yields as labeled rules). Design mockups: `docs/design/mockups/` (run `build.py`).
@@ -236,7 +240,8 @@ which wins over this section and over the code. In brief:
   (a) QML terminal on top of `pyte` (pure-Python VT100 emulator) — fully reloadable, cross-platform,
   ~1 week; (b) xterm.js in `QWebEngineView` — works everywhere but is exactly the web stack we're
   leaving. Lean (a); it is also the most "suckless" choice.
-* **Editor**: v1 is a read-mostly diff/file viewer (`TextArea` + `QSyntaxHighlighter`); real
+* **Editor**: v1 is a read-only markdown tab (`TextArea` in markdown mode, opened from the
+  Documents tool window) and, later, a diff/file viewer with a `QSyntaxHighlighter`; real
   editing stays in your $EDITOR. KTextEditor has no Python bindings; QScintilla is PyQt-only.
 
 ## 6. Licensing
@@ -263,6 +268,9 @@ Virtual Keyboard, Timeline).
 
 ## 8. Next steps
 
+Status 2026-09-03 (later): Documents tool window and the read-only document tab (plan
+docs/superpowers/plans/2026-09-03-documents-panel.md); the layout places every registered panel
+kind.
 Status 2026-08-31 (later): UI on JetBrains New UI conventions — toolbar, icon strips, Stories tree,
 Cast and Contexts tool windows, the story page as a script (§3a); 396 tests.
 Status 2026-08-31: foundation shipped per docs/superpowers/plans/2026-08-31-story-foundation.md — workspace storage (.zharn/), lifecycle state machine, stories/characters/contexts/roles stores, zharn story verbs, board + story + context UI over the main thread; the old task/thread/preset model is gone (§0).

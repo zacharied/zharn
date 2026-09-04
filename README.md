@@ -29,8 +29,9 @@ a local pipe and runs `python -m harness.cli` with the harness's own interpreter
 Set `CLAUDE_CMD` in `harness/config.py` if it is not on PATH, and `BASH_PATH` if bash lives somewhere unusual.
 
 The UI follows JetBrains' New UI conventions (DESIGN.md §3a): tool windows on icon strips, editor
-tabs in the middle, a Stories tree on the left, the Cast of the focused story on the right, Contexts
-at the bottom. Tokens are in `harness/config_def.py: THEME`; reusable pieces in `qml/ui/`.
+tabs in the middle, a Stories tree on the left, a Documents map of the repos' markdown next to it,
+the Cast of the focused story on the right, Contexts at the bottom. Tokens are in
+`harness/config_def.py: THEME`; reusable pieces in `qml/ui/`.
 
 Edit anything under `qml/` or `harness/` while it runs: QML re-renders as a new generation
 (state lives in Python, so tabs/docks/layout survive); Python method bodies are swapped into the
@@ -85,7 +86,7 @@ different directory. Point `HARNESS_CLAUDE_CMD` at another CLI to substitute the
 
 ```sh
 pip install -e .[dev]
-QT_QPA_PLATFORM=offscreen python -m pytest      # ~600 tests, ~30 s, no display needed
+QT_QPA_PLATFORM=offscreen python -m pytest      # ~615 tests, ~30 s, no display needed
 ```
 
 Three layers, all offscreen:
