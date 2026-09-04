@@ -1,14 +1,12 @@
 {
- "recorded_at": "2026-09-04T05:19:35+00:00",
- "violations": [
-  "a question yield without options"
- ],
+ "recorded_at": "2026-09-04T06:06:16+00:00",
+ "violations": [],
  "scenario": "batch-questions",
  "skill_omitted": [
   "being-a-character",
   "planning-a-story"
  ],
- "seconds": 32,
+ "seconds": 30,
  "model": [
   "claude-sonnet-5"
  ],
@@ -19,20 +17,34 @@
    "verb": "yield",
    "args": {
     "kind": "question",
-    "body": "Before planning the config-file feature for fixture/hello.py, I need three decisions settled:\n\n1. File format \u2014 toml, json, or yaml?\n2. Location \u2014 repo root, or the user's config directory?\n3. Missing-file behavior \u2014 should a missing config file be an error, or fall back to greeting 'world'?",
-    "options": [],
-    "thread": "main",
-    "checks": []
-   },
-   "ok": false,
-   "error": "Rejected: no thread 'main' on BASE-1"
-  },
-  {
-   "verb": "yield",
-   "args": {
-    "kind": "question",
-    "body": "Before planning the config-file feature for fixture/hello.py, I need three decisions settled:\n\n1. File format \u2014 toml, json, or yaml?\n2. Location \u2014 repo root, or the user's config directory?\n3. Missing-file behavior \u2014 should a missing config file be an error, or fall back to greeting 'world'?",
-    "options": [],
+    "body": "Before I plan the config-file work for `fixture`'s hello.py greeting, I need three decisions from you.",
+    "questions": [
+     {
+      "text": "What file format should the config use?",
+      "options": [
+       "toml",
+       "json",
+       "yaml"
+      ],
+      "default": "toml"
+     },
+     {
+      "text": "Where should the config file live?",
+      "options": [
+       "repo root",
+       "user's config directory"
+      ],
+      "default": "repo root"
+     },
+     {
+      "text": "If the config file is missing, should that be an error or fall back to greeting \"world\"?",
+      "options": [
+       "error",
+       "fall back to world"
+      ],
+      "default": "fall back to world"
+     }
+    ],
     "thread": "",
     "checks": []
    },
@@ -42,8 +54,8 @@
   {
    "verb": "wait",
    "args": {},
-   "ok": false,
-   "error": "Rejected: you await nothing and owe nothing either \u2014 just end your turn"
+   "ok": true,
+   "error": ""
   }
  ],
  "comments": [
@@ -57,10 +69,11 @@
    "author": "claude-default",
    "kind": "question",
    "auto_for": null,
-   "body": "Before planning the config-file feature for fixture/hello.py, I need three decisions settled:\n\n1. File format \u2014 toml, json, or yaml?\n2. Location \u2014 repo root, or the user's config directory?\n3. Missing-file behavior \u2014 should a missing config file be an error, or fall back to greeting 'world'?"
+   "body": "Before I plan the config-file work for `fixture`'s hello.py greeting, I need three decisions from you."
   }
  ],
  "auto_yields": 0,
  "dirty": "",
- "cost_usd": 0.1424
+ "committed": false,
+ "cost_usd": 0.1445
 }
