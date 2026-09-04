@@ -1,0 +1,66 @@
+{
+ "recorded_at": "2026-09-04T05:19:35+00:00",
+ "violations": [
+  "a question yield without options"
+ ],
+ "scenario": "batch-questions",
+ "skill_omitted": [
+  "being-a-character",
+  "planning-a-story"
+ ],
+ "seconds": 32,
+ "model": [
+  "claude-sonnet-5"
+ ],
+ "phase": "planning",
+ "ball": "author",
+ "verbs_log": [
+  {
+   "verb": "yield",
+   "args": {
+    "kind": "question",
+    "body": "Before planning the config-file feature for fixture/hello.py, I need three decisions settled:\n\n1. File format \u2014 toml, json, or yaml?\n2. Location \u2014 repo root, or the user's config directory?\n3. Missing-file behavior \u2014 should a missing config file be an error, or fall back to greeting 'world'?",
+    "options": [],
+    "thread": "main",
+    "checks": []
+   },
+   "ok": false,
+   "error": "Rejected: no thread 'main' on BASE-1"
+  },
+  {
+   "verb": "yield",
+   "args": {
+    "kind": "question",
+    "body": "Before planning the config-file feature for fixture/hello.py, I need three decisions settled:\n\n1. File format \u2014 toml, json, or yaml?\n2. Location \u2014 repo root, or the user's config directory?\n3. Missing-file behavior \u2014 should a missing config file be an error, or fall back to greeting 'world'?",
+    "options": [],
+    "thread": "",
+    "checks": []
+   },
+   "ok": true,
+   "error": ""
+  },
+  {
+   "verb": "wait",
+   "args": {},
+   "ok": false,
+   "error": "Rejected: you await nothing and owe nothing either \u2014 just end your turn"
+  }
+ ],
+ "comments": [
+  {
+   "author": "you",
+   "kind": "text",
+   "auto_for": null,
+   "body": "Started."
+  },
+  {
+   "author": "claude-default",
+   "kind": "question",
+   "auto_for": null,
+   "body": "Before planning the config-file feature for fixture/hello.py, I need three decisions settled:\n\n1. File format \u2014 toml, json, or yaml?\n2. Location \u2014 repo root, or the user's config directory?\n3. Missing-file behavior \u2014 should a missing config file be an error, or fall back to greeting 'world'?"
+  }
+ ],
+ "auto_yields": 0,
+ "dirty": "",
+ "cost_usd": 0.1424
+}

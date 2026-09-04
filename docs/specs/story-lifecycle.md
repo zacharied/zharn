@@ -337,9 +337,10 @@ cast in implementing gets `implementing-a-story`.
 
 Paid layer, `tests/skills/<scenario>/` = `prompt.md` + fixture repo builder + `expected.json`
 (verbs that must and must not occur). The runner spawns a character with and without the skill
-under real `claude -p`, only under `HARNESS_PAID_TESTS=1`; assertions read `verbs_log`, not
-transcripts; the last run's baseline and skilled logs are committed beside the scenario as
-evidence. Scenarios: outline-before-proceed (an `outline_first` role: one question yield, one
+under real `claude -p`, only under `HARNESS_PAID_TESTS=1`, on the CLI's default model unless
+`HARNESS_PAID_MODEL` names one (it overrides every role, friends included, for that run); assertions
+read `verbs_log`, not transcripts; the last run's baseline and skilled logs are committed beside the
+scenario as evidence, each recording the model that ran. Scenarios: outline-before-proceed (an `outline_first` role: one question yield, one
 outline handoff, no edits), handoff-not-silence (implementing: a handoff with evidence, not a
 harness yield), batch-questions (planning with three unknowns: one yield with options).
 New/edited skills: baseline failure first.

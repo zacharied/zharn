@@ -112,7 +112,8 @@ def _dirty(store, key, repo: Path) -> str:
     return "; ".join(out)
 
 
-def run_scenario(name: str, *, omit: str | list[str] | None, workdir: Path) -> dict:
+def run_scenario(name: str, *, omit: str | list[str] | None, workdir: Path, model: str = "") -> dict:
+    """One run. `model` overrides every role's model for this run only (the override lives in the run's workspace)."""
     from PySide6.QtTest import QTest
     from harness.__main__ import build
     from harness.environments import register_repo
@@ -137,7 +138,10 @@ def run_scenario(name: str, *, omit: str | list[str] | None, workdir: Path) -> d
         t0 = time.time()
         app, store, reloader = build(force_poll=True)
         assert reloader.load(), store.reloadError
-        register_repo(store.workspace, str(repo), name="fixture", checks=exp.get("checks", ""))
+        if model:
+            for role in store.roles.roles:                                     # every role: friends the character casts too
+                store.roles.save({**role, "model": model})
+        register_repo(store.stories.workspace, str(repo), name="fixture", checks=exp.get("checks", ""))
         key = store.stories.create(exp["title"], exp["prompt"])
         chr_id = store.stories.start(key, exp.get("note", ""), exp["role"])
         replies = list(exp.get("replies", []))
@@ -150,6 +154,7 @@ def run_scenario(name: str, *, omit: str | list[str] | None, workdir: Path) -> d
         comments = store.stories.comments(key)
         ch = store.stories.character(chr_id)
         return {"scenario": name, "skill_omitted": names, "seconds": round(time.time() - t0),
+                "model": sorted({c.model for c in store.contexts.contexts_for(key) if c.model}),
                 "phase": store.stories.get(key)["phase"], "ball": store.stories.get(key)["ball"],
                 "verbs_log": [{k: e.get(k) for k in ("verb", "args", "ok", "error")} for e in ch["verbs_log"]],
                 "comments": [{"author": c["authorName"], "kind": c["kind"], "auto_for": c.get("structured", {}).get("auto_for"),

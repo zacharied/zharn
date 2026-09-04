@@ -89,9 +89,10 @@ def test_run_scenario_refuses_to_spend_without_the_paid_flag(monkeypatch, tmp_pa
 @pytest.mark.parametrize("name", runner.scenarios())
 def test_scenario_with_and_without_the_skill(name, tmp_path):
     exp = runner.load(name)
-    baseline = runner.run_scenario(name, omit=exp["skill"], workdir=tmp_path)
+    model = os.environ.get("HARNESS_PAID_MODEL", "")    # empty: the CLI's default model
+    baseline = runner.run_scenario(name, omit=exp["skill"], workdir=tmp_path, model=model)
     runner.record(name, "baseline", baseline, runner.violations(exp, baseline))
-    skilled = runner.run_scenario(name, omit=None, workdir=tmp_path)
+    skilled = runner.run_scenario(name, omit=None, workdir=tmp_path, model=model)
     bad = runner.violations(exp, skilled)
     runner.record(name, "skilled", skilled, bad)
     assert not bad, bad
