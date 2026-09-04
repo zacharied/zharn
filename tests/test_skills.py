@@ -58,7 +58,7 @@ PLUGIN = ROOT / "harness" / "skills"
 ZHARN = {"being-a-character", "planning-a-story", "implementing-a-story", "delegating"}
 VENDORED = {"test-driven-development", "systematic-debugging", "verification-before-completion",
             "receiving-code-review", "requesting-code-review"}
-FORBIDDEN = ("superpowers:", "human partner", "subagent", "Subagent", "Task tool", "TodoWrite")
+FORBIDDEN = ("superpowers:", "human partner", "partner", "subagent", "Subagent", "Task tool", "TodoWrite")
 
 
 def frontmatter(path: Path) -> dict:

@@ -126,7 +126,7 @@ Push back when:
 - Reference working tests/code
 - Involve the thread's author if architectural
 
-**If you're uncomfortable pushing back out loud:** Name that tension, then tell your partner about the issue you've seen. They'll appreciate your honesty.
+**If you're uncomfortable pushing back out loud:** Name that tension, then tell the thread's author about the issue you've seen. They'll appreciate your honesty.
 
 ## Acknowledging Correct Feedback
 
