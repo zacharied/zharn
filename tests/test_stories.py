@@ -8,6 +8,8 @@ from PySide6.QtCore import QObject, Signal
 from harness import config as cfg
 from harness import skills
 from harness.lifecycle import Comment, OpenThread, Rejected, Yield
+
+Q = [{"text": "?"}]   # the smallest question document
 from harness.stories import StoryStore, author_name, needs_you_flavor, render_brief
 from harness.workspace import Workspace
 
@@ -128,7 +130,7 @@ def test_create_assigns_workspace_keys_and_persists(store, ws):
 def test_fresh_store_reloads_stories_comments_and_characters(ws, contexts):
     a = StoryStore(ws, contexts, StubRoles())
     key, chr_id = started(a)
-    a.cast_yield(chr_id, "question", "which db?", options=["pg", "sqlite"])
+    a.cast_yield(chr_id, "question", "which db?", questions=[{"text": "which db?", "options": ["pg", "sqlite"]}])
     b = StoryStore(ws, contexts, StubRoles())
     row = b.get(key)
     assert row["phase"] == "planning" and row["ball"] == "author" and row["needsYou"] is True and row["flavor"] == "question"
@@ -231,8 +233,8 @@ def test_second_character_with_same_role_gets_suffixed_name(store):
 
 def test_cast_yield_moves_ball_and_notifies(store, contexts):
     key, chr_id = started(store)
-    c = store.cast_yield(chr_id, "question", "pg or sqlite?", options=["pg", "sqlite"])
-    assert c["kind"] == "question" and c["structured"]["options"] == ["pg", "sqlite"] and c["author"] == chr_id
+    c = store.cast_yield(chr_id, "question", "pg or sqlite?", questions=[{"text": "pg or sqlite?", "options": ["pg", "sqlite"]}])
+    assert c["kind"] == "question" and c["structured"]["questions"] == [{"text": "pg or sqlite?", "options": ["pg", "sqlite"]}] and c["author"] == chr_id
     row = store.get(key)
     assert row["ball"] == "author" and row["needsYou"] and row["flavor"] == "question"
     assert store.notifier.infos[-1] == f"{key} needs you: question"
@@ -242,9 +244,9 @@ def test_cast_yield_rejections_surface(store):
     key, chr_id = started(store)
     store.cast_yield(chr_id, "handoff", "outline")
     with pytest.raises(Rejected, match="already waits"):
-        store.cast_yield(chr_id, "question", "again")
+        store.cast_yield(chr_id, "question", "again", questions=Q)
     with pytest.raises(KeyError):
-        store.cast_yield("chr_nobody", "question", "x")
+        store.cast_yield("chr_nobody", "question", "x", questions=Q)
 
 
 def test_cast_proceed_requires_approved_outline_for_outline_first_role(store):
@@ -305,12 +307,12 @@ def test_log_verb_caps_at_verbs_log_max(store):
 
 def test_human_comment_while_waiting_is_a_reply_delivered_to_protagonist(store, contexts):
     key, chr_id = started(store)
-    store.cast_yield(chr_id, "question", "pg or sqlite?")
+    store.cast_yield(chr_id, "question", "pg or sqlite?", questions=Q)
     ctx = contexts.get("ctx_1")
     n = len(ctx.sent)
     c = store.comment(key, "sqlite")
     assert c["reply_to"] is not None and store.get(key)["ball"] == "cast"
-    assert "\n[you] reply in #thr_" in ctx.sent[n] and ctx.sent[n].endswith(": sqlite")
+    assert "\n[you] reply in #main: sqlite" in ctx.sent[n]
 
 
 def test_human_comment_while_cast_has_ball_is_delivered_without_moving_it(store, contexts):
@@ -318,7 +320,7 @@ def test_human_comment_while_cast_has_ball_is_delivered_without_moving_it(store,
     ctx = contexts.get("ctx_1")
     n = len(ctx.sent)
     store.comment(key, "btw prefer sqlite")
-    assert store.get(key)["ball"] == "cast" and "\n[you] comment in #thr_" in ctx.sent[n]
+    assert store.get(key)["ball"] == "cast" and "\n[you] comment in #main: btw" in ctx.sent[n]
 
 
 def test_proceed_moves_phase_and_tells_protagonist(store, contexts):
@@ -355,14 +357,14 @@ def test_every_delivery_opens_with_the_situation_line(store, contexts):
     key, chr_id = started(store)
     ctx = contexts.get("ctx_1")
     main = store.story(key).main_thread
-    store.cast_yield(chr_id, "question", "which?")
+    store.cast_yield(chr_id, "question", "which?", questions=Q)
     store.comment(key, "that one")
     lines = ctx.sent[-1].splitlines()
-    assert lines[0] == (f"[situation] phase planning · attending #{main} · you owe #{main} · you await nothing · "
+    assert lines[0] == ("[situation] phase planning · attending #main · you owe #main · you await nothing · "
                         f"in the workspace dir {store.workspace.dir}; run `env open <repo>` before touching a repo")
-    assert lines[1] == f"[you] reply in #{main}: that one"
+    assert lines[1] == "[you] reply in #main: that one"
     r = store.cast_call(chr_id, "claude-fast", "build it")
-    store.cast_yield(chr_id, "question", "and?")
+    store.cast_yield(chr_id, "question", "and?", questions=Q)
     store.comment(key, "so")
     assert f"you await #{r['thread']}" in ctx.sent[-1].splitlines()[0]
 
@@ -482,12 +484,13 @@ def test_author_name():
 
 def test_render_brief_folds_threads_and_lists_cast(store):
     key, chr_id = started(store, "note")
-    store.cast_yield(chr_id, "question", "q1", options=["a", "b"])
-    store.comment(key, "a")
+    store.cast_yield(chr_id, "question", "Two things.", questions=[{"text": "a or b?", "options": ["a", "b"], "default": "a"}, {"text": "why?"}])
+    store.answer(key, "", ["a", ""], "because")
     text = render_brief(store.story(key), store.comments(key), {chr_id: store.character(chr_id)}, "the call-in note")
     assert text.startswith(f"# {key}: Title\n\nDesc\n")
-    assert "## Threads" in text and "**you** (text): note" in text and "**protagonist** (question): q1" in text
-    assert "options: a, b" in text and "**you** (text): a" in text
+    assert "## Threads" in text and "### #main — author you" in text and "**you** (text): note" in text
+    assert "**protagonist** (question): Two things.\n  1. a or b? (a, b; default a)\n  2. why?\n" in text
+    assert "**you** (text): 1. a\nbecause" in text
     assert "## Cast" in text and "protagonist — protagonist" in text
     assert "## Instructions" not in text and text.rstrip().endswith("## Note\nthe call-in note")
 
@@ -497,7 +500,7 @@ def test_needs_you_flavor():
     s = Story(key="K", title="t", phase="todo")
     s, c0 = step(s, Start(thread_id="t1", protagonist="c"), comment_id="c0", now=1)
     assert needs_you_flavor(s, [c0]) == ""
-    s2, c1 = step(s, Yield("t1", "c", "question", "?"), comment_id="c1", now=2)
+    s2, c1 = step(s, Yield("t1", "c", "question", "?", questions=Q), comment_id="c1", now=2)
     assert needs_you_flavor(s2, [c0, c1]) == "question"
 
 
@@ -507,7 +510,7 @@ def test_row_lists_threads_with_turns(store):
     chr_id = store.start(key, "", "protagonist")
     (t,) = store.get(key)["threads"]
     assert t == {"id": store.get(key)["mainThread"], "n": 1, "isMain": True, "author": "human", "lead": chr_id, "turn": "cast", "pendingYield": ""}
-    c = store.cast_yield(chr_id, "question", "a or b?", options=["a", "b"])
+    c = store.cast_yield(chr_id, "question", "a or b?", questions=[{"text": "a or b?", "options": ["a", "b"]}])
     (t,) = store.get(key)["threads"]
     assert t["turn"] == "author" and t["pendingYield"] == c["id"]
 
@@ -704,7 +707,7 @@ def test_addressees_follow_the_routing_rules(store, contexts):
     friend = store._cast(key, StubRoles().get("claude-fast"), thread_id="thr_f", author=chr_id, note="build")
     c_root = store._apply(key, OpenThread(thread_id="thr_f", author=chr_id, lead=friend["id"], body="build"))
     assert store.addressees(key, c_root) == [friend["id"]]                       # root → lead
-    c_yield = store._apply(key, Yield(thread_id="thr_f", by=friend["id"], kind="question", body="which db? @protagonist"))
+    c_yield = store._apply(key, Yield(thread_id="thr_f", by=friend["id"], kind="question", body="which db? @protagonist", questions=Q))
     assert store.addressees(key, c_yield) == [chr_id]                             # yield → author (mention == author: once)
     c_reply = store._apply(key, Comment(thread_id="thr_f", by=chr_id, body="postgres"))
     assert c_reply["reply_to"] == c_yield["id"] and store.addressees(key, c_reply) == [friend["id"]]   # reply to a yield → yielder
@@ -781,7 +784,7 @@ def test_turn_end_pops_one_inbox_item_and_moves_attention(store, contexts):
     live = contexts.get(ch["live_context"])
     a = store.openThread(key, "first btw"); b = store.openThread(key, "second btw")
     assert [store._comment_by_id(i)["thread_id"] for i in store.character(chr_id)["inbox"]] == [a, b]
-    store.cast_yield(chr_id, "question", "which?")                 # attended main yields, then the turn ends
+    store.cast_yield(chr_id, "question", "which?", questions=Q)                 # attended main yields, then the turn ends
     settle(store, contexts, chr_id)
     ch = store.character(chr_id)
     assert ch["attention"] == a and live.sent[-1].endswith("first btw") and len(ch["inbox"]) == 1
@@ -820,11 +823,54 @@ def test_cast_call_fork_clones_the_caller(store, contexts):
 
 def test_cast_wait_is_a_guard(store, contexts):
     key, chr_id = started(store)
-    with pytest.raises(Rejected, match="you await nothing and owe #"):
+    with pytest.raises(Rejected, match="you await nothing and owe #main — yield instead"):
         store.cast_wait(chr_id)
+    store.cast_yield(chr_id, "question", "", questions=Q)
+    w = store.cast_wait(chr_id)          # owes nothing now: stopping is right, so the guard passes
+    assert w["awaits"] == [] and "end your turn" in w["message"] and "a reply will wake you" in w["message"]
+    store.comment(key, "a")
     r = store.cast_call(chr_id, "claude-fast", "build")
     w = store.cast_wait(chr_id)
     assert w["awaits"] == [{"thread": r["thread"], "lead": "claude-fast"}] and "end your turn" in w["message"]
+
+
+def test_answer_composes_the_reply_and_stores_answers(store, contexts):
+    key, chr_id = started(store)
+    q = store.cast_yield(chr_id, "question", "", questions=[{"text": "a or b?", "options": ["a", "b"]}, {"text": "c or d?", "options": ["c", "d"]}, {"text": "why?"}])
+    r = store.answer(key, "", ["a", "", "d"], "  because  ")
+    assert r["reply_to"] == q["id"] and r["body"] == "1. a\n3. d\nbecause" and r["structured"]["answers"] == ["a", "", "d"]
+    assert store.get(key)["ball"] == "cast"
+    store.cast_yield(chr_id, "question", "", questions=[{"text": "again?"}])
+    with pytest.raises(Rejected, match="nothing to say"):
+        store.answer(key, "", [""], "  ")
+    r = store.answer(key, "", [], "free text only")
+    assert r["body"] == "free text only" and "answers" not in r["structured"]
+
+
+def test_delivery_prints_question_lines_and_main(store, contexts):
+    key, chr_id = started(store)
+    ctx = contexts.get("ctx_1")
+    store.cast_yield(chr_id, "question", "Pick.", questions=[{"text": "a or b?", "options": ["a", "b"]}])
+    store.answer(key, "", ["b"], "")
+    lines = ctx.sent[-1].splitlines()
+    assert lines[0].startswith("[situation] phase planning · attending #main · you owe #main · you await nothing · ")
+    assert lines[1] == "[you] reply in #main: 1. b"
+    r = store.cast_call(chr_id, "claude-fast", "build it")
+    ctx.status = "idle"
+    store.cast_yield(r["character"], "question", "Pick.", questions=[{"text": "x?", "options": ["x", "y"], "default": "x"}], thread_id=r["thread"])
+    assert f"[claude-fast] question in #{r['thread']}: Pick.\n  1. x? (x, y; default x)" in ctx.sent[-1]
+    assert f"attending #{r['thread']} · you owe #main" in ctx.sent[-1].splitlines()[0]
+
+
+def test_thread_main_resolves_in_cast_verbs(store, contexts):
+    key, chr_id = started(store)
+    main = store.get(key)["mainThread"]
+    c = store.cast_yield(chr_id, "question", "", questions=Q, thread_id="main")
+    assert c["thread_id"] == main and store.get(key)["ball"] == "author"
+    store.comment(key, "a")
+    assert store.cast_recap(chr_id, "r", thread_id="main")["thread_id"] == main
+    assert store.cast_comment(chr_id, "c", thread_id="main")["thread_id"] == main
+    assert store.env_checks(chr_id, "main")["run"] is False
 
 
 def test_cast_recap_defaults_to_the_attended_thread(store, contexts):
@@ -927,8 +973,8 @@ def test_sub_story_yield_reaches_the_author_character_cross_story(store, context
     live = contexts.get(store.character(chr_id)["live_context"]); live.status = "idle"
     sub = store.cast_create(chr_id, "screen model", start=True, role="claude-fast")
     lead = store.story(sub).protagonist
-    store.cast_yield(lead, "question", "rows or cells?")
-    assert f"\n[claude-fast] question in #{store.get(sub)['mainThread']} of {sub}: rows or cells?" in live.sent[-1]
+    store.cast_yield(lead, "question", "rows or cells?", questions=Q)
+    assert f"attending #main of {sub} · " in live.sent[-1] and f"\n[claude-fast] question in #main of {sub}: rows or cells?" in live.sent[-1]
     assert store.character(chr_id)["attention"] == store.get(sub)["mainThread"]
     c = store.cast_author(chr_id, "reply", sub, body="rows", thread_id=store.get(sub)["mainThread"])
     assert store.story(sub).ball == "cast" and c["reply_to"]
@@ -956,7 +1002,7 @@ def test_human_acting_on_a_character_owned_sub_story_notifies_the_owner(store, c
     store.cast_yield(lead, "handoff", "outline")
     store.proceed(sub)                                              # the human, on behalf of the owner
     assert store.story(sub).phase == "implementing"
-    assert f"\n[protagonist] system in #{store.get(sub)['mainThread']} of {sub}: outline approved" in live.sent[-1]
+    assert f"\n[protagonist] system in #main of {sub}: outline approved" in live.sent[-1]
 
 
 def test_cancel_cascades_to_open_sub_stories(store, contexts):
@@ -1246,3 +1292,12 @@ def test_a_recast_brief_ends_with_the_current_skill(store, contexts):
     first = contexts.get(new).sent[0]
     assert "## Situation" in first and first.rstrip().endswith(skills.phase_skill("implementing"))
     assert store.character(chr_id)["phase_seen"] == "implementing"
+
+
+def test_env_checks_lists_every_environment(store, ws, repo, contexts, tmp_path):
+    register_repo(ws, str(make_repo(tmp_path / "ws" / "plain")), checks="")
+    key, chr_id = started(store)
+    store.cast_yield(chr_id, "handoff", "outline"); store.proceed(key, "go")
+    store.cast_env_open(chr_id, "client"); store.cast_env_open(chr_id, "plain")
+    plan = store.env_checks(chr_id)
+    assert plan["run"] and {e["repo"]: e["checks"] for e in plan["environments"]} == {"client": "echo ok", "plain": ""}

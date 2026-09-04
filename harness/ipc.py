@@ -107,7 +107,7 @@ def make_handler(app_store):
         if verb == "wait":
             return stories.cast_wait(ch)
         if verb == "yield":
-            return stories.cast_yield(ch, a["kind"], a["body"], a.get("options") or [], a.get("thread", ""), a.get("checks") or [])
+            return stories.cast_yield(ch, a["kind"], a.get("body", ""), a.get("questions") or [], a.get("thread", ""), a.get("checks") or [])
         if verb == "recap":
             return stories.cast_recap(ch, a["body"], a.get("thread", ""))
         if verb == "comment":

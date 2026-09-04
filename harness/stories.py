@@ -69,15 +69,13 @@ def render_brief(story: lc.Story, comments: list[dict], characters: dict[str, di
     if story.threads:
         out += ["## Threads", ""]
         for t in story.threads:
-            label = "main" if t.id == story.main_thread else t.id
-            out.append(f"### #{label} — author {author_name(t.author, characters)}, lead {author_name(t.lead, characters)}, turn: {t.turn}")
+            out.append(f"### #{lc.thread_label(story, t.id)} — author {author_name(t.author, characters)}, lead {author_name(t.lead, characters)}, turn: {t.turn}")
             for c in comments:
                 if c["thread_id"] != t.id:
                     continue
                 out.append(f"- **{author_name(c['author'], characters)}** ({c['kind']}): {c['body']}")
-                opts = c.get("structured", {}).get("options")
-                if opts:
-                    out.append(f"  - options: {', '.join(opts)}")
+                for line in lc.question_lines(c.get("structured", {}).get("questions") or []):
+                    out.append(f"  {line}")
             out.append("")
     latest = {}
     for c in comments:
@@ -232,11 +230,21 @@ class StoryStore(QObject):
         sub-story keys (bare) do not."""
         return ", ".join(("#" + a) if a.startswith("thr_") else a for a in self.awaits(ch)) or "nothing"
 
+    def _owes_line(self, ch: dict) -> str:
+        s = self._stories[ch["story_key"]]
+        return ", ".join("#" + lc.thread_label(s, t) for t in self.owes(ch)) or "nothing"
+
+    def _where(self, ch: dict, thread_id: str) -> str:
+        """A thread named to a character: `#main` or `#thr_…`, with ` of KEY` when it belongs to another story."""
+        skey, _ = self._thread_anywhere(thread_id)
+        if skey is None:
+            return f"#{thread_id}"
+        return f"#{lc.thread_label(self._stories[skey], thread_id)}" + (f" of {skey}" if skey != ch["story_key"] else "")
+
     def situation(self, ch: dict) -> str:
         """Spec §5.3: the volatile facts — one line at the top of every message, never in the system prompt."""
         s = self._stories[ch["story_key"]]
-        owes = ", ".join("#" + t for t in self.owes(ch)) or "nothing"
-        return (f"[situation] phase {s.phase} · attending #{ch.get('attention') or s.main_thread} · you owe {owes} · "
+        return (f"[situation] phase {s.phase} · attending {self._where(ch, ch.get('attention') or s.main_thread)} · you owe {self._owes_line(ch)} · "
                 f"you await {self._awaits_line(ch)} · {self.environment_line(ch)}")
 
     def story(self, key: str) -> lc.Story | None:
@@ -374,11 +382,9 @@ class StoryStore(QObject):
 
     def _format(self, ch: dict, comment: dict) -> str:
         kind = "reply" if comment.get("reply_to") else ("comment" if comment["kind"] == "text" else comment["kind"])
-        where = f"#{comment['thread_id']}" + (f" of {comment['story_key']}" if comment["story_key"] != ch["story_key"] else "")
-        text = f"[{author_name(comment['author'], self._characters)}] {kind} in {where}: {comment['body']}"
-        opts = comment.get("structured", {}).get("options")
-        if opts:
-            text += f"\n(options: {', '.join(opts)})"
+        text = f"[{author_name(comment['author'], self._characters)}] {kind} in {self._where(ch, comment['thread_id'])}: {comment['body']}"
+        for line in lc.question_lines(comment.get("structured", {}).get("questions") or []):
+            text += f"\n  {line}"
         return self.situation(ch) + "\n" + text
 
     def _phase_skill_due(self, ch: dict) -> str:
@@ -737,8 +743,8 @@ class StoryStore(QObject):
         ch["phase_seen"] = None                     # a fresh context: the brief ends with the current phase skill
         skill = self._phase_skill_due(ch)
         situation = (f"you are a recast of {ch['name']}; your predecessor's recap is above. "
-                     f"You were attending #{ch.get('attention') or s.main_thread}; {len(ch.get('inbox', []))} items wait in your inbox; "
-                     f"you await {self._awaits_line(ch)} and owe {', '.join('#' + t for t in self.owes(ch)) or 'nothing'}.")
+                     f"You were attending #{lc.thread_label(s, ch.get('attention') or s.main_thread)}; {len(ch.get('inbox', []))} items wait in your inbox; "
+                     f"you await {self._awaits_line(ch)} and owe {self._owes_line(ch)}.")
         cid = self._contexts.create(role_cfg["name"], story_key=key, owner=ch["id"], title=f"{key} · {ch['name']}",
                                     env={"HARNESS_CHARACTER_ID": ch["id"]}, predecessor=old_id)
         if model:
@@ -808,16 +814,39 @@ class StoryStore(QObject):
         tid = thread_id or s.main_thread or ""
         return self._author_action(key, lc.Comment(thread_id=tid, by=self._on_behalf(key), body=body), resume=True)
 
+    @Slot(str, str, "QVariantList", str, result="QVariantMap")
+    @intent
+    def answer(self, key, thread_id, answers, text):
+        """The story view's reply to a question (spec §4): the picks by question index as `N. <pick>` lines, then the
+        composer text, in one comment that carries the picks as `answers`."""
+        key = self._key(key)
+        s = self._stories[key]
+        tid = thread_id or s.main_thread or ""
+        picks = [str(a or "").strip() for a in answers]
+        lines = [f"{i + 1}. {a}" for i, a in enumerate(picks) if a]
+        if text.strip():
+            lines.append(text.strip())
+        if not lines:
+            raise lc.Rejected("nothing to say: pick an option or write a reply")
+        return self._author_action(key, lc.Comment(thread_id=tid, by=self._on_behalf(key), body="\n".join(lines),
+                                                   answers=picks if any(picks) else []), resume=True)
+
     # ---------------------------------------------------------------- cast verbs (via IPC)
     def _char(self, character_id: str) -> tuple[str, dict]:
         ch = self._characters[character_id]  # KeyError for unknown characters
         return ch["story_key"], ch
 
-    def cast_yield(self, character_id, kind, body, options=(), thread_id="", checks=()) -> dict:
+    def _tid(self, key: str, ch: dict, thread_id: str = "") -> str:
+        """A verb's thread: the one named, else the attended one, else main; `main` names the main thread."""
+        s = self._stories[key]
+        tid = thread_id or ch.get("attention") or s.main_thread
+        return s.main_thread if tid == "main" else tid
+
+    def cast_yield(self, character_id, kind, body, questions=(), thread_id="", checks=()) -> dict:
         key, ch = self._char(character_id)
-        tid = thread_id or ch.get("attention") or self._stories[key].main_thread
+        tid = self._tid(key, ch, thread_id)
         open_subs = self._row(key)["openSubstories"] if tid == self._stories[key].main_thread else 0
-        c = self._apply(key, lc.Yield(thread_id=tid, by=character_id, kind=kind, body=body, options=list(options),
+        c = self._apply(key, lc.Yield(thread_id=tid, by=character_id, kind=kind, body=body, questions=[dict(q) for q in questions],
                                       checks=[dict(c) for c in checks], open_substories=open_subs))
         self._route(key, c)
         return c
@@ -895,9 +924,9 @@ class StoryStore(QObject):
         key, ch = self._char(character_id)
         awaits = self.awaits(ch)
         if not awaits:
-            owed = self.owes(ch)
-            what = f"owe #{owed[0]}" if owed else "owe nothing either"
-            raise lc.Rejected(f"you await nothing and {what} — " + ("yield instead" if owed else "just end your turn"))
+            if self.owes(ch):   # the one state where stopping is wrong: the turn would end in silence
+                raise lc.Rejected(f"you await nothing and owe {self._owes_line(ch)} — yield instead")
+            return {"awaits": [], "message": "you await nothing and owe nothing — end your turn; a reply will wake you"}
         s = self._stories[key]
         rows = []
         for item in awaits:
@@ -936,12 +965,13 @@ class StoryStore(QObject):
         return [self.environments.describe(r) for r in self.environments.records(key)]
 
     def env_checks(self, character_id, thread_id="") -> dict:
-        """§4.6: what the CLI must run before posting a handoff — only on the main thread of an implementing story."""
+        """§4.6: what the CLI must gate on before posting a handoff — only on the main thread of an implementing story.
+        Every environment of the story: the tree gate covers them all, `checks` runs where a repo has them."""
         key, ch = self._char(character_id)
         s = self._stories[key]
-        tid = thread_id or ch.get("attention") or s.main_thread
+        tid = self._tid(key, ch, thread_id)
         run = s.phase == "implementing" and tid == s.main_thread
-        envs = [d for d in self.cast_env_list(character_id) if d["checks"]] if run else []
+        envs = self.cast_env_list(character_id) if run else []
         return {"run": run, "environments": envs, "policy": getattr(cfg, "HANDOFF_CHECKS", "gate"),
                 "limit": getattr(cfg, "CHECKS_OUTPUT_LIMIT", 4000), "timeout": getattr(cfg, "CHECKS_TIMEOUT_S", 1800)}
 
@@ -997,7 +1027,7 @@ class StoryStore(QObject):
 
     def cast_recap(self, character_id, body, thread_id="") -> dict:
         key, ch = self._char(character_id)
-        tid = thread_id or ch.get("attention") or self._stories[key].main_thread
+        tid = self._tid(key, ch, thread_id)
         c = self._apply(key, lc.Recap(by=character_id, body=body, thread_id=tid))
         ch.setdefault("recaps", []).append(c["id"])
         ctx = self._contexts.get(ch["live_context"]) if ch.get("live_context") else None
@@ -1013,7 +1043,7 @@ class StoryStore(QObject):
             tid = new_id("thr_")
             c = self._apply(key, lc.OpenThread(thread_id=tid, author=character_id, lead=lead, body=body))
         else:
-            tid = thread_id or ch.get("attention") or self._stories[key].main_thread
+            tid = self._tid(key, ch, thread_id)
             c = self._apply(key, lc.Comment(thread_id=tid, by=character_id, body=body + (" " + mentions if mentions else "")))
         self._route(key, c)
         return c

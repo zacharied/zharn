@@ -103,8 +103,8 @@ class FakeStories:
     def backToPlanning(self, key, note=""): self.calls.append(("back", key, note))
     def cancel(self, key, note=""): self.calls.append(("cancel", key, note))
     def reopen(self, key, note=""): self.calls.append(("reopen", key, note))
-    def cast_yield(self, character_id, kind, body, options=(), thread_id="", checks=()):
-        self.calls.append(("cast_yield", character_id, kind, body, list(options), thread_id))
+    def cast_yield(self, character_id, kind, body, questions=(), thread_id="", checks=()):
+        self.calls.append(("cast_yield", character_id, kind, body, list(questions), thread_id))
         if body == "boom":
             from harness.lifecycle import Rejected
             raise Rejected("thread already waits on its author")
@@ -265,11 +265,11 @@ def test_story_author_verbs_forward(h, store):
 
 
 def test_story_cast_verbs_forward_and_log(h, store):
-    assert h("story.yield", {"character": "chr1", "kind": "question", "body": "q", "options": ["a", "b"]})["kind"] == "question"
+    assert h("story.yield", {"character": "chr1", "kind": "question", "body": "q", "questions": [{"text": "q", "options": ["a", "b"]}]})["kind"] == "question"
     h("story.proceed", {"character": "chr1", "note": "bounded"})
     h("story.recap", {"character": "chr1", "body": "r"})
     h("story.comment", {"character": "chr1", "body": "c", "thread": "t2"})
-    assert store.stories.calls == [("cast_yield", "chr1", "question", "q", ["a", "b"], ""), ("cast_proceed", "chr1", "bounded"),
+    assert store.stories.calls == [("cast_yield", "chr1", "question", "q", [{"text": "q", "options": ["a", "b"]}], ""), ("cast_proceed", "chr1", "bounded"),
                                    ("cast_recap", "chr1", "r", ""), ("cast_comment", "chr1", "c", "t2", [])]
     assert [(v[1], v[3]) for v in store.stories.verbs] == [("yield", True), ("proceed", True), ("recap", True), ("comment", True)]
     assert "character" not in store.stories.verbs[0][2]
@@ -459,8 +459,8 @@ class FakeEnvStories:
     def env_checks(self, ch, thread):
         self.calls.append(("env_checks", ch, thread)); return {"run": False, "environments": [], "policy": "gate", "limit": 10, "timeout": 5}
 
-    def cast_yield(self, ch, kind, body, options, thread, checks=()):
-        self.calls.append(("yield", ch, kind, body, list(options), thread, list(checks))); return {"id": "c"}
+    def cast_yield(self, ch, kind, body, questions, thread, checks=()):
+        self.calls.append(("yield", ch, kind, body, list(questions), thread, list(checks))); return {"id": "c"}
 
     def log_verb(self, ch, verb, args, ok, error=""):
         self.verbs.append((ch, verb, args, ok, error))
@@ -493,8 +493,8 @@ def test_yield_passes_checks_through():
     checks = [{"repo": "r", "cmd": "c", "exit": 0, "output": ""}]
     h("story.yield", {"character": "chr_1", "kind": "handoff", "body": "b", "checks": checks})
     assert st.calls[-1] == ("yield", "chr_1", "handoff", "b", [], "", checks)
-    h("story.yield", {"character": "chr_1", "kind": "question", "body": "q", "options": ["a"]})
-    assert st.calls[-1] == ("yield", "chr_1", "question", "q", ["a"], "", [])
+    h("story.yield", {"character": "chr_1", "kind": "question", "body": "q", "questions": [{"text": "q", "options": ["a"]}]})
+    assert st.calls[-1] == ("yield", "chr_1", "question", "q", [{"text": "q", "options": ["a"]}], "", [])
 
 
 def test_yield_logs_only_repo_and_exit_from_checks():
