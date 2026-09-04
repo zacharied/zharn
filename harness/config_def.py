@@ -72,6 +72,10 @@ PERMISSION_FLAGS = {
 # harness reasoning level → claude-code flags
 EFFORT_FLAGS = {lvl: ["--effort", lvl] for lvl in ("low", "medium", "high", "xhigh", "max")}
 
+# The skills plugin (lifecycle spec §5): passed as --plugin-dir at every spawn and read for the meta and phase
+# skills. Empty = harness/skills/ in this checkout. HARNESS_SKILLS_DIR overrides at runtime.
+SKILLS_DIR = ""
+
 # System prompt for a bare context (no story). Characters get CHARACTER_SYSTEM_PROMPT instead.
 BARE_CONTEXT_SYSTEM_PROMPT = (
     "You are a bare context in zharn (context {context_id}, no story): a scratch conversation. "
