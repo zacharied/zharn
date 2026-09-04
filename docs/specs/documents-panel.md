@@ -171,7 +171,8 @@ No editing, no diff, no syntax colouring inside code blocks. The tab's `objectNa
   registered repo's documents appear; clicking a document opens `tab_document_<key>`; clicking a section
   opens the tab scrolled so that section is current and the row is selected; scrolling the tab moves the
   selection; a click on a row leaves the keyboard on the tree, so typing filters; Esc clears; collapse-all;
-  a shrinking reload keeps the scroll in bounds; a scroll request beats a reload in the same tick.
+  a shrinking reload keeps the scroll in bounds; a scroll request beats a reload in the same tick; a panel
+  shown again catches up on what changed while it was hidden.
 
 ## 7. What the panel does not do, yet
 

@@ -189,3 +189,17 @@ def test_a_scroll_request_beats_a_reload_landing_in_the_same_tick(ui):
     ui.store.documents.open(LONG_KEY, 5)           # ...scrollRequested fires synchronously here...
     ui.store.documents.rescan()                    # ...and documentsChanged fires synchronously here, same tick
     assert wait_until(lambda: ui.store.documents.position(LONG_KEY) == 5)
+
+
+def test_showing_the_panel_again_catches_up_on_what_changed_while_it_was_hidden(ui):
+    """The rescan tick skips the walk while nothing shows the map, so the panel rescans when it appears.
+    The store's timer is stopped here so only the panel can be what picks the new document up."""
+    show(ui)
+    repo = OUT / "ui-documents-repo"
+    ui.click(ui.find("stripButton_documents"))          # hide the panel; the dock keeps it loaded
+    QTest.qWait(120)
+    ui.store.documents._timer.stop()
+    (repo / "docs/fresh.md").write_text("# Fresh\n")
+    ui.click(ui.find("stripButton_documents"))          # ...and show it again
+    assert wait_until(lambda: ui.has(r"docRow_d/docs/fresh\.md"))
+    ui.store.documents._timer.start(2000)

@@ -57,8 +57,10 @@ ContentBase {
         return out
     }
     // A hidden panel is not worth walking the repos for, so the periodic rescan skips one — which makes
-    // showing the panel the moment to catch up.
+    // showing the panel the moment to catch up. The dock keeps a hidden panel loaded, so this has to
+    // hang off visibility, not just onCompleted.
     Component.onCompleted: { app.documents.rescan(); readActive(); tree.forceActiveFocus() }
+    onVisibleChanged: if (visible) app.documents.rescan()
     onFilterChanged: refreshResults()
     Connections { target: app.layout; function onLayoutChanged() { panel.readActive() } }
     Connections {
