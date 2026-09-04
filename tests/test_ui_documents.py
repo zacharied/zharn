@@ -1,6 +1,9 @@
-"""The Documents panel and the document tab through the real QML (proposal 2026-09-03-documents-panel):
+"""The Documents panel and the document tab through the real QML (spec docs/specs/documents-panel.md):
 the strip button, the section tree, opening a document or a section, the selection that follows the
-reader, type-to-filter, collapse-all."""
+reader, type-to-filter, collapse-all.
+
+These tests share one app and build on each other in order (a test opens the tab the next one scrolls):
+run the file, not a single test with `-k`."""
 import shutil
 from pathlib import Path
 
@@ -35,9 +38,15 @@ Tail.
 KEY = "d/docs/specs/workspace-model.md"
 
 
+EMPTY = "No markdown documents in the registered repos."
+
+
 @pytest.fixture(scope="module")
 def ui():
     h = start("ui-documents")
+    show(h)                                       # nothing registered yet: the empty state
+    assert h.visible(h.find("docEmpty"))
+    assert h.find("docEmpty").property("text") == EMPTY
     repo = OUT / "ui-documents-repo"
     shutil.rmtree(repo, ignore_errors=True)
     make_repo(repo)
@@ -102,6 +111,22 @@ def test_clicking_a_document_opens_it_at_the_top(ui):
     assert wait_until(lambda: ui.has("tab_document_d/docs/guide\\.md"))
     assert wait_until(lambda: ui.store.documents.position("d/docs/guide.md") == -1)
     assert ui.visible(ui.find(r"docRow_d/docs/guide\.md#1"))                    # Run, no number column
+
+
+def test_clicking_a_row_gives_the_tree_focus_so_typing_filters(ui):
+    """The keyboard reaches the tree without the test's forceActiveFocus: a mouse user can type too."""
+    show(ui)
+    ui.click(ui.find("documentView"))                  # the focus is in the open document...
+    assert ui.find("documentView").property("activeFocus") is True
+    ui.click(ui.find(r"docRow_d/docs/guide\.md"))      # ...and a click on a row brings it back to the tree
+    assert ui.find("docTree").property("activeFocus") is True
+    ui.type("run")
+    QTest.qWait(80)
+    assert ui.find("docFilter").property("text") == "run"
+    assert ui.visible(ui.find(r"docResult_d/docs/guide\.md#1"))
+    ui.key(Qt.Key.Key_Escape)                      # the filter field has the focus by now
+    QTest.qWait(80)
+    assert not ui.find("docFilter").isVisible()
 
 
 def test_typing_filters_to_matching_sections_grouped_by_document_and_escape_clears(ui):

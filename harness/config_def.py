@@ -14,6 +14,7 @@ THEME = {
     "border": "#393b40",
     "hover": "#393b40",
     "selection": "#2e436e",
+    "selectedKey": "#b7c9f2",   # the key column (story key, section number) on a selected row
     "text": "#dfe1e5",
     "textMuted": "#868a91",
     "textDim": "#6c707a",

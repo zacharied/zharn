@@ -92,7 +92,7 @@ ContentBase {
                                 anchors { fill: parent; leftMargin: 30; rightMargin: 10 }
                                 spacing: 8
                                 Text { text: card.modelData.key; font.family: app.theme.monoFamily; font.pixelSize: app.theme.monoSize
-                                       color: card.selected ? "#b7c9f2" : app.theme.textMuted; Layout.preferredWidth: 46 }
+                                       color: card.selected ? app.theme.selectedKey : app.theme.textMuted; Layout.preferredWidth: 46 }
                                 Text { text: card.modelData.title; color: app.theme.text; elide: Text.ElideRight; Layout.fillWidth: true
                                        font.weight: card.modelData.needsYou ? Font.Medium : Font.Normal }
                                 StatusDot { visible: card.modelData.workingCount > 0; status: "working"; size: 7 }

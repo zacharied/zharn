@@ -13,22 +13,28 @@ ContentBase {
     property var results: []
     property string activeKey: ""
     property int position: -1
+    property var openKeys: ({})     // key -> true for every document tab open in the layout
     readonly property bool filtering: filter.length > 0
 
     property Component headerActions: Component {
         IconButton { objectName: "docCollapseAll"; icon: "collapse"; tip: "Collapse all"; onClicked: app.documents.collapseAll() }
     }
 
-    // the document of the active editor tab, if it is one
+    // the document of the active editor tab, if it is one, and which documents have a tab at all
     function readActive() {
-        var tree = JSON.parse(app.layout.layoutJson), gid = app.layout.activeGroup
-        function find(node) {
-            if (!node) return null
-            if (node.type === "tabs") return node.id === gid ? node : null
-            for (var i = 0; i < node.children.length; i++) { var f = find(node.children[i]); if (f) return f }
-            return null
+        var lay = JSON.parse(app.layout.layoutJson), gid = app.layout.activeGroup, open = {}, active = null
+        function walk(node) {
+            if (!node) return
+            if (node.type === "tabs") {
+                for (var i = 0; i < node.tabs.length; i++) if (node.tabs[i].kind === "document") open[node.tabs[i].key] = true
+                if (node.id === gid) active = node
+                return
+            }
+            for (var j = 0; j < node.children.length; j++) walk(node.children[j])
         }
-        var g = find(tree.center)
+        walk(lay.center)
+        openKeys = open
+        var g = active
         var t = g && g.tabs.length ? g.tabs[g.active] : null
         activeKey = t && t.kind === "document" ? t.key : ""
         position = activeKey ? app.documents.position(activeKey) : -1
@@ -50,7 +56,9 @@ ContentBase {
         }
         return out
     }
-    Component.onCompleted: readActive()
+    // A hidden panel is not worth walking the repos for, so the periodic rescan skips one — which makes
+    // showing the panel the moment to catch up.
+    Component.onCompleted: { app.documents.rescan(); readActive(); tree.forceActiveFocus() }
     onFilterChanged: refreshResults()
     Connections { target: app.layout; function onLayoutChanged() { panel.readActive() } }
     Connections {
@@ -109,13 +117,13 @@ ContentBase {
                         objectName: "docChevron_" + row.model.id
                         width: 14; height: 14
                         Icon { anchors.fill: parent; visible: row.model.hasChildren; name: row.model.expanded ? "down" : "right"; size: 14; color: app.theme.textDim }
-                        TapHandler { enabled: row.model.hasChildren; onTapped: app.documents.toggle(row.model.id) }
+                        TapHandler { enabled: row.model.hasChildren; onTapped: { tree.forceActiveFocus(); app.documents.toggle(row.model.id) } }
                     }
                     Text {
                         visible: row.model.kind === "sec" && row.model.column
                         text: row.model.number; width: 24; horizontalAlignment: Text.AlignRight
                         font.family: app.theme.monoFamily; font.pixelSize: app.theme.monoSize
-                        color: row.selected ? "#b7c9f2" : app.theme.textMuted
+                        color: row.selected ? app.theme.selectedKey : app.theme.textMuted
                         Layout.preferredWidth: 24
                     }
                     Text {
@@ -123,13 +131,14 @@ ContentBase {
                         color: row.model.kind === "dir" ? app.theme.textMuted : app.theme.text
                         font.pixelSize: app.theme.fontSize
                         font.weight: row.model.kind === "repo" ? Font.DemiBold
-                                   : (row.model.kind === "doc" && app.layout.layoutJson.indexOf('"key": "' + row.model.key + '"') >= 0 ? Font.Medium : Font.Normal)
+                                   : (row.model.kind === "doc" && panel.openKeys[row.model.key] ? Font.Medium : Font.Normal)
                     }
                     Text { visible: row.model.kind === "repo"; text: row.model.count; color: app.theme.textMuted; font.pixelSize: app.theme.fontSize }
                 }
                 HoverHandler { id: rh }
                 TapHandler {
                     onTapped: {
+                        tree.forceActiveFocus()      // so type-to-filter follows a click, not only the keyboard
                         tree.currentIndex = row.index
                         if (row.model.kind === "doc" || row.model.kind === "sec") app.documents.open(row.model.key, row.model.ordinal)
                         else app.documents.toggle(row.model.id)

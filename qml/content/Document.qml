@@ -63,6 +63,8 @@ ContentBase {
             page.report()
         }
     }
+    // A throttle, not a debounce: a continuous flick changes contentY every frame, and a debounce would
+    // report nothing until it stopped, leaving the panel's selection behind the reader.
     Timer { id: reportTimer; interval: 16; onTriggered: page.report() }
     Connections {
         target: app.documents
@@ -76,7 +78,7 @@ ContentBase {
         objectName: "documentFlick"
         anchors.fill: parent; clip: true
         contentWidth: width; contentHeight: view.y + view.implicitHeight + 40
-        onContentYChanged: reportTimer.restart()
+        onContentYChanged: if (!reportTimer.running) reportTimer.start()
         ScrollBar.vertical: ScrollBar {}
         TextArea {
             id: view
