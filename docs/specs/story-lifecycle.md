@@ -1,8 +1,10 @@
-# Story lifecycle — implementation spec (2026-08-28, reworked 2026-08-30)
+# Story lifecycle
 
-Implements the model in `docs/AGENT-MODEL.md`. That document defines *what* the program does and
-why; this one fixes the mechanics: state representation, verbs, schemas, delivery, skills, UI,
-migration, tests. Where code disagrees with either, the code is wrong.
+Implements the model in [`docs/AGENT-MODEL.md`](../AGENT-MODEL.md). That document defines *what*
+the program does and why; this one fixes the mechanics: state representation, verbs, schemas,
+delivery, skills, UI, tests. Where code disagrees with either, the code is wrong.
+
+*Written 2026-08-28; reworked 2026-08-30.*
 
 ## 1. State representation
 
@@ -38,15 +40,14 @@ Derived per character, never stored:
 
 `name` is the role name, suffixed `-2`, `-3` on collision; a fork is cast from its source's
 role, so it collides by design ("Protagonist-2"). A **minion** is a native subagent (Claude's
-`Agent` tool); harness-spawned minion contexts are out of scope (§9). A **fork** clones a context
+`Agent` tool); harness-spawned minion contexts are out of scope (§8). A **fork** clones a context
 (Claude: `--resume <session> --fork-session`). A **bare context** has `owner = "human"`, no
 story, and an explore/read permission ceiling by default.
 
 The state machine is a pure function `step(story, action) -> (story', comment)` in
 `harness/lifecycle.py`; thread turns are part of its domain. Stores call it and persist both
 outputs; rejections raise with the reason the CLI prints. Every phase-changing comment records
-`transition: {from, to}`. `harness/threads.py` is renamed `harness/contexts.py`
-(`Thread` → `Context`, `HARNESS_THREAD_ID` → `HARNESS_CONTEXT_ID`).
+`transition: {from, to}`.
 
 ## 2. Transitions
 
@@ -72,7 +73,7 @@ outputs; rejections raise with the reason the CLI prints. Every phase-changing c
 | Verb | Who | Precondition | Effect |
 |---|---|---|---|
 | `yield --question --body … [--options a,b] [--thread t]` | `t`'s lead (default `t` = attended thread) | thread has no pending yield | `question` comment; thread turn → author |
-| `yield --handoff --body … [--attach …] [--thread t]` | `t`'s lead | as above; main thread in `implementing`: no open sub-stories, and the harness first runs each touched repo's `checks` in the story's environment for it (workspace spec §4.4), attaching `[{repo, cmd, exit, output}]` | `handoff` comment; thread turn → author |
+| `yield --handoff --body … [--attach …] [--thread t]` | `t`'s lead | as above; main thread in `implementing`: no open sub-stories, and the harness first runs each touched repo's `checks` in the story's environment for it ([workspace spec](workspace-model.md) §4.6), attaching `[{repo, cmd, exit, output}]` | `handoff` comment; thread turn → author |
 | `resolve --thread t [--note …]` | `t`'s author | as §2.1 Resolve: turn = author, not the main thread | As §2.1 Resolve: system comment, yield closed, lead neither resumed nor notified, turn → resolved |
 | `proceed [--note …]` | protagonist (main's lead) | `(planning, cast)`; if the role has `outline_first`, an outline handoff must have been Proceed-ed since the most recent entry into planning | System comment on main → `(implementing, cast)`. **stdout is the `implementing-a-story` skill.** |
 | `recap --body … [--thread t]` | any | — | `recap` comment in `t` (default: attended thread, else main); recorded as the character's latest recap. No transition. |
@@ -308,25 +309,7 @@ baseline failure first (writing-skills).
 * **Notifications**: needs-you transitions on human-authored stories and threads raise
   `notify.py`.
 
-## 7. Data and migration
-
-> **Compatibility policy (2026-08-31, DESIGN.md §0): no migration is built.** The old
-> `.harness/` store is deleted, not converted; `Thread` → `Context` is a rename with no alias.
-> The paragraph below is kept as the *vocabulary map* between old and new records only.
-
-
-Existing JSON store. `Task` → `Story` (`key, title, description, priority, phase, author,
-protagonist, main_thread, parent_story, role`; **ball not stored**); `Thread` (comments) and
-`Comment` new (§1, §4); code `Thread` → `Context` (+ `owner, predecessor, forked_from`);
-`Character` new (+ `verbs_log`). Migration: `backlog|todo|done|canceled → same`,
-`in_progress → implementing, main.turn = cast`, `in_review → implementing, main.turn = author`;
-each existing top-level comment becomes a thread; existing agent threads on a task become
-characters named after their preset, the earliest the protagonist, their contexts carried over.
-Presets are renamed roles (`harness/presets.py` → `harness/roles.py`), gaining
-`outline_first: bool`. On-disk layout (`.zharn/stories/<key>/`, `local/`) and the `.harness/` →
-`.zharn/` move are in the workspace spec (`2026-08-31-workspace-model-design.md` §6, §9).
-
-## 8. Tests
+## 7. Tests
 
 * `tests/test_lifecycle.py`: every cell × every action of §2 as a table, per-thread turn flips,
   rejections, §2.4 invariants. Resolve: rejections (main thread, turn = cast, non-author,
@@ -345,30 +328,11 @@ Presets are renamed roles (`harness/presets.py` → `harness/roles.py`), gaining
   context-view input posting comments, New Context, Promote.
 * `tests/skills/`: §5.4.
 
-## 9. Out of scope
+## 8. Out of scope
 
 Approve's effect on the environment (merge/PR/worktree); workspaces, repos and environments
-themselves (own spec, 2026-08-31); roles beyond `outline_first` and `instructions`; multi-machine
+themselves ([their own spec](workspace-model.md)); roles beyond `outline_first` and `instructions`; multi-machine
 execution; harness-spawned minions (`minion`, `minion --fork` — Claude's native `Agent` tool
 serves for now); a mechanical cap on guest mention loops; escalating an aside into a thread (a
 thread led by a forked friend is the manual path); provider-side compaction (recast supersedes
 it).
-
-## Appendix — vocabulary map
-
-| Earlier | Now |
-|---|---|
-| Task / subtask | Story / sub-story |
-| bb thread · code `Thread` · "agent conversation" | context (`harness/contexts.py`) |
-| bb "new thread" | New Context (bare), or casting a character |
-| preset | role |
-| primary thread / receiver | protagonist |
-| thread on a task | character (friend) |
-| native subagent, hidden helper thread | minion |
-| owner | author |
-| top-level comment + replies | thread |
-| ball = worker | ball = cast (= main thread's turn) |
-| transcript tab (read-only) | context view (interactive; minions read-only) |
-| provider compaction / lost session | recap + recast |
-| TODO / InProgress / Validating / Complete | todo / (implementing, cast) / (implementing, author) / done |
-| Interrogation | (planning, author), or any question yield |

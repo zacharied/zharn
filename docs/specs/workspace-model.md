@@ -1,9 +1,12 @@
-# Workspaces, repos, environments — design + spec (2026-08-31, environments revised 2026-09-03)
+# Workspaces, repos, environments
 
 Fixes the model *around* stories: where stories live, what a repo is to zharn, where a
-character stands when it works, and where all of it is stored. Complements `docs/AGENT-MODEL.md`
-(which says nothing about directories) and the story lifecycle spec (`2026-08-28-story-lifecycle-design.md`).
-Where code disagrees with this document, the code is wrong.
+character stands when it works, and where all of it is stored. Complements
+[`docs/AGENT-MODEL.md`](../AGENT-MODEL.md) (which says nothing about directories) and the
+[story lifecycle spec](story-lifecycle.md). Where code disagrees with this document, the code is
+wrong.
+
+*Written 2026-08-31; environments revised 2026-09-03.*
 
 ## 1. Concepts
 
@@ -78,8 +81,7 @@ setup  = ".zharn-env-setup.sh"   # optional; run once in every new managed workt
 base   = "main"            # branch managed worktrees are created from; default: the repo's HEAD branch at registration
 ```
 
-`checks` replaces `config.CHECK_CMD` in the lifecycle spec: checks are per repo, run per
-environment (§4.4). Both `checks` and `setup` run through the platform shell — `sh` on POSIX,
+Checks are per repo, run per environment (§4.4). Both `checks` and `setup` run through the platform shell — `sh` on POSIX,
 `cmd.exe` on Windows — the same way a terminal would run them; a multi-command line needs that
 shell's syntax (`&&`, `;`, …).
 
@@ -139,7 +141,7 @@ friend; a character that wants contained, validated work creates a sub-story. Th
 boundary is the story boundary. A story that only investigates still gets a worktree — cheap, and
 one rule.
 
-Approve is out of scope (§11), but the chain gives it its shape: a story's branch merges into its
+Approve is out of scope (§10), but the chain gives it its shape: a story's branch merges into its
 parent environment's branch — the repo's `base` for a root story, `zharn/<parent-key>` for a
 sub-story.
 
@@ -189,7 +191,7 @@ Processes receive `HARNESS_WORKSPACE` (dir), and, when the character has an envi
 
 ### 4.6 Checks
 
-`checks` is per repo (§3.1) and replaces `config.CHECK_CMD`. At a handoff on the main thread of
+`checks` is per repo (§3.1). At a handoff on the main thread of
 an `implementing` story, the CLI — inside the character's turn, so the harness process never
 waits on a test suite — lists the story's environments, runs each repo's `checks` in that
 environment, and attaches `[{repo, cmd, exit, output}]` to the handoff comment. Output is
@@ -296,20 +298,7 @@ zharn env list [--json]               # this story's environments, each with its
 Author-only, UI (and CLI when the author is a character, for sub-stories):
 `story move <key> --to <workspace-id|path>`, repo unregister and relocate, prefix rename.
 
-## 9. Migration
-
-> **Compatibility policy (2026-08-31, DESIGN.md §0): not built.** The checkout's `.harness/` is
-> simply deleted; on first run this checkout is opened as a fresh workspace (§7) with `.`
-> registered as a repo. The paragraph below documents only where each old thing's *equivalent*
-> now lives.
-
-
-`.harness/` in this checkout becomes `.zharn/` of a workspace whose dir is the checkout and whose
-single repo is `.`. The prefix is taken from the existing store (`ABC`) so keys do not change;
-`tasks.json` → `stories/<key>/` per the lifecycle spec §7; `threads/` → `local/contexts/`;
-`session.json` → `local/session.json`. `config.CHECK_CMD` → the repo's `checks`.
-
-## 10. Tests
+## 9. Tests
 
 All against real temporary git repositories; no network.
 
@@ -334,7 +323,7 @@ All against real temporary git repositories; no network.
 * `tests/test_ui_start.py`: start screen (Scratch pinned, recents, open-folder flow) through
   `tests/ui.py`; workspace page actions.
 
-## 11. Out of scope
+## 10. Out of scope
 
 What Approve does to a story's environments (merge, PR, worktree cleanup) — its own spec, now
 with a defined shape: it fans out over the story's environments. Shared/committed story records

@@ -2,7 +2,7 @@
 
 *Design document, 2026-08-28, reworked 2026-08-30. This describes the interaction model the
 whole program is built around. It deliberately says nothing about files, commands, or schemas;
-those live in `docs/superpowers/specs/2026-08-28-story-lifecycle-design.md`.*
+those live in [`docs/specs/story-lifecycle.md`](specs/story-lifecycle.md).*
 
 ## 1. Why not a chat window
 
@@ -273,6 +273,6 @@ context loses only residue. A recap carries the rest, and it too is just a comme
 This document does not decide what Approve does to the code (merge, pull request, worktree
 cleanup); that belongs with environments. Workspaces, repos, and environments — where a story
 lives on disk and where a character stands when it works — are defined in
-`docs/superpowers/specs/2026-08-31-workspace-model-design.md`. It does not decide execution on
+[`docs/specs/workspace-model.md`](specs/workspace-model.md). It does not decide execution on
 other machines. It does not define roles beyond the handful shipped as examples, nor context
 forking beyond minions.

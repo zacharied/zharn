@@ -9,9 +9,7 @@ because the thing that edits the harness is the agent running inside it.
 **This is an experimental project. Historical compatibility does not matter until the author says
 so.** No migrations of on-disk data (`.harness/`, `tasks.json`, thread transcripts, sessions), no
 deprecation shims, no aliases for renamed modules, env vars, or CLI verbs. When a model changes,
-delete the old code and the old data; rewrite tests against the new shape. Where a spec below
-describes a migration, read it as "what the new layout is", not as work to do — the migration
-sections are kept only so the vocabulary maps stay readable.
+delete the old code and the old data; rewrite tests against the new shape.
 
 ## 1. The stack decision
 
@@ -160,7 +158,7 @@ Kate's `KateMDI::Sidebar`, KDevelop's `Sublime::IdealController`.
 ## 3b. The Story model (agent-interaction model)
 
 Defined in **[`docs/AGENT-MODEL.md`](AGENT-MODEL.md)** (design) and
-**[`docs/superpowers/specs/2026-08-28-story-lifecycle-design.md`](superpowers/specs/2026-08-28-story-lifecycle-design.md)**
+**[`docs/specs/story-lifecycle.md`](specs/story-lifecycle.md)**
 (implementation). Both win over this section and over the code. In brief:
 
 * Work is a **Story** (the smallest unit its **author** describes and validates); agents are its
@@ -193,7 +191,7 @@ and the auto-created "Inbox" project — stories are rooted at a workspace (§3c
 
 ## 3c. Workspaces, repos, environments
 
-Defined in **[`docs/superpowers/specs/2026-08-31-workspace-model-design.md`](superpowers/specs/2026-08-31-workspace-model-design.md)**,
+Defined in **[`docs/specs/workspace-model.md`](specs/workspace-model.md)**,
 which wins over this section and over the code. In brief:
 
 * A **workspace** is a directory with a `.zharn/`: one board, one story-key prefix, a set of
@@ -271,7 +269,7 @@ Known churn: every intent re-parses the whole tree and rebuilds all groups (fine
 
 1. ~~Skeleton, generation reloader~~ (done).
 2. ~~Layout tree + recursive QML renderer~~ (done).
-3. **Story lifecycle** per the 2026-08-28 spec (reworked 2026-08-30): `harness/lifecycle.py`
+3. **Story lifecycle** per [`specs/story-lifecycle.md`](specs/story-lifecycle.md): `harness/lifecycle.py`
    pure state machine with per-thread turns, thread/comment store, attention + inbox delivery,
    characters/friends (fresh or forked), `zharn story …` verbs, the quiet check, recap/recast
    ladder, phase-aware system prompts. Minions are Claude's native `Agent` tool for now;
@@ -288,11 +286,11 @@ Known churn: every intent re-parses the whole tree and rebuilds all groups (fine
 5. **Story tab + board rework**: threads with per-cell action bars, option buttons, `@`/`/call`,
    cast panel (attention, inbox, context meter, Recast), needs-you highlighting and count,
    interactive context views, New Context + Promote to story.
-6. **Workspaces, repos, environments** per the 2026-08-31 spec: `workspace.toml` + `.zharn/`
+6. **Workspaces, repos, environments** per [`specs/workspace-model.md`](specs/workspace-model.md): `workspace.toml` + `.zharn/`
    layout, start screen (Scratch, recents, open folder), repo registration (author + `zharn repo
    add`), lazy managed worktrees (`zharn env open`), per-repo checks at handoff, story move with
    aliases; migrate `.harness/` → `.zharn/`. What Approve does to a story's environments
-   (merge/PR/cleanup) gets its own spec; git status + filesystem panels. **Harness side shipped 2026-09-03** (plan `docs/superpowers/plans/2026-09-03-environments.md`, spec §4 revised the same day):
+   (merge/PR/cleanup) gets its own spec; git status + filesystem panels. **Harness side shipped 2026-09-03** (plan `docs/superpowers/plans/2026-09-03-environments.md`, spec §4 revised 2026-09-03):
    repo registration (`zharn repo add`, paths or URL clones), environments — every story on its own branch
    and worktree, cut from its parent environment's branch; friends share a tree, stories get a branch — lazy
    managed worktrees, context placement at spawn, checks at implementing handoffs run by the CLI (`HANDOFF_CHECKS` gate/attach),

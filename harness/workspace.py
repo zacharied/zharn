@@ -1,5 +1,5 @@
 """Workspace: a directory with a `.zharn/` — one board, one story-key prefix, a set of repos
-(docs/superpowers/specs/2026-08-31-workspace-model-design.md §2, §3.1, §5.1, §6). Pure Python."""
+(docs/specs/workspace-model.md §2, §3.1, §5.1, §6). Pure Python."""
 from __future__ import annotations
 
 import json

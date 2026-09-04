@@ -61,10 +61,10 @@ Inside a character `HARNESS_CLI`, `HARNESS_CONTEXT_ID`, `HARNESS_STORY_KEY`, `HA
 The current slice drives the main thread only. Friends, minions, sub-stories, inbox delivery,
 auto-yield, recap/recast and repo checks are the next plan
 ([docs/superpowers/plans/](docs/superpowers/plans/)); the full mechanics are in the
-[lifecycle spec](docs/superpowers/specs/2026-08-28-story-lifecycle-design.md).
+[lifecycle spec](docs/specs/story-lifecycle.md).
 
 **Where things live.** The checkout you run from is opened as a **workspace**
-([spec](docs/superpowers/specs/2026-08-31-workspace-model-design.md)): `.zharn/workspace.toml`
+([spec](docs/specs/workspace-model.md)): `.zharn/workspace.toml`
 (id, prefix, repos), `.zharn/stories/<key>/{story.json,threads.jsonl}` (the durable record), and
 `.zharn/local/` (contexts, characters, session — machine-local). Set `HARNESS_WORKSPACE` to open a
 different directory. Point `HARNESS_CLAUDE_CMD` at another CLI to substitute the provider
