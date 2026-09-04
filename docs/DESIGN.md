@@ -282,8 +282,10 @@ Known churn: every intent re-parses the whole tree and rebuilds all groups (fine
    `ContextStore.fork`, `stories.aside`). **Deferred:** context-usage tracking and therefore auto-recast at
    `CONTEXT_WARN`/`CONTEXT_MAX`; recast rung 2 (a final restricted recap turn); repo `checks` at handoff
    (workspace plan); `harness/skills/`; the QML for cast panel / `/fork` / sub-stories (UI thread).
-4. **Skills**: vendor superpowers' discipline skills into `harness/skills/`, write
-   `being-a-character` + the phase skills, `tests/skills/` runner with `verbs_log` assertions.
+4. **Skills** (proposal `docs/superpowers/proposals/2026-09-03-skills.md`): vendor superpowers' discipline
+   skills into `harness/skills/`, write `being-a-character` + the phase skills, `tests/skills/` runner with
+   `verbs_log` assertions; split the character prompt by volatility — a stable system prompt built at spawn,
+   the situation line and the phase skill in messages (spec §5.3).
 5. **Story tab + board rework**: threads with per-cell action bars, option buttons, `@`/`/call`,
    cast panel (attention, inbox, context meter, Recast), needs-you highlighting and count,
    interactive context views, New Context + Promote to story.

@@ -22,7 +22,8 @@ Character { id, story_key, role, name, live_context: <context_id>,
             forked_from: <character_id> | null,             # forked friends
             attention: <thread_id> | null,                  # thread of the last delivery
             inbox: [<comment_id>],                          # may hold sub-story comments
-            recaps: [<comment_id>] }
+            recaps: [<comment_id>],
+            phase_seen: <phase> | null }                    # the phase whose skill it last received (§5.3)
 Context   { id, owner: <character_id> | <minion of character_id> | "human",
             session_id, predecessor: <context_id> | null,   # recast lineage
             forked_from: <context_id> | null,               # forked friends, asides (and minions)
@@ -75,7 +76,7 @@ outputs; rejections raise with the reason the CLI prints. Every phase-changing c
 | `yield --question --body … [--options a,b] [--thread t]` | `t`'s lead (default `t` = attended thread) | thread has no pending yield | `question` comment; thread turn → author |
 | `yield --handoff --body … [--attach …] [--thread t]` | `t`'s lead | as above; main thread in `implementing`: no open sub-stories, and the harness first runs each touched repo's `checks` in the story's environment for it ([workspace spec](workspace-model.md) §4.6), attaching `[{repo, cmd, exit, output}]` | `handoff` comment; thread turn → author |
 | `resolve --thread t [--note …]` | `t`'s author | as §2.1 Resolve: turn = author, not the main thread | As §2.1 Resolve: system comment, yield closed, lead neither resumed nor notified, turn → resolved |
-| `proceed [--note …]` | protagonist (main's lead) | `(planning, cast)`; if the role has `outline_first`, an outline handoff must have been Proceed-ed since the most recent entry into planning | System comment on main → `(implementing, cast)`. **stdout is the `implementing-a-story` skill.** |
+| `proceed [--note …]` | protagonist (main's lead) | `(planning, cast)`; if the role has `outline_first`, an outline handoff must have been Proceed-ed since the most recent entry into planning | System comment on main → `(implementing, cast)`. **stdout is the `implementing-a-story` skill**; `phase_seen` := implementing. |
 | `recap --body … [--thread t]` | any | — | `recap` comment in `t` (default: attended thread, else main); recorded as the character's latest recap. No transition. |
 | `comment --body … [--thread t] [--reply-to id] [--to @Name…] [--attach …]` | any | default `t` = attended thread | `text` comment, delivered per §3.2. No transition. |
 | `call --role R [--as Name] [--fork] --note …` | any | — | Cast a friend: new thread authored by the caller, led by the friend, `note` as root. `--fork`: the friend's context is a clone of the caller's live context (`Character.forked_from` = caller). Prints id/name. A friend that should read another thread is told so in the note and comments there as a guest. |
@@ -152,12 +153,13 @@ in this order:
 Story key + title + description; the threads in order — resolved ones folded to root + yields +
 closing note —
 rendered as markdown with author names and kinds; each character's latest recap; sub-stories
-with `(phase, ball)`; cast with roles; attachments; then the role's instructions and the call-in
-note (or Start note). A recast context's brief ends with its situation: "you are a recast of
-<name>; your predecessor's recap is above; you were attending #t; n items wait in your inbox;
-you await …". A forked friend gets no brief — its context already holds everything — only the
-call note and "you are a fork of <name>: you cannot change its plan; if the author's point must
-reach it, `@<name>` it." The report-back contract is in the system prompt (§5.3), not the brief.
+with `(phase, ball)`; cast with roles; attachments; then the call-in note (or Start note), then
+the phase skill (§5.3). A recast context's brief carries its situation before the skill: "you are
+a recast of <name>; your predecessor's recap is above; you were attending #t; n items wait in
+your inbox; you await …". A forked friend gets no brief — its context already holds everything,
+the phase skill included — only the call note and "you are a fork of <name>: you cannot change
+its plan; if the author's point must reach it, `@<name>` it." The contract and the role's
+instructions are in the system prompt (§5.3), not the brief.
 
 ### 3.2 Routing and attention
 
@@ -177,7 +179,8 @@ is plain conversation.
 
 ### 3.4 Recast ladder
 
-New context = brief (§3.1, which includes recaps) + role instructions + phase skill. The recap
+New context = a fresh system prompt (§5.3, which carries the role's instructions) + brief (§3.1,
+which includes recaps and ends with the phase skill). The recap
 source, best first: **(1)** the character's latest `recap` comment if newer than
 `config.RECAP_STALE_TURNS`; **(2)** else resume the outgoing context for one final turn that may
 only `recap`; **(3)** else nothing — the brief alone (the old "unresumable" path, now the worst
@@ -237,20 +240,31 @@ Comment
 ### 5.1 Layout
 
 ```
-harness/skills/
-  being-a-character/       # meta, always injected (< 150 words)
-  planning-a-story/        # phase: planning — classify, ask, outline, proceed
-  implementing-a-story/    # phase: implementing — TDD, delegate, verify, hand off
-  yielding/
-  delegating/              # minion vs friend vs sub-story
-  test-driven-development/ systematic-debugging/ verification-before-completion/
-  receiving-code-review/ requesting-code-review/ writing-skills/     # vendored, MIT, LICENSES/superpowers
+harness/skills/                       # config.SKILLS_DIR: one Claude Code plugin, --plugin-dir at every spawn
+  .claude-plugin/plugin.json          # name "zharn"
+  VENDORED.md                         # upstream version; every edit to a vendored file, per file
+  skills/
+    being-a-character/                # meta: in the system prompt (< 150 words)
+    planning-a-story/                 # phase: classify, ask once, outline, proceed
+    implementing-a-story/             # phase: TDD, delegate, verify, hand off
+    delegating/                       # minion · friend · sub-story
+    test-driven-development/ systematic-debugging/ verification-before-completion/
+    receiving-code-review/ requesting-code-review/    # vendored from superpowers, MIT, LICENSES/superpowers
 ```
 
-`config.SKILLS_DIR` defaults here. Not vendored: brainstorming, writing-plans, executing-plans,
-subagent-driven-development, finishing-a-development-branch, using-git-worktrees,
-dispatching-parallel-agents — their gates are turn flips and their artifacts are comments,
-friends, minions and sub-stories.
+Claude lists every skill as `zharn:<name>`; a character re-reads its phase skill that way when
+unsure. Every spawn gets the plugin — bare contexts and asides too; the phase skills are inert
+without a story.
+
+A vendored file differs from upstream only in prefix and vocabulary: `superpowers:` → `zharn:`;
+"your human partner" → the thread's author (who may be a character); subagent → minion; "dispatch
+a reviewer subagent" → `call` a friend. Every edit is listed in `VENDORED.md`. Not vendored, because
+their gates are turn flips and their artifacts are comments, friends, minions and sub-stories:
+using-superpowers (`being-a-character`), brainstorming (`planning-a-story`), writing-plans and
+executing-plans (the outline handoff and Proceed — the story record survives recast, so no plan
+file carries context), subagent-driven-development and dispatching-parallel-agents
+(`delegating`), using-git-worktrees (`env open`), finishing-a-development-branch (Approve),
+writing-skills (its testing half is §5.4).
 
 ### 5.2 Contract
 
@@ -258,33 +272,77 @@ Phase/meta skills use superpowers' skeleton (Iron Law, hard gate, rationalizatio
 checklist, flowchart only at decision points; descriptions are triggers, never workflow).
 
 `being-a-character` iron laws: (1) never stop while you owe a thread unless a friend or a
-sub-story is out — the harness will yield for you and say so; (2) status is not
-yours to set; (3) everything you say to a human is a comment; (4) the phase skill in your system
-prompt is mandatory; (5) when told your context is low, `recap` before anything else.
-`planning-a-story`: classify (spike / bounded / needs outline) → bounded: `proceed`; spike:
-minions, then `yield --handoff` with the answer; outline: batched questions → outline →
-`yield --handoff`. Gate: no edits outside the outline while planning.
+sub-story is out — the harness will yield for you and say so; (2) status is not yours to set;
+(3) everything you say to anyone is a comment; (4) the phase skill in your conversation is
+mandatory — re-read it with the Skill tool when unsure; (5) when told your context is low,
+`recap` before anything else; (6) questions carry options and are batched into one yield;
+handoffs carry evidence — what changed, how verified, where to look first.
+`planning-a-story`: classify (spike / bounded / outline) → bounded: `proceed`; spike: minions
+read, then `yield --handoff` with the answer; outline: everything you must ask in one
+`yield --question`, then `yield --handoff` the outline (steps, files, tests, what is delegated
+and to whom), then wait for Proceed. Gate: no file edits while planning. Its rationalization table
+names the rule it overrides: "one question at a time" belongs to another harness — a yield ends
+the turn, so batch.
 `implementing-a-story`: REQUIRED test-driven-development, verification-before-completion,
-delegating; protect your context — minions read, friends build, you hold the plot; handoff body
-= what changed / how verified / where to look first.
-`delegating`: the §6 table of AGENT-MODEL.md, plus: friends for reviews always.
-`yielding`: answerable in thirty seconds; questions carry options; handoffs carry evidence.
+delegating; protect your context — minions read, friends build, you hold the plot; a friend
+reviews each delegated task; handoff body = what changed / how verified / where to look first (the
+checks ride along mechanically, §2.2).
+`delegating`: the §6 table of AGENT-MODEL.md, plus: reviews are always friends; independent tasks
+go out at once, dependent ones in order; `wait` after casting.
+`requesting-code-review`: the reviewer is a friend — `call --role <reviewer>` with the reviewer
+prompt as the note; the review comes back as comments on that thread.
 
 ### 5.3 Delivery
 
-* System prompt, rebuilt on every spawn, resume, *and recast*: `being-a-character` + phase skill
-  + contract (CLI usage, `$HARNESS_CLI`, story key, character name/id, attended thread) + role
-  instructions.
-* In-turn phase change: `proceed` prints `implementing-a-story` to stdout.
-* Skills via `--plugin-dir <SKILLS_DIR>`: `harness/skills/` is one plugin
-  (`.claude-plugin/plugin.json` + `skills/*/SKILL.md`; verified 2026-08-31).
+**System prompt.** Stable for the life of a context and never stored: built at every spawn — first
+spawn, resume after a crash, Stop, restart or recycle — from config, the role and the skill files
+at that moment (a hook on the context store, like placement). Its parts: identity (name, character
+id, story key, title); `being-a-character`; the CLI contract (`$HARNESS_CLI`, the verb table); the
+role's instructions and its outline rule. Nothing volatile is in it, so every respawn of a context
+sends the same bytes and the cache prefix over the resumed conversation survives. Bare contexts and
+asides have their own stored prompts (§3.5).
+
+**Situation line.** Every delivery opens with one, then the comment:
+
+```
+[situation] phase <phase> · attending #<thread> · you owe <threads> · you await <threads or nothing> · in <repo> at <path>
+[<author>] <kind> in #<thread>: <body>
+```
+
+**Phase skill.** In messages only, never in the system prompt. Sent whenever the story's phase
+differs from `Character.phase_seen`, which is then updated — the comparison is against what the
+character was last told, not against the action that moved the phase, because an inbox item can be
+popped after the Proceed that preceded it.
+
+| Moment | The character receives |
+|---|---|
+| Fresh context, recast included | The brief ends with the current phase skill (§3.1). |
+| Forked friend | No skill; `phase_seen` copies from the source, whose conversation holds it. |
+| Any delivery with `phase ≠ phase_seen` | The new phase's skill appended after the comment. |
+| Cast `proceed` | `implementing-a-story` on stdout (§2.2). |
+| Respawn in the same phase | Nothing — the resumed conversation holds it. |
+
+Friends get the phase skill like the protagonist: the story's phase binds everyone on it.
 
 ### 5.4 Testing
 
-`tests/skills/<scenario>/` = prompt + fixture repo + expected verbs. Runner spawns a character
-with and without the skill (`tests/fake_claude.py` for cheap layers; real `claude -p` behind
-`HARNESS_PAID_TESTS=1`). Assertions read `verbs_log`, not transcripts. New/edited skills:
-baseline failure first (writing-skills).
+Cheap layer, `tests/fake_claude.py` (it echoes its argv and its `--append-system-prompt` in the
+init event): the system prompt carries identity, `being-a-character`, the contract and the role's
+instructions, and none of phase, attention, owes, awaits, environment; two spawns of one context
+across a Proceed get identical prompts; every delivery starts with the situation line; the first
+message of a fresh context ends with the phase skill and a fork's does not; Proceed, Back to
+planning, Reopen and an inbox pop across a Proceed each append the new skill once, a same-phase
+delivery does not; cast `proceed` prints it and the next delivery does not repeat it; a friend
+cast in implementing gets `implementing-a-story`.
+
+Paid layer, `tests/skills/<scenario>/` = `prompt.md` + fixture repo builder + `expected.json`
+(verbs that must and must not occur). The runner spawns a character with and without the skill
+under real `claude -p`, only under `HARNESS_PAID_TESTS=1`; assertions read `verbs_log`, not
+transcripts; the last run's baseline and skilled logs are committed beside the scenario as
+evidence. Scenarios: outline-before-proceed (an `outline_first` role: one question yield, one
+outline handoff, no edits), handoff-not-silence (implementing: a handoff with evidence, not a
+harness yield), batch-questions (planning with three unknowns: one yield with options).
+New/edited skills: baseline failure first.
 
 ## 6. UI
 
@@ -326,7 +384,9 @@ baseline failure first (writing-skills).
 * `tests/test_ui_story.py`, `test_ui_board.py`, `test_ui_contexts.py` via `tests/ui.py`: action
   bars per cell and per waiting thread, option buttons, needs-you sort/count, `@` and `/call`,
   context-view input posting comments, New Context, Promote.
-* `tests/skills/`: §5.4.
+* `tests/test_stories.py`, `test_agents.py`: §5.4 cheap layer — the stable system prompt, the situation
+  line, the phase skill on `phase_seen` changes.
+* `tests/skills/`: §5.4 paid layer.
 
 ## 8. Out of scope
 
