@@ -58,10 +58,14 @@ Inside a character `HARNESS_CLI`, `HARNESS_CONTEXT_ID`, `HARNESS_STORY_KEY`, `HA
     $HARNESS_CLI story yield --handoff --body "what changed / how verified / where to look"
     $HARNESS_CLI story proceed | recap --body … | comment --body … | show
 
-The current slice drives the main thread only. Friends, minions, sub-stories, inbox delivery,
-auto-yield, recap/recast and repo checks are the next plan
-([docs/superpowers/plans/](docs/superpowers/plans/)); the full mechanics are in the
-[lifecycle spec](docs/specs/story-lifecycle.md).
+Every character's system prompt is stable for the life of its context: identity, the iron laws of
+`harness/skills/skills/being-a-character/SKILL.md`, the CLI contract, its role. Everything that moves — phase, the
+attended thread, what it owes and awaits, where it stands — arrives as a `[situation]` line on top of every message,
+and the skill for the current phase rides the message whenever the phase changes. `harness/skills/` is a Claude Code
+plugin (`--plugin-dir` at every spawn; `HARNESS_SKILLS_DIR` overrides it): four zharn skills and five discipline
+skills vendored from superpowers (`harness/skills/VENDORED.md`). Edit a skill and the next spawn has it. The full
+mechanics are in the [lifecycle spec](docs/specs/story-lifecycle.md); harness-spawned minions are still Claude's native
+`Agent` tool.
 
 **Where things live.** The checkout you run from is opened as a **workspace**
 ([spec](docs/specs/workspace-model.md)): `.zharn/workspace.toml`
@@ -76,7 +80,7 @@ different directory. Point `HARNESS_CLAUDE_CMD` at another CLI to substitute the
 
 ```sh
 pip install -e .[dev]
-QT_QPA_PLATFORM=offscreen python -m pytest      # ~354 tests, ~30 s, no display needed
+QT_QPA_PLATFORM=offscreen python -m pytest      # ~600 tests, ~30 s, no display needed
 ```
 
 Three layers, all offscreen:
@@ -87,6 +91,9 @@ Three layers, all offscreen:
   `objectName` (`startButton`, `card_ZHAR-3`, `stripButton_board`, `optionButton_<comment>_<i>` …) — keep
   that up when you add one, it is how the tests (and agents editing the UI) reach it.
 * `tests/test_app.py`, `tests/test_agents.py` — end-to-end: hot reload, fake-agent conversations, IPC.
+* `tests/skills/` — the paid layer: three scenarios against real `claude -p`, each run with and without the skill under
+  test; assertions read `verbs_log`. Skipped unless `HARNESS_PAID_TESTS=1`; the last run's `baseline.json` and
+  `skilled.json` sit beside each scenario.
 
 Anything a QML button calls is an `@intent` (`harness/notify.py`): if it raises, the message shows in
 the status bar (`app.notify.lastError`) instead of silently doing nothing.
