@@ -56,6 +56,16 @@ def test_fixtures_build_a_committed_git_repo(tmp_path):
         assert runner.git(root, "status", "--porcelain") == "" and runner.git(root, "rev-parse", "--abbrev-ref", "HEAD") == "main"
 
 
+def test_run_scenario_restores_env_and_shuts_down_nothing_when_the_app_never_builds(monkeypatch, tmp_path):
+    monkeypatch.delenv("HARNESS_WORKSPACE", raising=False)
+    monkeypatch.setenv("HARNESS_SESSION", "sentinel")
+    monkeypatch.setattr(runner, "build_fixture", lambda name, root: (_ for _ in ()).throw(RuntimeError("boom")))
+    with pytest.raises(RuntimeError):
+        runner.run_scenario("batch-questions", omit=None, workdir=tmp_path)
+    assert os.environ["HARNESS_SESSION"] == "sentinel"
+    assert "HARNESS_WORKSPACE" not in os.environ
+
+
 @paid
 @pytest.mark.parametrize("name", runner.scenarios())
 def test_scenario_with_and_without_the_skill(name, tmp_path):

@@ -119,18 +119,20 @@ def run_scenario(name: str, *, omit: str | None, workdir: Path) -> dict:
     ws = workdir / ("baseline" if omit else "skilled")
     repo = ws / "fixture"
     repo.mkdir(parents=True)
-    build_fixture(name, repo)
-    os.environ["HARNESS_WORKSPACE"] = str(ws)
-    os.environ["HARNESS_SESSION"] = str(ws / "session.json")
-    os.environ.pop("HARNESS_CLAUDE_CMD", None)                     # the real CLI
-    if omit:
-        os.environ["HARNESS_SKILLS_DIR"] = str(blanked_tree(omit, workdir / f"plugin-without-{omit}"))
-    else:
-        os.environ.pop("HARNESS_SKILLS_DIR", None)
-    app, store, reloader = build(force_poll=True)
-    assert reloader.load(), store.reloadError
-    t0 = time.time()
+    saved = {k: os.environ.get(k) for k in ("HARNESS_WORKSPACE", "HARNESS_SESSION", "HARNESS_CLAUDE_CMD", "HARNESS_SKILLS_DIR")}
+    store = reloader = None
     try:
+        build_fixture(name, repo)
+        os.environ["HARNESS_WORKSPACE"] = str(ws)
+        os.environ["HARNESS_SESSION"] = str(ws / "session.json")
+        os.environ.pop("HARNESS_CLAUDE_CMD", None)                     # the real CLI
+        if omit:
+            os.environ["HARNESS_SKILLS_DIR"] = str(blanked_tree(omit, workdir / f"plugin-without-{omit}"))
+        else:
+            os.environ.pop("HARNESS_SKILLS_DIR", None)
+        t0 = time.time()
+        app, store, reloader = build(force_poll=True)
+        assert reloader.load(), store.reloadError
         register_repo(store.workspace, str(repo), name="fixture", checks=exp.get("checks", ""))
         key = store.stories.create(exp["title"], exp["prompt"])
         chr_id = store.stories.start(key, exp.get("note", ""), exp["role"])
@@ -152,10 +154,15 @@ def run_scenario(name: str, *, omit: str | None, workdir: Path) -> dict:
                 "dirty": _dirty(store, key, repo),
                 "cost_usd": round(sum(c.costUsd for c in store.contexts.contexts_for(key)), 4)}
     finally:
-        store.contexts.shutdown()
-        reloader.shutdown()
-        for k in ("HARNESS_WORKSPACE", "HARNESS_SESSION", "HARNESS_SKILLS_DIR"):
-            os.environ.pop(k, None)
+        if store is not None:
+            store.contexts.shutdown()
+        if reloader is not None:
+            reloader.shutdown()
+        for k, v in saved.items():
+            if v is not None:
+                os.environ[k] = v
+            else:
+                os.environ.pop(k, None)
 
 
 def record(name: str, kind: str, result: dict, violations: list[str]):
