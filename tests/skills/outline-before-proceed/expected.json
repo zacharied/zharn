@@ -1,0 +1,16 @@
+{
+  "title": "JSON output for hello",
+  "role": "protagonist",
+  "skill": "planning-a-story",
+  "note": "Plan this; do not build it yet.",
+  "checks": "",
+  "replies": ["1: the key is \"greeting\". 2: no name means the default \"world\", never an error. Outline it."],
+  "must": [
+    {"verb": "yield", "args": {"kind": "question"}},
+    {"verb": "yield", "args": {"kind": "handoff"}}
+  ],
+  "must_not": [{"verb": "proceed"}],
+  "max": {"yield": 2},
+  "question_has_options": true,
+  "clean_tree": true
+}
