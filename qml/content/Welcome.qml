@@ -16,6 +16,7 @@ ContentBase {
                   onClicked: { var k = app.stories.create("New story", ""); if (k) app.layout.openContent("story", k, k) } }
             Btn { objectName: "welcomeOpenBoard"; icon_: "stories"; text: "Stories"; onClicked: app.layout.showPanel("board") }
             Btn { objectName: "welcomeContexts"; icon_: "contexts"; text: "Contexts"; onClicked: app.layout.showPanel("contexts") }
+            Btn { objectName: "welcomeWorkspace"; icon_: "folder-open"; text: "Workspace"; onClicked: app.layout.openContent("workspace", "workspace", "Workspace") }
             Btn { objectName: "welcomeNewContext"; icon_: "context"; text: "New context"
                   onClicked: { var id = app.contexts.newBare(""); if (id) app.layout.openContent("context", id, "New context") } }
             Btn { objectName: "welcomeReset"; quiet: true; text: "Reset layout"; onClicked: app.layout.resetLayout() }

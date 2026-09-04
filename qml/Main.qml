@@ -70,6 +70,7 @@ ApplicationWindow {
                     Icon { name: "down"; size: 14; anchors.verticalCenter: parent.verticalCenter }
                 }
                 HoverHandler { id: wsHover }
+                TapHandler { onTapped: app.layout.openContent("workspace", "workspace", win.workspaceName) }
                 ToolTip.visible: wsHover.hovered; ToolTip.text: app.workspaceDir; ToolTip.delay: 600
             }
             Item { Layout.fillWidth: true }

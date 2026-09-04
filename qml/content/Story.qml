@@ -68,6 +68,21 @@ ContentBase {
         if (t.turn === "author") return t.author === "human" ? "waits on you" : "waits on its author"
         var lead = character(t.lead); return (lead ? lead.name : "cast") + "'s turn"
     }
+    // failing checks on the handoff that waits on you (workspace spec §4.6): the action bar says so in red
+    readonly property int failingChecks: {
+        if (!mine || !mainThread || !mainThread.pendingYield) return 0
+        var n = 0
+        for (var i = 0; i < comments.length; i++) {
+            if (comments[i].id !== mainThread.pendingYield) continue
+            var cs = comments[i].structured && comments[i].structured.checks ? comments[i].structured.checks : []
+            for (var j = 0; j < cs.length; j++) if (cs[j].exit !== 0) n++
+        }
+        return n
+    }
+    function envPath(path) {  // inside the workspace dir → relative; the tooltip keeps the full path
+        var d = app.workspaceDir
+        return d && path.indexOf(d) === 0 ? path.slice(d.length).replace(/^[\\/]/, "") : path
+    }
     readonly property string needsYouText: {
         if (!mine) return ""
         switch (story.flavor) {
@@ -152,6 +167,30 @@ ContentBase {
                 Text { text: "·"; color: app.theme.textMuted }
                 Text { text: "cast of " + view.cast.length; color: app.theme.textMuted }
             }
+            // ---- environments: where the work is — repo, this story's branch, the branch it merges into (spec §4)
+            ColumnLayout {
+                visible: view.started && view.story.environments && view.story.environments.length > 0
+                Layout.fillWidth: true; Layout.topMargin: 10; spacing: 3
+                Repeater {
+                    model: view.found && view.story.environments ? view.story.environments : []
+                    delegate: RowLayout {
+                        id: env
+                        required property var modelData
+                        objectName: "storyEnv_" + modelData.repo
+                        Layout.fillWidth: true; Layout.preferredHeight: 22; spacing: 8
+                        Icon { name: "git"; size: 14; color: app.theme.textDim }
+                        Text { text: env.modelData.repo; color: app.theme.text; font.family: app.theme.monoFamily; font.pixelSize: app.theme.monoSize; font.weight: Font.Medium }
+                        Text { objectName: "storyEnvBranch_" + env.modelData.repo; text: env.modelData.branch; color: app.theme.text; font.family: app.theme.monoFamily; font.pixelSize: app.theme.monoSize }
+                        Text { objectName: "storyEnvInto_" + env.modelData.repo; visible: !!env.modelData.into; text: "into " + env.modelData.into
+                               color: app.theme.textMuted; font.pixelSize: app.theme.fontSizeSmall + 1 }
+                        Item { Layout.fillWidth: true }
+                        Text { text: view.envPath(env.modelData.path); color: app.theme.textDim; font.family: app.theme.monoFamily; font.pixelSize: app.theme.fontSizeSmall
+                               elide: Text.ElideLeft; Layout.maximumWidth: 320
+                               HoverHandler { id: envHover }
+                               ToolTip.visible: envHover.hovered; ToolTip.text: env.modelData.path; ToolTip.delay: 600 }
+                    }
+                }
+            }
             // ---- description
             Text { objectName: "storyDescription"; visible: view.started && !!view.story.description; Layout.topMargin: 10; Layout.fillWidth: true
                    text: view.story.description || ""; color: app.theme.textMuted; wrapMode: Text.Wrap; textFormat: Text.MarkdownText; lineHeight: 1.3 }
@@ -186,6 +225,8 @@ ContentBase {
                     Text { id: why; objectName: "castTurnText"; visible: !view.mine
                            text: view.terminal ? "This story is " + view.story.phase + "." : "The cast has the ball — your comments arrive between turns."
                            color: app.theme.textDim; wrapMode: Text.Wrap; Layout.fillWidth: true }
+                    Chip { objectName: "checksFailingChip"; visible: view.failingChecks > 0; fg: app.theme.danger
+                           text: view.failingChecks + (view.failingChecks === 1 ? " check failing" : " checks failing") }
                     Row {
                         id: actions; spacing: 8
                         Btn { objectName: "proceedButton"; visible: view.story.phase === "planning" && view.mine; primary: true; text: "Proceed"; onClicked: app.stories.proceed(tabKey, "") }
@@ -354,17 +395,22 @@ ContentBase {
                                                 required property var modelData
                                                 required property int index
                                                 readonly property bool ok: modelData.exit === 0
+                                                property bool open: !ok   // failing output shows; a passing run folds until asked
                                                 Layout.fillWidth: true; spacing: 0
                                                 Divider { visible: chk.index > 0; Layout.fillWidth: true }
                                                 RowLayout {
+                                                    objectName: "checkRow_" + line.modelData.id + "_" + chk.index
                                                     Layout.fillWidth: true; Layout.preferredHeight: 26; Layout.leftMargin: 10; Layout.rightMargin: 10; spacing: 8
+                                                    Icon { name: chk.open ? "down" : "right"; size: 14; color: app.theme.textDim; opacity: chk.modelData.output ? 1 : 0.35 }
                                                     Icon { name: chk.ok ? "check" : "x"; size: 14; color: chk.ok ? app.theme.settled : app.theme.danger }
                                                     Text { text: chk.modelData.repo; color: app.theme.text; font.family: app.theme.monoFamily; font.pixelSize: app.theme.monoSize }
                                                     Text { text: chk.modelData.cmd; color: app.theme.textMuted; font.family: app.theme.monoFamily; font.pixelSize: app.theme.monoSize; elide: Text.ElideRight; Layout.fillWidth: true }
                                                     Text { text: chk.ok ? "passed" : "exit " + chk.modelData.exit; color: chk.ok ? app.theme.textMuted : app.theme.danger; font.family: app.theme.monoFamily; font.pixelSize: app.theme.monoSize }
+                                                    TapHandler { onTapped: chk.open = !chk.open }
                                                 }
-                                                Rectangle {  // failing output, expanded by default
-                                                    visible: !chk.ok && !!chk.modelData.output; Layout.fillWidth: true; color: app.theme.bg
+                                                Rectangle {  // the output, open by default only when it failed
+                                                    objectName: "checkOutput_" + line.modelData.id + "_" + chk.index
+                                                    visible: chk.open && !!chk.modelData.output; Layout.fillWidth: true; color: app.theme.bg
                                                     implicitHeight: out.implicitHeight + 16
                                                     Divider { width: parent.width }
                                                     Text { id: out; anchors { left: parent.left; right: parent.right; top: parent.top; margins: 8; leftMargin: 12 }

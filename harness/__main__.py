@@ -47,6 +47,7 @@ def build(argv=None, force_poll=False):
     from harness.contexts import ContextStore
     from harness.stories import StoryStore
     from harness.workspace import Workspace
+    from harness.workspace_store import WorkspaceStore
 
     app = QGuiApplication.instance() or QGuiApplication(argv or sys.argv)
     app.setApplicationName("zharn")
@@ -68,11 +69,12 @@ def build(argv=None, force_poll=False):
     roles = RoleStore(data_dir)
     contexts = ContextStore(ROOT, data_dir / "contexts", roles, workspace_dir=workspace.dir)
     stories = StoryStore(workspace, contexts, roles)
+    workspace_store = WorkspaceStore(workspace, stories)
     notifier = Notifier()
-    for s in (layout_store, roles, contexts, stories):
+    for s in (layout_store, roles, contexts, stories, workspace_store):
         s.notifier = notifier  # @intent slots report here; the status bar shows it
     store = AppStore(session, layout_store, content, cfg.THEME, contexts=contexts, roles=roles,
-                     stories=stories, workspace=workspace, notifier=notifier)
+                     stories=stories, workspace=workspace, workspace_store=workspace_store, notifier=notifier)
     # Unique per app instance, not just per process: tests build several apps in one process, and a torn-down
     # QLocalServer unlinks its socket by name — it must never be the live one's.
     ipc = IpcServer(f"zharn-{os.getpid()}-{uuid.uuid4().hex[:6]}", make_handler(store), parent=store)

@@ -116,7 +116,8 @@ No sidebar. The window is:
   40px icon strips — the left strip carries the left dock's panels at the top and the bottom
   dock's at the bottom, the right strip the right dock's; 36px tool-window headers and editor
   tabs; a 26px status bar. Default layout: left Stories · Files · Git, right Cast (follows the
-  active story tab), bottom Contexts · Terminal. Tokens live in `config_def.THEME` (chrome,
+  active story tab), bottom Contexts · Terminal; the workspace page (repos, Relocate/Unregister) is an
+  editor tab opened from the toolbar's workspace widget. Tokens live in `config_def.THEME` (chrome,
   semantic: needsYou/live/settled/danger, one soft color per phase, type, metrics); components in
   `qml/ui/` (Icon, IconButton, Btn, Chip, StatusDot, Ball, Meter, ToolWindowHeader, TextBox,
   Field, Combo, ContextView); icons are monochrome SVGs in `qml/icons/` recolored on request by
@@ -294,10 +295,14 @@ Known churn: every intent re-parses the whole tree and rebuilds all groups (fine
    repo registration (`zharn repo add`, paths or URL clones), environments — every story on its own branch
    and worktree, cut from its parent environment's branch; friends share a tree, stories get a branch — lazy
    managed worktrees, context placement at spawn, checks at implementing handoffs run by the CLI (`HANDOFF_CHECKS` gate/attach),
-   Scratch under appdata as the default workspace. **Next:** start screen, workspace page (Relocate/Unregister),
-   story move (§5.3), environments on the story page and cast panel (UI thread); clone/setup still run in the
-   harness process (bounded by GIT_TIMEOUT_S/SETUP_TIMEOUT_S); moving them into the character's turn like
-   checks is the follow-up.
+   Scratch under appdata as the default workspace. **UI shipped 2026-09-03:** the workspace page (an editor
+   tab off the toolbar's workspace widget: name, prefix, the repos table with each repo's worktrees as story
+   keys, Relocate for a missing repo, Unregister on hover, register by path) over `app.workspace`
+   (`harness/workspace_store.py`); the story page lists each environment as repo · branch · the branch it
+   merges into; the cast panel names a character's environment; check rows fold and a red chip on the action
+   bar counts failing checks on the handoff that waits on you. **Next:** start screen, story move (§5.3);
+   clone/setup still run in the harness process (bounded by GIT_TIMEOUT_S/SETUP_TIMEOUT_S); moving them into
+   the character's turn like checks is the follow-up.
 7. `pyte`-backed terminal panel.
 8. Self-hosting: open Scratch, start a story against the pre-registered zharn repo, and have the
    cast edit the UI.

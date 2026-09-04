@@ -139,6 +139,14 @@ body{font:13px/1.35 var(--ui);color:var(--text);-webkit-font-smoothing:antialias
 .sh-state .ph{font-weight:500}
 .sh-state .turn{display:inline-flex;align-items:center;gap:6px;color:var(--amber);font-weight:500}
 .turn .ball{width:10px;height:10px;border-radius:50%;background:conic-gradient(var(--amber) 0 50%,transparent 50% 100%);border:1.5px solid var(--amber)}
+.envs{margin-top:10px;display:flex;flex-direction:column;gap:3px}
+.env{display:flex;align-items:center;gap:8px;height:22px;font-size:12px;color:var(--muted);min-width:0}
+.env .ic{color:var(--dim)}
+.env .repo{font:500 12px var(--mono);color:var(--text)}
+.env .br{font:12px var(--mono);color:var(--text)}
+.env .into{color:var(--muted)} .env .into b{font:12px var(--mono);font-weight:400;color:var(--muted)}
+.env .path{margin-left:auto;font:11px var(--mono);color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:300px}
+.chip.red{background:var(--red-dim);color:var(--red);white-space:nowrap;flex:none}
 .actions{margin-top:12px;display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid var(--border);border-left:3px solid var(--amber);border-radius:6px;background:var(--panel)}
 .actions .why{color:var(--muted);margin-right:auto}
 .btn{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 12px;border-radius:4px;border:1px solid var(--btn-border);color:var(--text);background:transparent;font:500 13px var(--ui);white-space:nowrap}
@@ -184,6 +192,8 @@ body{font:13px/1.35 var(--ui);color:var(--text);-webkit-font-smoothing:antialias
 .checks .ch .ic.ok{color:var(--green)} .checks .ch .ic.bad{color:var(--red)}
 .checks .ch .r{margin-left:auto;color:var(--muted)}
 .checks .ch + .ch{border-top:1px solid var(--border)}
+.checks .ch:hover{background:var(--hover)}
+.checks .ch .ic.chev{color:var(--dim);margin-right:-2px}
 .checks pre{padding:8px 12px;color:var(--muted);background:var(--bg);white-space:pre-wrap;border-top:1px solid var(--border);font:11.5px/1.5 var(--mono)}
 .checks pre b{color:var(--red);font-weight:500}
 .composer{margin-top:14px;display:flex;gap:8px;align-items:flex-end}
@@ -217,7 +227,8 @@ body{font:13px/1.35 var(--ui);color:var(--text);-webkit-font-smoothing:antialias
 .member .nm .role{color:var(--muted);font-weight:400;margin-left:6px}
 .member .what{font-size:11px;grid-column:2}
 .member .what.you{color:var(--amber)} .member .what.m{color:var(--muted)}
-.member .meta{grid-column:2;display:flex;align-items:center;gap:10px;font-size:11px;color:var(--dim)}
+.member .meta{grid-column:2;display:flex;align-items:center;gap:10px;font-size:11px;color:var(--dim);white-space:nowrap;overflow:hidden;min-width:0}
+.member .meta .ic{color:var(--dim);margin-right:-6px}
 .meter{width:56px;height:5px;border-radius:3px;background:var(--border);overflow:hidden;display:inline-block;vertical-align:middle}
 .meter i{display:block;height:100%;background:var(--muted)} .meter i.hot{background:var(--amber)}
 .member .btn{grid-column:3;grid-row:1/span 3;align-self:start}
@@ -263,6 +274,47 @@ body{font:13px/1.35 var(--ui);color:var(--text);-webkit-font-smoothing:antialias
 .status .w{display:flex;align-items:center;gap:6px}
 .spin{width:12px;height:12px;border-radius:50%;border:2px solid var(--border);border-top-color:var(--accent);animation:rot 1s linear infinite}
 @keyframes rot{to{transform:rotate(360deg)}}
+
+/* ---- workspace page (Settings › Project as an editor tab) */
+.ws-page{flex:1;overflow:auto;min-height:0}
+.ws-in{max-width:880px;padding:20px 28px 40px 28px}
+.ws-title{display:flex;align-items:center;gap:12px}
+.ws-title .ws-icon{width:28px;height:28px;border-radius:7px;font-size:14px}
+.ws-title .nm{font:600 20px/1.25 var(--ui);color:var(--text);padding:2px 8px;margin-left:-8px;border:1px solid transparent;border-radius:4px}
+.ws-title .nm:hover{border-color:var(--btn-border)}
+.ws-state{margin-top:8px;display:flex;align-items:center;gap:10px;color:var(--muted)}
+.ws-state .pt{font:12px var(--mono)}
+.ws-state .pf{font:500 12px var(--mono);color:var(--text)}
+.ws-sect{margin-top:26px;display:flex;align-items:center;gap:10px}
+.ws-sect h2{font:600 14px var(--ui);color:var(--text)}
+.ws-sect .n{color:var(--muted)}
+.ws-sect .sp{flex:1}
+.repos{margin-top:10px;border:1px solid var(--border);border-radius:6px;overflow:hidden}
+.repos .hd,.repos .rp{display:grid;grid-template-columns:18px 130px 1fr 88px 150px 120px 90px;column-gap:10px;align-items:center;padding:0 12px}
+.repos .hd{height:26px;background:var(--panel);color:var(--muted);font-size:11px;border-bottom:1px solid var(--border)}
+.repos .rp{height:34px;color:var(--text);font-size:12.5px}
+.repos .rp+.rp,.repos .rp+.wt,.repos .wt+.rp,.repos .form{border-top:1px solid var(--border)}
+.repos .rp:hover{background:var(--panel)}
+.repos .rp .ic{color:var(--dim)}
+.repos .rp .nm{font:500 12.5px var(--mono)}
+.repos .rp .mono{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.repos .rp .none{color:var(--dim)}
+.repos .rp .stt{display:flex;align-items:center;gap:6px;justify-self:end;font-size:11px;color:var(--muted)}
+.repos .rp .stt .d{width:7px;height:7px;border-radius:50%;background:var(--green)}
+.repos .rp .stt.bad{color:var(--red)} .repos .rp .stt.bad .d{background:var(--red)}
+.repos .rp .acts{display:flex;gap:4px;justify-self:end}
+.repos .wt{display:flex;align-items:center;gap:8px;height:26px;padding:0 12px 0 40px;font-size:11px;color:var(--dim);background:var(--bg)}
+.repos .wt .k{font:11px var(--mono);color:var(--muted)}
+.repos .wt .k:hover{color:var(--text)}
+.repos .miss{display:flex;align-items:center;gap:8px;padding:8px 12px 10px 40px;font-size:12px;color:var(--muted);background:var(--bg)}
+.repos .miss .lbl{color:var(--red)}
+.repos .miss .fld{flex:1;height:28px;border:1px solid var(--accent);box-shadow:0 0 0 2px rgba(53,116,240,.25);border-radius:4px;background:var(--bg);display:flex;align-items:center;padding:0 8px;font:12px var(--mono);color:var(--text)}
+.repos .form{padding:10px 12px;background:var(--bg);display:flex;flex-direction:column;gap:8px}
+.repos .form .r{display:flex;gap:8px;align-items:center}
+.repos .form .fld{height:28px;border:1px solid var(--btn-border);border-radius:4px;background:var(--bg);display:flex;align-items:center;padding:0 8px;font-size:12.5px;color:var(--dim);gap:6px}
+.repos .form .fld.wide{flex:1} .repos .form .fld.sm{width:160px}
+.repos .form .fld b{font-weight:500;color:var(--muted);font-size:11px}
+.repos .form .hint{font-size:11px;color:var(--dim)}
 
 /* ---- welcome */
 .welcome{display:flex;width:100%;height:100%;background:var(--bg)}
@@ -365,15 +417,15 @@ def cast_toolwin():
     <div class="member"><span class="st asks"></span><span class="nm">Protagonist<span class="role">opus</span></span>
       <span class="btn sm quiet">Recast</span>
       <span class="what you">waits on you · #1 handoff</span>
-      <span class="meta">inbox 1 · <span class="meter"><i class="hot" style="width:78%"></i></span> 78%</span></div>
+      <span class="meta">inbox 1 · {ic('git',12)} zharn · <span class="meter"><i class="hot" style="width:78%"></i></span> 78%</span></div>
     <div class="member"><span class="st live"></span><span class="nm">Implementor<span class="role">sonnet</span></span>
       <span class="btn sm quiet">Recast</span>
       <span class="what m">working on #3 · turn 41</span>
-      <span class="meta">inbox 0 · 1 minion · <span class="meter"><i style="width:36%"></i></span> 36%</span></div>
+      <span class="meta">inbox 0 · {ic('git',12)} zharn · <span class="meter"><i style="width:36%"></i></span> 36%</span></div>
     <div class="member"><span class="st idle"></span><span class="nm">Reviewer<span class="role">codex</span></span>
       <span class="btn sm quiet">Recast</span>
       <span class="what m">waiting · awaits #5</span>
-      <span class="meta">inbox 0 · <span class="meter"><i style="width:22%"></i></span> 22%</span></div>
+      <span class="meta">inbox 0 · {ic('git',12)} pywinpty-shim · <span class="meter"><i style="width:22%"></i></span> 22%</span></div>
     <div class="member"><span class="st idle"></span><span class="nm">Implementor-2<span class="role">sonnet · forked from Implementor</span></span>
       <span class="btn sm quiet">Recast</span>
       <span class="what m">idle</span>
@@ -383,7 +435,7 @@ def cast_toolwin():
   </div>
 </div>"""
 
-def editor_tabs(active="ZH-12"):
+def editor_tabs(active="ZH-12", workspace=False):
     def tab(icon, label, key, live=False, closable=True):
         on = " on" if key == active else ""
         return (f'<div class="tab{on}">{ic(icon,14)}<span>{label}</span>'
@@ -392,6 +444,7 @@ def editor_tabs(active="ZH-12"):
     return f"""
 <div class="tabs">
   {tab('home','Welcome','welcome')}
+  {tab('folder-open','Workspace','workspace') if workspace else ''}
   {tab('story','ZH-12  Terminal panel on pyte','ZH-12', live=True)}
   {tab('story','ZH-9  Workspace spec','ZH-9')}
   {tab('context','Protagonist · ZH-12','ctx')}
@@ -406,7 +459,12 @@ def story_page(compact=False):
   <div class="sh-state"><span class="ph ph-impl">Implementing</span><span>·</span>
     <span class="turn"><span class="ball"></span>your turn — ready for review</span>
     <span>·</span><span>3 threads</span><span>·</span><span>cast of 3</span></div>
+  <div class="envs">
+    <div class="env">{ic('git',14)}<span class="repo">zharn</span><span class="br">zharn/ZH-12</span><span class="into">into <b>main</b></span><span class="path">.zharn/local/worktrees/zharn/ZH-12</span></div>
+    <div class="env">{ic('git',14)}<span class="repo">pywinpty-shim</span><span class="br">zharn/ZH-12</span><span class="into">into <b>main</b></span><span class="path">.zharn/local/worktrees/pywinpty-shim/ZH-12</span></div>
+  </div>
   <div class="actions"><span class="why">Protagonist handed off. Approve, reply with changes, or send it back to planning.</span>
+    <span class="chip red">1 check failing</span>
     <span class="btn primary">Approve</span><span class="btn">Reply</span><span class="btn">Back to planning</span><span class="btn quiet">Cancel</span></div>
 
   <div class="thread">
@@ -440,8 +498,8 @@ def story_page(compact=False):
           <p><b>Look first at</b> <code>term.py::Screen.feed</code> — the resize path is the only part I am not fully happy with.</p>
         </div>
         <div class="checks">
-          <div class="ch">{ic('check',14,'ok')}<span>zharn</span><span class="mono" style="color:var(--muted)">pytest -q</span><span class="r">343 passed · 41s</span></div>
-          <div class="ch">{ic('x',14,'bad')}<span>pywinpty-shim</span><span class="mono" style="color:var(--muted)">npm test</span><span class="r">exit 1 · 3s</span></div>
+          <div class="ch">{ic('right',14,'chev')}{ic('check',14,'ok')}<span>zharn</span><span class="mono" style="color:var(--muted)">pytest -q</span><span class="r">passed</span></div>
+          <div class="ch">{ic('down',14,'chev')}{ic('x',14,'bad')}<span>pywinpty-shim</span><span class="mono" style="color:var(--muted)">npm test</span><span class="r" style="color:var(--red)">exit 1</span></div>
           <pre>FAIL  resize.spec.ts › shrinks columns without dropping the prompt
   expected 80, received <b>81</b>
   at Screen.resize (src/screen.ts:118)</pre>
@@ -459,6 +517,35 @@ def story_page(compact=False):
   </div>
 
   <div class="newthread"><div class="composer"><div class="box"><span class="lbl">New thread</span><span>Write to the Protagonist, @Name, /call &lt;role&gt;, or /fork @Name for a copy of their memory</span></div><span class="btn">Open</span></div></div>
+</div></div>"""
+
+def workspace_page():
+    """The workspace page: Settings › Project as an editor tab — name, prefix, repos with status + Relocate/Unregister."""
+    return f"""
+<div class="ws-page"><div class="ws-in">
+  <div class="ws-title"><div class="ws-icon">Z</div><span class="nm">zharn</span></div>
+  <div class="ws-state"><span class="pt">~/code/zharn</span><span>·</span><span>keys <span class="pf">ZH-</span></span><span>·</span><span>14 stories</span><span>·</span><span>3 repos</span></div>
+
+  <div class="ws-sect"><h2>Repos</h2><span class="sp"></span></div>
+  <div class="repos">
+    <div class="hd"><span></span><span>Name</span><span>Path</span><span>Base</span><span>Checks</span><span>Setup</span><span></span></div>
+
+    <div class="rp" style="background:var(--panel)">{ic('git',14)}<span class="nm">zharn</span><span class="mono">.</span><span class="mono">main</span><span class="mono">pytest -q</span><span class="none">—</span>
+      <span class="acts"><span class="btn sm quiet">Unregister</span></span></div>
+    <div class="wt">3 worktrees ·<span class="k">ZH-12</span><span class="k">ZH-14</span><span class="k">ZH-15</span></div>
+
+    <div class="rp">{ic('git',14)}<span class="nm">pywinpty-shim</span><span class="mono">repos/pywinpty-shim</span><span class="mono">main</span><span class="mono">npm test</span><span class="mono">npm ci</span><span></span></div>
+    <div class="wt">1 worktree ·<span class="k">ZH-12</span></div>
+
+    <div class="rp">{ic('git',14)}<span class="nm">client</span><span class="mono">/home/zach/code/client</span><span class="mono">develop</span><span class="mono">npm test</span><span class="none">—</span>
+      <span class="stt bad"><span class="d"></span>missing</span></div>
+    <div class="miss"><span class="lbl">Not found at that path.</span><span class="fld">/home/zach/code/client-v2<span class="cur"></span></span><span class="btn sm primary">Move here</span><span class="btn sm quiet">Cancel</span><span class="btn sm quiet">Unregister</span></div>
+
+    <div class="form">
+      <div class="r"><span class="fld wide">Path to a git repository</span><span class="btn">Register</span></div>
+      <div class="r"><span class="fld sm"><b>name</b>folder name</span><span class="fld sm"><b>checks</b>none</span><span class="fld sm"><b>setup</b>none</span><span class="fld sm"><b>base</b>HEAD branch</span></div>
+    </div>
+  </div>
 </div></div>"""
 
 def contexts_toolwin():
@@ -535,6 +622,24 @@ def contexts_window():
 </div></div>"""
     return page("zharn — contexts", body, 1440, 900)
 
+def workspace_window():
+    body = f"""<div class="frame"><div class="win">
+  {toolbar()}
+  <div class="body">
+    {strip_left('Stories')}
+    {stories_tree(selected="")}
+    <div class="center">{editor_tabs(active="workspace", workspace=True)}{workspace_page()}</div>
+    {strip_right('')}
+  </div>
+  {status_bar()}
+</div></div>"""
+    return page("zharn — workspace page", body, 1440, 900)
+
+def workspace_closeup():
+    body = f"""<div class="frame" style="position:static;transform:none;width:100%;min-height:100%;box-shadow:none">
+      <div style="max-width:940px">{workspace_page()}</div></div>"""
+    return page("zharn — workspace page, 1:1", body, extra_css="html,body{overflow:auto;background:var(--bg)} .ws-page{overflow:visible}")
+
 def closeup():
     body = f"""<div class="frame" style="position:static;transform:none;width:100%;min-height:100%;box-shadow:none">
       <div style="max-width:880px">{story_page()}</div></div>"""
@@ -570,6 +675,8 @@ OUT = {
     "02-story-thread-1to1.html": closeup,
     "03-contexts.html": contexts_window,
     "04-start-screen.html": welcome,
+    "05-workspace-page.html": workspace_window,
+    "06-workspace-1to1.html": workspace_closeup,
 }
 if __name__ == "__main__":
     for name, fn in OUT.items():

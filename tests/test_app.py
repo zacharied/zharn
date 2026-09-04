@@ -61,6 +61,12 @@ def test_initial_render(harness):
     assert store.reloadError == ""
 
 
+def test_build_wires_the_workspace_store(harness):
+    _, store, _ = harness
+    assert store.workspace.dir == store.workspaceDir and store.workspace.notifier is store.notify
+    assert store.workspace.repos() == store.stories.repo_list()
+
+
 def test_intents_rerender(harness):
     app, store, reloader = harness
     layout = store.layout

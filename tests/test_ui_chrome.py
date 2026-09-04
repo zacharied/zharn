@@ -99,6 +99,11 @@ def test_welcome_open_board_shows_the_story_board(ui):
     assert docks(ui)["left"] == {**docks(ui)["left"], "active": "board", "mode": "docked"}
 
 
+def test_welcome_workspace_opens_the_workspace_page(ui):
+    ui.click(ui.find("welcomeWorkspace"))
+    assert ui.has("tab_workspace_workspace") and ui.has("workspaceName")
+
+
 def test_welcome_contexts_opens_the_bottom_panel(ui):
     ui.store.layout.openContent("welcome", "welcome", "Welcome")
     QTest.qWait(50)

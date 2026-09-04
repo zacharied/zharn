@@ -3,7 +3,7 @@ import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
 
-from ui import start, wait_until
+from ui import OUT, start, wait_until
 
 
 @pytest.fixture(scope="module")
@@ -252,3 +252,42 @@ def test_reopen_menu_offers_recast_and_reopens_on_a_fresh_context(ui):
     ch = ui.store.stories.character(chr_id)
     assert ch["role"] == "claude-fast" and ch["live_context"] != old_ctx
     assert ui.store.stories.get(key)["phase"] == "implementing"
+
+
+def fresh_repo(name, **kw):
+    """A real git repo under tests/_out, recreated per run so branches from the last run cannot collide."""
+    import shutil
+    from gitfix import make_repo
+    d = OUT / name
+    shutil.rmtree(d, ignore_errors=True)
+    return make_repo(d)
+
+
+def test_story_page_shows_environments_and_folds_passing_checks(ui):
+    from harness.environments import register_repo
+    register_repo(ui.store.stories.workspace, str(fresh_repo("ui-story-repo")), name="api", checks="echo ok")
+    key = ui.store.stories.create("Envs", "")
+    chr_id = ui.store.stories.start(key, "", "protagonist")
+    ctx = ui.store.contexts.get(ui.store.stories.character(chr_id)["live_context"])
+    assert wait_until(lambda: ctx.status == "idle")          # quiet check: outline handoff waits on you
+    open_story(ui, key)
+    assert not ui.has("storyEnv_api")                        # a story starts with no environments (spec §4.4)
+    ui.store.stories.cast_env_open(chr_id, "api")
+    QTest.qWait(80)
+    assert ui.visible(ui.find("storyEnv_api"))
+    assert ui.find("storyEnvBranch_api").property("text") == f"zharn/{key}"
+    assert ui.find("storyEnvInto_api").property("text") == "into main"
+    ui.store.stories.proceed(key)                            # implementing; the character resumes
+    ui.store.stories.cast_yield(chr_id, "handoff", "built it", checks=[
+        {"repo": "api", "cmd": "echo ok", "exit": 0, "output": "ok"},
+        {"repo": "web", "cmd": "npm test", "exit": 1, "output": "1 failed"}])
+    QTest.qWait(80)
+    c = ui.store.stories.comments(key)[-1]
+    assert ui.find("checksFailingChip").property("text") == "1 check failing"
+    assert not ui.visible(ui.find(f"checkOutput_{c['id']}_0"))   # passed: folded
+    assert ui.visible(ui.find(f"checkOutput_{c['id']}_1"))       # failed: open
+    ui.click(ui.find(f"checkRow_{c['id']}_0"))
+    assert ui.visible(ui.find(f"checkOutput_{c['id']}_0"))
+    ui.store.stories.approve(key)
+    QTest.qWait(80)
+    assert not ui.visible(ui.find("checksFailingChip"))          # the chip belongs to the handoff that waits on you

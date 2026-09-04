@@ -66,7 +66,9 @@ auto-yield, recap/recast and repo checks are the next plan
 **Where things live.** The checkout you run from is opened as a **workspace**
 ([spec](docs/specs/workspace-model.md)): `.zharn/workspace.toml`
 (id, prefix, repos), `.zharn/stories/<key>/{story.json,threads.jsonl}` (the durable record), and
-`.zharn/local/` (contexts, characters, session — machine-local). Set `HARNESS_WORKSPACE` to open a
+`.zharn/local/` (contexts, characters, session — machine-local). Click the workspace name in the
+toolbar for the **workspace page**: the registered repos, each with its worktrees, Relocate when a
+path has moved, Unregister, and a form to register another by path. Set `HARNESS_WORKSPACE` to open a
 different directory. Point `HARNESS_CLAUDE_CMD` at another CLI to substitute the provider
 (`tests/fake_claude.py` speaks the protocol).
 

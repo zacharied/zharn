@@ -193,8 +193,18 @@ class StoryStore(QObject):
         return self._stories[key].parent_story
 
     def _env_rows(self, key: str) -> list[dict]:
-        return [{"repo": r["repo"], "path": r["path"], "branch": r["branch"], "parent": r["parent"]}
-                for r in self.environments.records(key)]
+        """One row per environment; `into` is the branch this story's branch merges into — the parent
+        environment's branch, or the repo's `base` at the root (workspace spec §4.2)."""
+        out = []
+        for r in self.environments.records(key):
+            if r["parent"]:
+                pk, prepo = r["parent"].split(":", 1)
+                prec = self.environments.get(pk, prepo)
+                into = prec["branch"] if prec else f"zharn/{pk}"
+            else:
+                into = (self.workspace.repo(r["repo"]) or {}).get("base", "")
+            out.append({"repo": r["repo"], "path": r["path"], "branch": r["branch"], "parent": r["parent"], "into": into})
+        return out
 
     def _placement(self, ctx) -> tuple[str, dict]:
         """§4.5: a character's context runs in its environment's path, else where its meta says (the workspace dir).

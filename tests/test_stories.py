@@ -1012,7 +1012,7 @@ def test_env_open_creates_the_worktree_records_it_on_the_character_and_the_story
     assert branch_of(_Path(d["path"])) == f"zharn/{key}" and d["checks"] == "echo ok"
     assert store.character(chr_id)["environment"] == "client"
     assert store.get(key)["repos"] == ["client"] and json.loads((ws.stories_dir / key / "story.json").read_text())["repos"] == ["client"]
-    assert store.get(key)["environments"] == [{"repo": "client", "path": d["path"], "branch": f"zharn/{key}", "parent": None}]
+    assert store.get(key)["environments"] == [{"repo": "client", "path": d["path"], "branch": f"zharn/{key}", "parent": None, "into": "main"}]
     assert store.cast(key)[0]["environment"] == "client"
     assert store.cast_env_list(chr_id) == [d]
     assert store.cast_env_open(chr_id, "client") == d and store.get(key)["repos"] == ["client"]
@@ -1047,6 +1047,7 @@ def test_substory_opens_its_own_worktree_cut_from_the_parents_branch(store, repo
     d = store.cast_env_open(store.get(sub)["protagonist"], "client")
     assert d["branch"] == f"zharn/{sub}" and d["parent"] == f"{key}:client" and d["path"] != parent_env["path"]
     assert store.get(sub)["environments"][0]["parent"] == f"{key}:client"
+    assert store.get(sub)["environments"][0]["into"] == f"zharn/{key}"   # the row names the branch it merges into (§4.2)
 
 
 def test_friends_inherit_the_callers_environment_and_the_protagonist_starts_with_none(store, repo, contexts):

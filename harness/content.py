@@ -19,6 +19,7 @@ KINDS: dict[str, dict] = {
     "story":    {"title": "Story",    "qml": "content/Story.qml",      "panel": False, "icon": "story"},
     "context":  {"title": "Context",  "qml": "content/Context.qml",    "panel": False, "icon": "context"},
     "document": {"title": "Document", "qml": "content/Document.qml",   "panel": False, "icon": "files"},
+    "workspace": {"title": "Workspace", "qml": "content/Workspace.qml", "panel": False, "icon": "folder-open"},
 }
 
 

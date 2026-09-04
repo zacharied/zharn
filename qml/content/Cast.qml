@@ -112,9 +112,11 @@ ContentBase {
                                     : m.attending ? "idle · attending #" + m.attending : "idle"
                             }
                             Text {
+                                objectName: "castMeta_" + m.modelData.id
                                 Layout.fillWidth: true; elide: Text.ElideRight; font.pixelSize: app.theme.fontSizeSmall; color: app.theme.textDim
                                 text: "inbox " + (m.modelData.inboxDepth || 0)
                                       + (m.modelData.owes.length ? " · owes " + m.modelData.owes.map(cast.place).join(", ") : "")
+                                      + (m.modelData.environment ? " · in " + m.modelData.environment : "")
                                       + (m.ctx ? " · " + m.ctx.turns + (m.ctx.turns === 1 ? " turn" : " turns") + " · $" + m.ctx.costUsd.toFixed(2) : "")
                             }
                         }

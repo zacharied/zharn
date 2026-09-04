@@ -2,7 +2,7 @@
 import pytest
 from PySide6.QtTest import QTest
 
-from ui import start, wait_until
+from ui import OUT, start, wait_until
 
 
 @pytest.fixture(scope="module")
@@ -72,3 +72,20 @@ def test_substories_list_under_the_cast_and_open_on_click(ui):
     ui.click(ui.find(f"substoryRow_{sub}"))
     assert ui.has(f"tab_story_{sub}")
     assert ui.visible(ui.find(f"card_{sub}"))  # board shows it too, as a sub-story
+
+
+def test_cast_row_names_the_characters_environment(ui):
+    import shutil
+    from gitfix import make_repo
+    from harness.environments import register_repo
+    d = OUT / "ui-cast-repo"
+    shutil.rmtree(d, ignore_errors=True)
+    register_repo(ui.store.stories.workspace, str(make_repo(d)), name="api")
+    key = ui.store.stories.create("Where", "")
+    chr_id = ui.store.stories.start(key, "", "protagonist")
+    settled(ui, chr_id)
+    open_story(ui, key)
+    assert "in api" not in ui.find(f"castMeta_{chr_id}").property("text")
+    ui.store.stories.cast_env_open(chr_id, "api")
+    QTest.qWait(80)
+    assert " · in api · " in ui.find(f"castMeta_{chr_id}").property("text")
