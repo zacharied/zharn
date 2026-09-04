@@ -42,7 +42,7 @@ def default_layout() -> dict:
     return {
         "center": tabs([tab("welcome", "welcome", "Welcome")]),
         "docks": {
-            "left": {"panels": ["board", "files", "git"], "active": "board", "mode": "docked", "size": 290},
+            "left": {"panels": ["board", "files", "documents", "git"], "active": "board", "mode": "docked", "size": 290},
             "right": {"panels": ["cast"], "active": "cast", "mode": "docked", "size": 300},
             "bottom": {"panels": ["contexts", "terminal"], "active": "contexts", "mode": "strip", "size": 330},
         },
@@ -108,6 +108,19 @@ class Layout:
                 if t["kind"] == kind and t["key"] == key:
                     return g, i
         return None, None
+
+    def ensure_panels(self, kinds) -> bool:
+        """Every registered panel kind sits in some dock — a fork's new panel, or one added upstream, shows on
+        the left strip of a saved layout without a reset. An invariant, not a migration."""
+        placed = {p for d in self.data["docks"].values() for p in d["panels"]}
+        missing = [k for k in kinds if k not in placed]
+        if not missing:
+            return False
+        left = self.data["docks"]["left"]
+        left["panels"].extend(missing)
+        if left.get("active") is None:
+            left["active"] = left["panels"][0]
+        return True
 
     # ---------------------------------------------------------------- intents
     def open(self, kind: str, key: str | None = None, title: str | None = None, group_id: str | None = None) -> str:

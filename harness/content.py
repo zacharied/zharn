@@ -13,12 +13,13 @@ KINDS: dict[str, dict] = {
     "cast":     {"title": "Cast",     "qml": "content/Cast.qml",       "panel": True,  "icon": "cast"},
     "contexts": {"title": "Contexts", "qml": "content/Contexts.qml",   "panel": True,  "icon": "contexts"},
     "files":    {"title": "Files",    "qml": "content/Files.qml",      "panel": True,  "icon": "files"},
+    "documents": {"title": "Documents", "qml": "content/Documents.qml", "panel": True,  "icon": "documents"},
     "git":      {"title": "Git",      "qml": "content/Git.qml",        "panel": True,  "icon": "git"},
     "terminal": {"title": "Terminal", "qml": "content/Terminal.qml",   "panel": True,  "icon": "terminal"},
     "welcome":  {"title": "Welcome",  "qml": "content/Welcome.qml",    "panel": False, "icon": "home"},
     "story":    {"title": "Story",    "qml": "content/Story.qml",      "panel": False, "icon": "story"},
     "context":  {"title": "Context",  "qml": "content/Context.qml",    "panel": False, "icon": "context"},
-    "document": {"title": "Document", "qml": "content/Document.qml",   "panel": False, "icon": "files"},
+    "document": {"title": "Document", "qml": "content/Document.qml",   "panel": False, "icon": "documents"},
     "workspace": {"title": "Workspace", "qml": "content/Workspace.qml", "panel": False, "icon": "folder-open"},
 }
 

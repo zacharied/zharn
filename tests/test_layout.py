@@ -266,3 +266,28 @@ def test_show_panel_docks_it_wherever_it_lives_and_keeps_it_shown():
     import pytest
     with pytest.raises(KeyError):
         l.show_panel("nope")
+
+
+def test_default_left_dock_carries_documents_between_files_and_git():
+    assert Layout().data["docks"]["left"]["panels"] == ["board", "files", "documents", "git"]
+
+
+def test_ensure_panels_adds_a_kind_missing_from_every_dock_to_the_left_dock():
+    l = Layout()
+    l.data["docks"]["left"]["panels"] = ["board", "files", "git"]
+    assert l.ensure_panels(["board", "files", "git", "documents", "cast", "contexts", "terminal"]) is True
+    assert l.data["docks"]["left"]["panels"] == ["board", "files", "git", "documents"]
+    assert l.ensure_panels(["board", "documents"]) is False          # already reachable: nothing to do
+
+
+def test_ensure_panels_never_moves_a_panel_that_lives_elsewhere():
+    l = Layout()
+    l.ensure_panels(["cast"])
+    assert "cast" not in l.data["docks"]["left"]["panels"] and "cast" in l.data["docks"]["right"]["panels"]
+
+
+def test_ensure_panels_gives_an_empty_left_dock_an_active_panel():
+    l = Layout()
+    l.data["docks"]["left"] = {"panels": [], "active": None, "mode": "strip", "size": 290}
+    l.ensure_panels(["documents"])
+    assert l.data["docks"]["left"]["active"] == "documents"

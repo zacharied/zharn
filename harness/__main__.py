@@ -67,8 +67,8 @@ def build(argv=None, force_poll=False):
         workspace = Workspace.scratch(ROOT)
     data_dir = workspace.local_dir
     session = Session(Path(os.environ.get("HARNESS_SESSION") or data_dir / "session.json"))
-    layout_store = LayoutStore(session)
     content = ContentRegistry(QML_DIR)
+    layout_store = LayoutStore(session, content.panelKinds())
     roles = RoleStore(data_dir)
     contexts = ContextStore(ROOT, data_dir / "contexts", roles, workspace_dir=workspace.dir)
     stories = StoryStore(workspace, contexts, roles)

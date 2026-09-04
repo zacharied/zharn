@@ -33,11 +33,13 @@ class LayoutStore(QObject):
     layoutChanged = Signal()
     notifier = None
 
-    def __init__(self, session: Session):
+    def __init__(self, session: Session, panel_kinds=()):
         super().__init__()
         self._session = session
         saved = session.data.get("layout")
         self._layout = layout_mod.Layout(saved) if saved else layout_mod.Layout()
+        if self._layout.ensure_panels(list(panel_kinds)):
+            self._session.data["layout"] = self._layout.data
 
     def _commit(self):
         self._session.data["layout"] = self._layout.data

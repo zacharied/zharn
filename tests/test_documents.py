@@ -183,10 +183,17 @@ def test_search_matches_document_names_as_groups_without_sections(corpus):
 
 from PySide6.QtCore import QObject, Signal  # noqa: E402
 
+from harness.content import KINDS  # noqa: E402
 from harness.documents import ROW_ROLES, DocumentsStore, heading_positions  # noqa: E402
 from harness.workspace import Workspace  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
+
+
+def test_documents_is_a_panel_kind_and_the_document_tab_shares_its_icon():
+    assert KINDS["documents"] == {"title": "Documents", "qml": "content/Documents.qml", "panel": True, "icon": "documents"}
+    assert KINDS["document"]["icon"] == "documents"
+    assert (ROOT / "qml/icons/documents.svg").exists()
 
 
 class FakeLayout(QObject):
