@@ -19,7 +19,9 @@ def test_scenarios_are_the_three_of_the_spec():
     assert runner.scenarios() == ["batch-questions", "handoff-not-silence", "outline-before-proceed"]
     for name in runner.scenarios():
         exp = runner.load(name)
-        assert exp["role"] and exp["skill"] and exp["prompt"] and (exp["must"] or exp["must_not"])
+        skill = exp["skill"]
+        assert isinstance(skill, (str, list)) and skill
+        assert exp["role"] and exp["prompt"] and (exp["must"] or exp["must_not"])
 
 
 def test_violations_checks_must_must_not_max_and_flags():
@@ -47,6 +49,14 @@ def test_blanked_tree_keeps_frontmatter_and_drops_the_body(tmp_path):
     assert (dest / ".claude-plugin" / "plugin.json").exists()
 
 
+def test_blanked_tree_blanks_a_list_of_skills(tmp_path):
+    dest = runner.blanked_tree(["being-a-character", "planning-a-story"], tmp_path / "plug")
+    for name in ("being-a-character", "planning-a-story"):
+        text = (dest / "skills" / name / "SKILL.md").read_text()
+        assert text.startswith(f"---\nname: {name}\n") and text.rstrip().endswith("---")
+    assert "Iron Law" in (dest / "skills" / "implementing-a-story" / "SKILL.md").read_text()
+
+
 def test_fixtures_build_a_committed_git_repo(tmp_path):
     for name in runner.scenarios():
         root = tmp_path / name
@@ -63,6 +73,15 @@ def test_run_scenario_restores_env_and_shuts_down_nothing_when_the_app_never_bui
     with pytest.raises(RuntimeError):
         runner.run_scenario("batch-questions", omit=None, workdir=tmp_path)
     assert os.environ["HARNESS_SESSION"] == "sentinel"
+    assert "HARNESS_WORKSPACE" not in os.environ
+
+
+def test_run_scenario_refuses_to_spend_without_the_paid_flag(monkeypatch, tmp_path):
+    monkeypatch.delenv("HARNESS_WORKSPACE", raising=False)
+    monkeypatch.delenv("HARNESS_PAID_TESTS", raising=False)
+    monkeypatch.setattr(runner, "build_fixture", lambda name, root: None)
+    with pytest.raises(AssertionError, match="HARNESS_PAID_TESTS"):
+        runner.run_scenario("batch-questions", omit=None, workdir=tmp_path)
     assert "HARNESS_WORKSPACE" not in os.environ
 
 

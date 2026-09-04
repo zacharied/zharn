@@ -9,7 +9,7 @@ Three tools, one question each.
 
 | Use a… | when… | how |
 |---|---|---|
-| **minion** | you need a result and nobody needs to see the process | the native Agent tool; forkable; its output is your contract with it |
+| **minion** | you need a result and nobody needs to see the process | the native Agent tool; its output is your contract with it |
 | **friend** | others should see the contribution as a participant: a review, a second opinion, a parallel build | `$HARNESS_CLI story call --role R [--as Name] [--fork] --note "…"`, then `wait` |
 | **sub-story** | the work should be described and validated on its own | `$HARNESS_CLI story create --title … --description … --start --role R`; you are its author |
 

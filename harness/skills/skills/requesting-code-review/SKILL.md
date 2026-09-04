@@ -34,9 +34,11 @@ HEAD_SHA=$(git rev-parse HEAD)
 Fill the template at [code-reviewer.md](code-reviewer.md) and pass it as the call note, then wait:
 
 ```bash
-$HARNESS_CLI story call --role <a reviewing role> --as Reviewer --note "<the filled template>"
+$HARNESS_CLI story call --role reviewer --as Reviewer --note "<the filled template>"
 $HARNESS_CLI story wait     # then end your turn; the review wakes you
 ```
+
+`reviewer` is a shipped role (`harness/config_def.py: DEFAULT_ROLES`); the prompt, not the role, makes it a review.
 
 **Placeholders:**
 - `[DESCRIPTION]` - Brief summary of what you built
@@ -60,7 +62,7 @@ You: Review before Task 3.
 BASE_SHA=$(git log --oneline | grep "Task 1" | head -1 | awk '{print $1}')
 HEAD_SHA=$(git rev-parse HEAD)
 
-$HARNESS_CLI story call --role claude-deep --as Reviewer --note "…filled template…"
+$HARNESS_CLI story call --role reviewer --as Reviewer --note "…filled template…"
 $HARNESS_CLI story wait
 [turn ends]
 

@@ -273,7 +273,7 @@ Known churn: every intent re-parses the whole tree and rebuilds all groups (fine
 3. **Story lifecycle** per [`specs/story-lifecycle.md`](specs/story-lifecycle.md): `harness/lifecycle.py`
    pure state machine with per-thread turns, thread/comment store, attention + inbox delivery,
    characters/friends (fresh or forked), `zharn story …` verbs, the quiet check, recap/recast
-   ladder, phase-aware system prompts. Minions are Claude's native `Agent` tool for now;
+   ladder, character system prompts (since reworked in item 4). Minions are Claude's native `Agent` tool for now;
    `AskUserQuestion` does not exist under `-p`, so `yield --question` is the only way to ask.
    Migrate tasks → stories, code `Thread` → `Context`. **Done 2026-09-02** — characters and delivery
    (plan `docs/superpowers/plans/2026-09-02-characters-delivery.md`): friends fresh or forked, routing to
@@ -281,15 +281,16 @@ Known churn: every intent re-parses the whole tree and rebuilds all groups (fine
    retirement, sub-stories authored by characters, recast rungs 1 and 3; asides (`Comment.context`,
    `ContextStore.fork`, `stories.aside`). **Deferred:** context-usage tracking and therefore auto-recast at
    `CONTEXT_WARN`/`CONTEXT_MAX`; recast rung 2 (a final restricted recap turn); repo `checks` at handoff
-   (workspace plan); `harness/skills/`; the QML for cast panel / `/fork` / sub-stories (UI thread).
-4. **Skills** (proposal `docs/superpowers/proposals/2026-09-03-skills.md`). **Done 2026-09-03** (plan
+   (workspace plan); the QML for cast panel / `/fork` / sub-stories (UI thread).
+4. **Skills** (proposal `docs/superpowers/proposals/2026-09-03-skills.md`). **Shipped 2026-09-04, paid run pending** (plan
    `docs/superpowers/plans/2026-09-03-skills.md`): `harness/skills/` is one Claude Code plugin (`zharn:<name>`,
    `--plugin-dir` at every spawn) holding `being-a-character`, `planning-a-story`, `implementing-a-story`, `delegating`
    and five discipline skills vendored from superpowers 6.3.0 (`VENDORED.md`, `LICENSES/superpowers`); the character
    prompt is split by volatility — a stable system prompt built at every spawn and never stored, the situation line and
    the phase skill in messages (`Character.phase_seen`; spec §5.3); `tests/skills/` runs three scenarios against real
-   `claude -p` behind `HARNESS_PAID_TESTS=1`, blanking the skill under test for the baseline, and commits both
-   `verbs_log`s as evidence. **Deferred:** `writing-skills`, a separate `yielding` skill, shrinking the situation line.
+   `claude -p` behind `HARNESS_PAID_TESTS=1`, blanking the skill under test for the baseline; the paid run awaits the
+   author's authorization, and its `baseline.json`/`skilled.json` land beside each scenario when it runs. **Deferred:**
+   `writing-skills`, a separate `yielding` skill, shrinking the situation line.
 5. **Story tab + board rework**: threads with per-cell action bars, option buttons, `@`/`/call`,
    cast panel (attention, inbox, context meter, Recast), needs-you highlighting and count,
    interactive context views, New Context + Promote to story.

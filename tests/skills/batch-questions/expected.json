@@ -1,7 +1,7 @@
 {
   "title": "Configurable default name",
   "role": "claude-default",
-  "skill": "being-a-character",
+  "skill": ["being-a-character", "planning-a-story"],
   "note": "",
   "checks": "",
   "replies": [],

@@ -92,8 +92,8 @@ Three layers, all offscreen:
   that up when you add one, it is how the tests (and agents editing the UI) reach it.
 * `tests/test_app.py`, `tests/test_agents.py` — end-to-end: hot reload, fake-agent conversations, IPC.
 * `tests/skills/` — the paid layer: three scenarios against real `claude -p`, each run with and without the skill under
-  test; assertions read `verbs_log`. Skipped unless `HARNESS_PAID_TESTS=1`; the last run's `baseline.json` and
-  `skilled.json` sit beside each scenario.
+  test; assertions read `verbs_log`. Skipped unless `HARNESS_PAID_TESTS=1`; each run writes `baseline.json` and
+  `skilled.json` beside its scenario.
 
 Anything a QML button calls is an `@intent` (`harness/notify.py`): if it raises, the message shows in
 the status bar (`app.notify.lastError`) instead of silently doing nothing.

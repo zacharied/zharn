@@ -112,6 +112,8 @@ DEFAULT_ROLES = [
      "instructions": "You lead this story: classify the work, ask the author what you must, outline when the work needs it, then build or delegate."},
     {"name": "claude-fast", "provider": "claude-code", "model": "claude-sonnet-5", "reasoning": "medium", "permission": "auto"},
     {"name": "claude-deep", "provider": "claude-code", "model": "claude-opus-5", "reasoning": "high", "permission": "auto"},
+    {"name": "reviewer", "provider": "claude-code", "model": "claude-opus-5", "reasoning": "high", "permission": "auto",
+     "instructions": "You review: read and run, change nothing. Your handoff is the review."},
     {"name": "claude-default", "provider": "claude-code", "model": "", "reasoning": "", "permission": "auto"},
     {"name": "codex-review", "provider": "codex", "model": "gpt-5.6-sol", "reasoning": "high", "permission": "accept-edits"},
 ]

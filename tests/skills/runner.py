@@ -40,13 +40,15 @@ def build_fixture(name: str, root: Path):
     mod.build(root)
 
 
-def blanked_tree(omit: str, dest: Path) -> Path:
-    """A copy of the plugin tree with skills/<omit>/SKILL.md reduced to its frontmatter: the baseline run."""
+def blanked_tree(omit: str | list[str], dest: Path) -> Path:
+    """A copy of the plugin tree with skills/<name>/SKILL.md reduced to its frontmatter for each name in omit
+    (one name or a list): the baseline run."""
     shutil.copytree(ROOT / "harness" / "skills", dest)
-    path = dest / "skills" / omit / "SKILL.md"
-    text = path.read_text(encoding="utf-8")
-    end = text.index("\n---", 4) + 4
-    path.write_text(text[:end] + "\n", encoding="utf-8")
+    for name in [omit] if isinstance(omit, str) else omit:
+        path = dest / "skills" / name / "SKILL.md"
+        text = path.read_text(encoding="utf-8")
+        end = text.index("\n---", 4) + 4
+        path.write_text(text[:end] + "\n", encoding="utf-8")
     return dest
 
 
@@ -110,13 +112,14 @@ def _dirty(store, key, repo: Path) -> str:
     return "; ".join(out)
 
 
-def run_scenario(name: str, *, omit: str | None, workdir: Path) -> dict:
+def run_scenario(name: str, *, omit: str | list[str] | None, workdir: Path) -> dict:
     from PySide6.QtTest import QTest
     from harness.__main__ import build
     from harness.environments import register_repo
 
     exp = load(name)
-    ws = workdir / ("baseline" if omit else "skilled")
+    names = ([omit] if isinstance(omit, str) else omit) if omit else []
+    ws = workdir / ("baseline" if names else "skilled")
     repo = ws / "fixture"
     repo.mkdir(parents=True)
     saved = {k: os.environ.get(k) for k in ("HARNESS_WORKSPACE", "HARNESS_SESSION", "HARNESS_CLAUDE_CMD", "HARNESS_SKILLS_DIR")}
@@ -125,9 +128,10 @@ def run_scenario(name: str, *, omit: str | None, workdir: Path) -> dict:
         build_fixture(name, repo)
         os.environ["HARNESS_WORKSPACE"] = str(ws)
         os.environ["HARNESS_SESSION"] = str(ws / "session.json")
+        assert os.environ.get("HARNESS_PAID_TESTS"), "run_scenario spends money: set HARNESS_PAID_TESTS=1"
         os.environ.pop("HARNESS_CLAUDE_CMD", None)                     # the real CLI
-        if omit:
-            os.environ["HARNESS_SKILLS_DIR"] = str(blanked_tree(omit, workdir / f"plugin-without-{omit}"))
+        if names:
+            os.environ["HARNESS_SKILLS_DIR"] = str(blanked_tree(names, workdir / f"plugin-without-{'+'.join(names)}"))
         else:
             os.environ.pop("HARNESS_SKILLS_DIR", None)
         t0 = time.time()
@@ -145,7 +149,7 @@ def run_scenario(name: str, *, omit: str | None, workdir: Path) -> dict:
             store.stories.comment(key, replies.pop(0))
         comments = store.stories.comments(key)
         ch = store.stories.character(chr_id)
-        return {"scenario": name, "skill_omitted": omit, "seconds": round(time.time() - t0),
+        return {"scenario": name, "skill_omitted": names, "seconds": round(time.time() - t0),
                 "phase": store.stories.get(key)["phase"], "ball": store.stories.get(key)["ball"],
                 "verbs_log": [{k: e.get(k) for k in ("verb", "args", "ok", "error")} for e in ch["verbs_log"]],
                 "comments": [{"author": c["authorName"], "kind": c["kind"], "auto_for": c.get("structured", {}).get("auto_for"),

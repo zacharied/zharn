@@ -227,13 +227,17 @@ class StoryStore(QObject):
             return f"in {repo} at {rec['path']} (your story's worktree, branch {rec['branch']})"
         return f"in the workspace dir {self.workspace.dir}; run `env open <repo>` before touching a repo"
 
+    def _awaits_line(self, ch: dict) -> str:
+        """The threads and sub-stories a character awaits, formatted for a message: threads get a leading #,
+        sub-story keys (bare) do not."""
+        return ", ".join(("#" + a) if a.startswith("thr_") else a for a in self.awaits(ch)) or "nothing"
+
     def situation(self, ch: dict) -> str:
         """Spec §5.3: the volatile facts — one line at the top of every message, never in the system prompt."""
         s = self._stories[ch["story_key"]]
         owes = ", ".join("#" + t for t in self.owes(ch)) or "nothing"
-        awaits = ", ".join(("#" + a) if a.startswith("thr_") else a for a in self.awaits(ch)) or "nothing"
         return (f"[situation] phase {s.phase} · attending #{ch.get('attention') or s.main_thread} · you owe {owes} · "
-                f"you await {awaits} · {self.environment_line(ch)}")
+                f"you await {self._awaits_line(ch)} · {self.environment_line(ch)}")
 
     def story(self, key: str) -> lc.Story | None:
         try:
@@ -385,14 +389,17 @@ class StoryStore(QObject):
         if phase in lc.TERMINAL or ch.get("phase_seen") == phase:
             return ""
         ch["phase_seen"] = phase
-        return skills.phase_skill(phase)
+        body = skills.phase_skill(phase)
+        if phase in skills.PHASE_SKILLS and not body and self.notifier is not None:
+            self.notifier.error(f"no {skills.PHASE_SKILLS[phase]} skill under {skills.skills_dir()} — {ch['name']} runs without it")
+        return body
 
     def _push(self, ch: dict, ctx, comment: dict):
         """One delivery to a live context: the situation line, the comment, and the phase skill when it is new."""
         text = self._format(ch, comment)
         skill = self._phase_skill_due(ch)
-        self._save_characters()
         ctx.send(text + (f"\n\n{skill}" if skill else ""))
+        self._save_characters()
 
     def _deliver_to(self, ch: dict, comment: dict):
         """Spec §2.3 delivery: mid-turn, the attended thread is pushed now and everything else waits in the inbox;
@@ -731,7 +738,7 @@ class StoryStore(QObject):
         skill = self._phase_skill_due(ch)
         situation = (f"you are a recast of {ch['name']}; your predecessor's recap is above. "
                      f"You were attending #{ch.get('attention') or s.main_thread}; {len(ch.get('inbox', []))} items wait in your inbox; "
-                     f"you await {', '.join(self.awaits(ch)) or 'nothing'} and owe {', '.join('#' + t for t in self.owes(ch)) or 'nothing'}.")
+                     f"you await {self._awaits_line(ch)} and owe {', '.join('#' + t for t in self.owes(ch)) or 'nothing'}.")
         cid = self._contexts.create(role_cfg["name"], story_key=key, owner=ch["id"], title=f"{key} · {ch['name']}",
                                     env={"HARNESS_CHARACTER_ID": ch["id"]}, predecessor=old_id)
         if model:

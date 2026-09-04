@@ -342,6 +342,7 @@ def test_system_prompt_is_stable_across_a_proceed_and_carries_no_situation(store
     assert meta and meta in after and "story yield" in after and "Role: protagonist. Lead." in after and cfg.OUTLINE_RULE_REQUIRED in after
     main = store.story(key).main_thread
     assert "phase planning" not in after and "phase implementing" not in after and main not in after and "you owe #" not in after
+    assert str(store.workspace.dir) not in after
     assert ctx.meta.get("systemPrompt", "") == ""
 
 
@@ -911,6 +912,16 @@ def test_character_creates_and_starts_a_sub_story_it_authors(store, contexts):
     assert contexts.get(store.character(sub_lead)["live_context"]).sent[0].startswith(f"# {sub}:")
 
 
+def test_a_sub_story_await_is_the_bare_key_in_the_situation_line(store, contexts):
+    key, chr_id = started(store)
+    contexts.get(store.character(chr_id)["live_context"]).status = "idle"
+    sub = store.cast_create(chr_id, "Sub", start=True, role="claude-fast")
+    store.comment(key, "status?")
+    ctx = contexts.get(store.character(chr_id)["live_context"])
+    assert f"you await {sub}" in ctx.sent[-1].splitlines()[0]
+    assert f"you await #{sub}" not in ctx.sent[-1]
+
+
 def test_sub_story_yield_reaches_the_author_character_cross_story(store, contexts):
     key, chr_id = started(store)
     live = contexts.get(store.character(chr_id)["live_context"]); live.status = "idle"
@@ -962,6 +973,7 @@ def test_recast_replaces_the_live_context_and_hands_it_the_situation(store, cont
     old = store.character(chr_id)["live_context"]
     contexts.get(old).status = "idle"; contexts.get(old).turns = 3
     side = store.openThread(key, "btw")                          # pushed: the stub goes "working" again
+    call = store.cast_call(chr_id, "claude-fast", "second opinion")   # a thread this character awaits
     store.cast_recap(chr_id, "done: outline; next: build")
     contexts.get(old).status = "idle"                             # ...and its turn ends
     new = store.recast(key, chr_id, role="claude-fast")
@@ -970,6 +982,7 @@ def test_recast_replaces_the_live_context_and_hands_it_the_situation(store, cont
     assert contexts.get(new).meta["predecessor"] == old and contexts.get(new).meta["owner"] == chr_id
     first = contexts.get(new).sent[0]
     assert "you are a recast of protagonist" in first and "done: outline; next: build" in first and f"attending #{side}" in first
+    assert f"you await #{call['thread']}" in first
     note = store.comments(key)[-1]
     assert note["author"] == "system" and note["body"] == "recast protagonist as claude-fast (rung 1: fresh recap)"
     assert store.cast(key)[0]["status"] == "working"
@@ -1146,6 +1159,15 @@ def test_a_fresh_brief_ends_with_the_phase_skill_and_records_it(store, contexts)
     key, chr_id = started(store)
     first = contexts.get("ctx_1").sent[0]
     assert first.rstrip().endswith(skills.phase_skill("planning")) and store.character(chr_id)["phase_seen"] == "planning"
+
+
+def test_a_missing_phase_skill_notifies_once(store, contexts, monkeypatch, tmp_path):
+    monkeypatch.setenv("HARNESS_SKILLS_DIR", str(tmp_path))               # an empty tree: no skills at all
+    key, chr_id = started(store)
+    assert store.character(chr_id)["phase_seen"] == "planning"
+    assert len(store.notifier.errors) == 1 and "planning-a-story" in store.notifier.errors[0]
+    store.comment(key, "same phase")                                     # a second delivery in the same phase
+    assert len(store.notifier.errors) == 1
 
 
 def test_a_fork_gets_no_skill_and_copies_phase_seen(store, contexts):
