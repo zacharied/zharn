@@ -15,6 +15,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, Property, Signal, Slot
 
 from harness import config as cfg
+from harness import skills
 from harness.agents import ClaudeCodeProcess, StreamInterpreter, TranscriptModel
 from harness.fsutil import write_text_atomic
 from harness.notify import intent
@@ -152,7 +153,7 @@ class Context(QObject):
 
     def _spawn(self, resume: str = ""):
         role = self.meta.get("roleConfig", {})
-        extra = list(getattr(cfg, "EFFORT_FLAGS", {}).get(role.get("reasoning", ""), []))
+        extra = list(getattr(cfg, "EFFORT_FLAGS", {}).get(role.get("reasoning", ""), [])) + skills.plugin_args()   # spec §5.1: every spawn
         if not resume and self.meta.get("forkSession"):
             resume, extra = self.meta["forkSession"], extra + ["--fork-session"]  # first turn of a fork only
         cwd, place_env = self._store.placement(self)   # decided at every spawn, not at creation (workspace spec §4.5)

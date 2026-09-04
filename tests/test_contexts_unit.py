@@ -278,3 +278,21 @@ def test_recycle_does_not_retire_a_process_that_already_finished(store):
     c._proc = fake
     c.recycle()
     assert c._proc is None and c._retired == []
+
+
+def test_spawn_passes_the_skills_plugin_and_the_fake_echoes_the_prompt(store, tmp_path, monkeypatch):
+    monkeypatch.setenv("HARNESS_SKILLS_DIR", str(tmp_path / "plug"))
+    cid = store.spawn("claude-fast", "hello", story_key="ZH-1", owner="chr1")
+    c = store.get(cid)
+    assert wait_until(lambda: c.status == "idle"), (c.status, c.lastError)
+    init = inits(tmp_path, cid)[-1]
+    assert init["argv"][init["argv"].index("--plugin-dir") + 1] == str(tmp_path / "plug")
+    assert init["system_prompt"].startswith("You are a bare context")     # no StoryStore here: the hook returns None
+
+
+def test_system_prompt_hook_replaces_the_stored_prompt_at_spawn(store, tmp_path):
+    store.system_prompt = lambda c: "COMPOSED for " + c.id
+    cid = store.spawn("claude-fast", "hello", system_prompt="stored")
+    c = store.get(cid)
+    assert wait_until(lambda: c.status == "idle"), (c.status, c.lastError)
+    assert inits(tmp_path, cid)[-1]["system_prompt"] == "COMPOSED for " + cid

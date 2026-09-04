@@ -108,3 +108,10 @@ def test_systematic_debugging_leaves_the_authors_test_artifacts_upstream():
     names = {p.name for p in (PLUGIN / "skills" / "systematic-debugging").iterdir()}
     assert names == {"SKILL.md", "condition-based-waiting.md", "condition-based-waiting-example.ts",
                      "defense-in-depth.md", "root-cause-tracing.md", "find-polluter.sh"}
+
+
+@pytest.mark.parametrize("name", ["being-a-character", "planning-a-story", "implementing-a-story"])
+def test_injected_skills_avoid_the_fake_claudes_trigger_words(name):
+    """tests/fake_claude.py fails a turn on "fail" and sleeps on "slow"; these bodies ride every brief and delivery."""
+    body = skills.skill_body(name).lower()
+    assert "fail" not in body and "slow" not in body

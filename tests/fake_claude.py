@@ -46,6 +46,7 @@ def main():
         if "--fork-session" in args:  # a fork gets a fresh id; the source session is untouched
             SESSION = "fork-of-" + SESSION
     emit({"type": "system", "subtype": "init", "cwd": os.getcwd(), "model": "fake-model", "tools": ["Bash"], "argv": args,
+          "system_prompt": args[args.index("--append-system-prompt") + 1] if "--append-system-prompt" in args else "",
           "harness_env": {k: os.environ[k] for k in ("HARNESS_CONTEXT_ID", "HARNESS_STORY_KEY", "HARNESS_CHARACTER_ID", "HARNESS_WORKSPACE", "HARNESS_REPO", "HARNESS_ENV") if k in os.environ}})
     for line in sys.stdin:
         line = line.strip()

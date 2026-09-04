@@ -190,3 +190,23 @@ def test_cli_story_show_over_ipc(harness):
     assert p.returncode == 0, err
     data = json.loads(out)
     assert data["key"] == key and data["comments"] and data["cast"][0]["name"] == "protagonist" and data["contexts"]
+
+
+def test_character_prompt_is_identical_across_a_respawn_and_the_skill_rides_the_message(harness):
+    """Spec §5.3: two spawns of one context across a Proceed get the same bytes; the phase skill is in the message."""
+    from harness import skills
+    app, store, _ = harness
+    key = store.stories.create("Stable", "prompt")
+    chr_id = store.stories.start(key, "yield-handoff", "claude-fast")     # the fake hands off at once
+    ctx = store.contexts.get(store.stories.character(chr_id)["live_context"])
+    assert wait_until(lambda: store.stories.get(key)["ball"] == "author" and ctx.status == "idle", timeout_ms=15000), store.stories.get(key)
+    ctx.recycle()                                                         # the next send spawns a fresh process
+    store.stories.proceed(key, "build it")
+    assert wait_until(lambda: ctx.status == "idle", timeout_ms=15000), (ctx.status, ctx.lastError)
+    records = [json.loads(l) for l in (store.contexts.data_dir / f"{ctx.id}.jsonl").read_text().splitlines()]
+    prompts = [r["system_prompt"] for r in records if r.get("subtype") == "init"]
+    assert len(prompts) == 2 and prompts[0] == prompts[1]
+    assert skills.skill_body("being-a-character") in prompts[0] and "phase implementing" not in prompts[0]
+    delivered = [r["text"] for r in records if r.get("type") == "harness.user"][-1]
+    assert delivered.startswith("[situation] phase implementing") and delivered.rstrip().endswith(skills.phase_skill("implementing"))
+    assert all("--plugin-dir" in r["argv"] for r in records if r.get("subtype") == "init")
