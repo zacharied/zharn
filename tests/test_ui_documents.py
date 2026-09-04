@@ -127,3 +127,31 @@ def test_collapse_all_leaves_the_repo_rows(ui):
     QTest.qWait(80)
     assert ui.visible(ui.find("docRow_d")) and not ui.has("docRow_d/docs")
     ui.click(ui.find("docChevron_d"))
+
+
+LONG_DOC = "# Long\n\n" + "".join(f"## Section {i}\n\nParagraph body {i}.\n\n" for i in range(1, 41))
+SHORT_DOC = "# Long\n\n## Section 1\n\nParagraph body 1.\n"
+LONG_KEY = "d/docs/long.md"
+
+
+def test_shrinking_the_open_document_on_reload_keeps_the_scroll_in_bounds(ui):
+    show(ui)
+    repo = OUT / "ui-documents-repo"
+    (repo / "docs/long.md").write_text(LONG_DOC)
+    ui.store.documents.rescan()
+    QTest.qWait(100)
+    ui.store.documents.open(LONG_KEY, 35)                                       # a late section
+    assert wait_until(lambda: ui.has(f"tab_document_{LONG_KEY}"))
+    flick = ui.find("documentFlick")
+    assert wait_until(lambda: flick.property("contentY") > 100)                 # really scrolled deep
+
+    (repo / "docs/long.md").write_text(SHORT_DOC)                               # now much shorter
+    ui.store.documents.rescan()
+
+    def in_bounds():
+        cy = flick.property("contentY")
+        max_y = max(0, flick.property("contentHeight") - flick.property("height"))
+        return 0 <= cy <= max_y
+
+    assert wait_until(in_bounds)
+    assert wait_until(lambda: ui.store.documents.position(LONG_KEY) == -1)      # the shrunk doc fits at the top

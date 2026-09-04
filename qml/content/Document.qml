@@ -11,15 +11,20 @@ ContentBase {
     property var positions: []      // character position of heading n in the rendered document
     property string loaded: ""
     property int pending: -2        // a requested section (-1 = top), -2 = none
+    property real keepY: 0          // the scroll position to restore once a reload's new text is laid out
 
     function load() {
         var t = app.documents.text(key)
         if (t === loaded) return
+        var wasLoaded = loaded !== ""
         var y = flick.contentY
         loaded = t
         view.text = t
         positions = app.documents.headingPositionsIn(view.textDocument)
-        flick.contentY = Math.min(y, Math.max(0, flick.contentHeight - flick.height))
+        // view.implicitHeight (and so flick.contentHeight) doesn't necessarily reflect the new text yet —
+        // clamping here would clamp against the *old* height. Defer to keepSettle, same as scrollTo defers
+        // to settle, so the clamp below runs after the new text has laid out.
+        if (wasLoaded) { page.keepY = y; keepSettle.restart() }
     }
     function yOf(i) { return view.y + view.positionToRectangle(positions[i]).y }
     function scrollTo(i) {
@@ -48,6 +53,17 @@ ContentBase {
         }
     }
     Timer { id: reportTimer; interval: 16; onTriggered: page.report() }
+    // A reload (documentsChanged, text actually changed) keeps the reader's scroll position — clamped to
+    // the new document's bounds, computed after its text has laid out — and re-reports it so the panel's
+    // selection matches what is now at the top.
+    Timer {
+        id: keepSettle; interval: 0
+        onTriggered: {
+            var max = Math.max(0, flick.contentHeight - flick.height)
+            flick.contentY = Math.max(0, Math.min(page.keepY, max))
+            page.report()
+        }
+    }
     Connections {
         target: app.documents
         function onScrollRequested(k, i) { if (k === page.key) { app.documents.takeScroll(k); page.pending = i; settle.restart() } }
