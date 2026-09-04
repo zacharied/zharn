@@ -80,17 +80,20 @@ def read_document(name: str, path: Path, rel: str) -> dict:
     }
 
 
-def scan_repo(name: str, path: Path) -> list[dict]:
-    """Every *.md under `path`, minus EXCLUDED_DIRS and dot-directories, sorted by relative path."""
+def walk_repo(path: Path):
+    """(path, relative path) of every *.md under `path`, minus EXCLUDED_DIRS and dot-directories."""
     path = Path(path)
-    docs = []
     for root, dirs, files in os.walk(path):
         dirs[:] = sorted(d for d in dirs if not _skip_dir(d))
         for f in files:
             if f.lower().endswith(".md"):
                 p = Path(root) / f
-                rel = p.relative_to(path).as_posix()
-                docs.append(read_document(name, p, rel))
+                yield p, p.relative_to(path).as_posix()
+
+
+def scan_repo(name: str, path: Path) -> list[dict]:
+    """Every *.md under `path`, read, sorted by relative path."""
+    docs = [read_document(name, p, rel) for p, rel in walk_repo(path)]
     docs.sort(key=lambda d: d["rel"].lower())
     return docs
 
@@ -249,49 +252,77 @@ class DocumentsStore(QObject):
         self._seen: set[str] = set()          # repo/dir ids that have had their default expansion applied
         self._positions: dict[str, int] = {}
         self._pending_scroll: dict[str, int] = {}
+        self._unreadable: dict[str, int] = {}   # key -> mtime of a file whose read failed, so a permanent
+                                                # failure is reported once instead of every tick
         self._model = DictListModel(ROW_ROLES, self)
         self._timer = QTimer(self)
-        self._timer.timeout.connect(self.rescan)
+        self._timer.timeout.connect(self._tick)
 
     def start(self, interval_ms: int):
         self.rescan()
         self._timer.start(interval_ms)
 
+    def _tick(self):
+        if self._in_use():
+            self.rescan()
+
+    def _in_use(self) -> bool:
+        """Is anything showing the map? The panel is a dock's visible active panel, or a document tab is
+        open somewhere in the centre. Walking every repo costs tens of milliseconds on the GUI thread, so
+        a hidden panel does not pay it; the panel rescans when it is shown."""
+        data = getattr(getattr(self.layout, "_layout", None), "data", None)
+        if not isinstance(data, dict):
+            return True
+        for dock in (data.get("docks") or {}).values():
+            if dock.get("active") == "documents" and dock.get("mode") == "docked":
+                return True
+        stack = [data.get("center")]
+        while stack:
+            node = stack.pop()
+            if not isinstance(node, dict):
+                continue
+            if node.get("type") == "tabs":
+                if any(t.get("kind") == "document" for t in node.get("tabs") or ()):
+                    return True
+            else:
+                stack.extend(node.get("children") or ())
+        return False
+
     # ---------------------------------------------------------------- corpus
     def rescan(self) -> bool:
-        """Re-list every registered repo; re-read the files whose mtime changed. True when anything changed."""
+        """Re-list every registered repo; re-read the files whose mtime changed. True when anything changed.
+        Called directly it always walks; the periodic tick walks only while the map is in use (`_in_use`)."""
         old = {d["key"]: d for d in self._docs}
         new: list[dict] = []
+        unreadable: dict[str, int] = {}
         changed = False
         for rec in self._ws.repos:
             if self._ws.repo_status(rec["name"]) != "ok":
                 continue
-            path = Path(self._ws.repo_path(rec))
-            for root, dirs, files in os.walk(path):
-                dirs[:] = sorted(d for d in dirs if not _skip_dir(d))
-                for f in files:
-                    if not f.lower().endswith(".md"):
-                        continue
-                    p = Path(root) / f
-                    rel = p.relative_to(path).as_posix()
-                    key = f"{rec['name']}/{rel}"
-                    prev = old.get(key)
-                    try:
-                        mtime = p.stat().st_mtime_ns
-                    except OSError:
-                        continue
-                    if prev and prev["mtime"] == mtime:
-                        new.append(prev)
-                    else:
-                        try:
-                            doc = read_document(rec["name"], p, rel)
-                        except OSError:
-                            # vanished or was mid-write between the stat above and this read; skip it for
-                            # this scan and let the next one pick it up (or drop it, if it's really gone)
-                            changed = True
-                            continue
-                        new.append(doc)
+            for p, rel in walk_repo(self._ws.repo_path(rec)):
+                key = f"{rec['name']}/{rel}"
+                prev = old.get(key)
+                try:
+                    mtime = p.stat().st_mtime_ns
+                except OSError:
+                    continue
+                if prev and prev["mtime"] == mtime:
+                    new.append(prev)
+                    continue
+                try:
+                    doc = read_document(rec["name"], p, rel)
+                except OSError:
+                    # vanished or was mid-write between the stat above and this read; skip it for this
+                    # scan and let the next one pick it up (or drop it, if it's really gone). A file that
+                    # never becomes readable must not report a change every tick, so a failure counts as
+                    # one only the first time, when its mtime moves, or when it costs us a document.
+                    if key in old or self._unreadable.get(key) != mtime:
                         changed = True
+                    unreadable[key] = mtime
+                    continue
+                new.append(doc)
+                changed = True
+        self._unreadable = unreadable          # a file that reads again, or vanishes, drops out
         new.sort(key=lambda d: (d["repo"].lower(), d["rel"].lower()))
         if len(new) != len(old) or changed:
             self._docs = new
@@ -327,7 +358,11 @@ class DocumentsStore(QObject):
         return self._model
 
     def _refresh(self):
-        self._model.reset(build_rows(self._docs, self._expanded))
+        """Reset the model only when the visible rows actually differ: a reset sends the tree's scroll
+        position back to the top, and most rescans (a body-only edit) change no row at all."""
+        rows = build_rows(self._docs, self._expanded)
+        if rows != self._model.rows():
+            self._model.reset(rows)
 
     @Slot(result="QVariantList")
     def rows(self) -> list[dict]:

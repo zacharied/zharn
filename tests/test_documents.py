@@ -210,6 +210,8 @@ def test_search_matches_document_names_as_groups_without_sections(corpus):
     assert search(docs, "") == []
 
 
+from types import SimpleNamespace  # noqa: E402
+
 from PySide6.QtCore import QObject, Signal  # noqa: E402
 
 from harness.content import KINDS  # noqa: E402
@@ -226,12 +228,19 @@ def test_documents_is_a_panel_kind_and_the_document_tab_shares_its_icon():
 
 
 class FakeLayout(QObject):
-    """Records openContent calls; the real LayoutStore is exercised by the UI tests."""
+    """Records openContent calls, and carries a `_layout.data` shaped like the real LayoutStore's, which
+    is what the rescan gate reads; the real LayoutStore is exercised by the UI tests."""
     layoutChanged = Signal()
 
     def __init__(self):
         super().__init__()
         self.opened = []
+        self._layout = SimpleNamespace(data={
+            "docks": {"left": {"panels": ["board", "documents"], "active": "board", "mode": "docked", "size": 290},
+                      "right": {"panels": ["cast"], "active": "cast", "mode": "docked", "size": 300}},
+            "center": {"type": "tabs", "id": "g1", "tabs": [{"kind": "welcome", "key": "welcome", "title": "Welcome"}],
+                       "active": 0},
+        })
 
     def openContent(self, kind, key, title, group_id=""):
         self.opened.append((kind, key, title))
@@ -334,9 +343,48 @@ def test_rescan_survives_a_file_that_vanishes_between_the_stat_and_the_read(stor
     assert store.document("zharn/README.md") is None        # skipped for this scan
     assert store.document("zharn/CLAUDE.md") is not None    # the rest of the corpus survives
 
+    assert store.rescan() is False                          # the same failure is not news every 2 seconds
+
     monkeypatch.setattr(docmod, "read_document", real_read_document)
     assert store.rescan() is True
     assert store.document("zharn/README.md")["title"] == "zharn"   # picked up again once it stops erroring
+
+
+def test_a_body_only_edit_leaves_the_rows_alone_so_the_tree_keeps_its_scroll(store, corpus):
+    store.toggle("zharn/README.md")                # its sections are rows now, so a new one would show
+    resets = []
+    store.model.modelReset.connect(lambda: resets.append(1))
+    import os, time
+    write(corpus, "README.md", "# zharn\n## Run\n## Test\n\nA paragraph nobody sees in the tree.\n")
+    os.utime(corpus / "README.md", ns=(time.time_ns(), time.time_ns()))
+    assert store.rescan() is True                  # the corpus changed: an open tab reloads its text
+    assert resets == []                            # but no row moved
+    write(corpus, "README.md", "# zharn\n## Run\n## Test\n## More\n")
+    os.utime(corpus / "README.md", ns=(time.time_ns(), time.time_ns()))
+    assert store.rescan() is True and resets == [1]   # a new heading is a new row
+
+
+def test_the_periodic_tick_walks_only_while_the_map_is_in_use(store, monkeypatch):
+    """The walk costs tens of milliseconds on the GUI thread over a large repo (finding: every 2 s).
+    A direct rescan() always walks; the tick asks the layout whether anything is showing the map."""
+    docks = store.layout._layout.data["docks"]
+    assert store._in_use() is False
+    docks["left"]["active"] = "documents"
+    assert store._in_use() is True
+    docks["left"]["mode"] = "strip"                # the panel is hidden behind its strip button
+    assert store._in_use() is False
+    store.layout._layout.data["center"] = {"type": "split", "id": "s1", "children": [
+        {"type": "tabs", "id": "g1", "tabs": [{"kind": "welcome", "key": "welcome", "title": "W"}], "active": 0},
+        {"type": "tabs", "id": "g2", "tabs": [{"kind": "document", "key": "zharn/README.md", "title": "README.md"}], "active": 0}]}
+    assert store._in_use() is True                 # an open document tab reloads from documentsChanged
+
+    walked = []
+    monkeypatch.setattr(store, "rescan", lambda: walked.append(1))
+    store._tick()
+    assert walked == [1]
+    store.layout._layout.data["center"] = {"type": "tabs", "id": "g1", "tabs": [], "active": 0}
+    store._tick()
+    assert walked == [1]
 
 
 def test_search_goes_through_the_store(store):
