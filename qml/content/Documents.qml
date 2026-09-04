@@ -4,7 +4,7 @@ import QtQuick.Layouts
 import ".."
 import "../ui"
 
-// Documents: the workspace's markdown as a tree of sections (proposal 2026-09-03-documents-panel).
+// Documents: the workspace's markdown as a tree of sections (spec docs/specs/documents-panel.md).
 // Rows come flat from app.documents.model (expansion lives in Python); the selected row is the current
 // section of the active document tab; typing filters by heading into a results list.
 ContentBase {

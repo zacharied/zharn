@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Controls.Basic
 import ".."
 
-// A markdown document, read-only (proposal 2026-09-03-documents-panel §4; DESIGN §5's read-mostly viewer).
+// A markdown document, read-only (spec docs/specs/documents-panel.md §4; DESIGN §5's read-mostly viewer).
 // Scrolls to a section on app.documents.scrollRequested and reports the topmost heading back as the
 // reader scrolls, which is what the Documents panel selects.
 ContentBase {

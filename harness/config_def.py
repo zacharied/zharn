@@ -60,7 +60,8 @@ THEME = {
 # File-watcher poll interval when inotify is unavailable (WSL drvfs, exhausted watches)
 WATCH_POLL_MS = 250
 
-# The Documents panel re-lists the registered repos' *.md files this often (proposal 2026-09-03-documents-panel §3)
+# The Documents panel re-lists the registered repos' *.md files this often, while the map is on
+# screen (spec docs/specs/documents-panel.md §3)
 DOCS_RESCAN_MS = 2000
 
 # ---- agents -----------------------------------------------------------------------------

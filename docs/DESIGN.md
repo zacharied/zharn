@@ -122,8 +122,9 @@ No sidebar. The window is:
   `qml/ui/` (Icon, IconButton, Btn, Chip, StatusDot, Ball, Meter, ToolWindowHeader, TextBox,
   Field, Combo, ContextView). The Documents tool window maps every markdown document in the
   registered repos as a tree of sections — the row is the heading, the selection follows the
-  active document tab's reading position, and typing filters by heading (proposal
-  docs/superpowers/proposals/2026-09-03-documents-panel.md until it graduates to a spec). Icons
+  active document tab's reading position, and typing filters by heading; defined in
+  **[`docs/specs/documents-panel.md`](specs/documents-panel.md)**, which wins over this section
+  and over the code, together with the read-only document tab it drives. Icons
   are monochrome SVGs in `qml/icons/` recolored on request by
   `harness/icons.py` (`image://icon/<name>/<rrggbb>`); Inter + JetBrains Mono ship in `qml/fonts/`.
   The story page is typeset as a script (speakers in small mono caps, system comments as stage
