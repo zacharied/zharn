@@ -16,6 +16,7 @@ from PySide6.QtCore import QObject, Property, Signal, Slot
 
 from harness import config as cfg
 from harness import lifecycle as lc
+from harness import skills
 from harness.environments import EnvError, EnvironmentStore, register_repo
 from harness.fsutil import write_text_atomic
 from harness.notify import intent
@@ -57,9 +58,10 @@ def needs_you_flavor(story: lc.Story, comments: list[dict]) -> str:
     return ""
 
 
-def render_brief(story: lc.Story, comments: list[dict], characters: dict[str, dict], role: dict, note: str, *,
-                 substories: list[dict] = (), situation: str = "") -> str:
-    """Lifecycle spec §3.1: the story record as markdown, then the role's instructions, then the note."""
+def render_brief(story: lc.Story, comments: list[dict], characters: dict[str, dict], note: str, *,
+                 substories: list[dict] = (), situation: str = "", skill: str = "") -> str:
+    """Lifecycle spec §3.1: the story record as markdown, the situation (recasts), the note, then the phase skill.
+    The role's instructions and the contract are in the system prompt (§5.3), not here."""
     out = [f"# {story.key}: {story.title}", "", story.description or "(no description)", "",
            f"Phase: {story.phase}" + (f" · ball: {story.ball}" if story.ball else ""), ""]
     if story.parent_story:
@@ -89,12 +91,12 @@ def render_brief(story: lc.Story, comments: list[dict], characters: dict[str, di
     if substories:
         out += ["## Sub-stories", ""] + [f"- {x['key']}: {x['title']} ({x['phase']}" + (f", ball {x['ball']}" if x['ball'] else "") + ")"
                                         for x in substories] + [""]
-    if role.get("instructions"):
-        out += ["## Instructions", role["instructions"], ""]
     if situation:
         out += ["## Situation", situation, ""]
     if note:
         out += ["## Note", note]
+    if skill:
+        out += ["", skill]
     return "\n".join(out).rstrip() + "\n"
 
 
@@ -115,6 +117,7 @@ class StoryStore(QObject):
         self.load_errors: list[str] = []
         self.environments = EnvironmentStore(workspace, self._parent_of)   # _load()'s _refresh() needs this to exist
         contexts.placement = self._placement   # Task 5 makes ContextStore call it at every spawn
+        contexts.system_prompt = self.system_prompt   # the stable character prompt, composed at every spawn (spec §5.3)
         self._load()
         contexts.contextsChanged.connect(self._refresh)
         contexts.contextSettled.connect(self._on_turn_end)
@@ -221,8 +224,16 @@ class StoryStore(QObject):
         repo = ch.get("environment")
         rec = self.environments.get(ch["story_key"], repo) if repo else None
         if rec is not None:
-            return f"{rec['path']} (repo {repo}, your story's worktree on branch {rec['branch']})"
-        return f"the workspace dir ({self.workspace.dir}); run `env open <repo>` before touching a repo"
+            return f"in {repo} at {rec['path']} (your story's worktree, branch {rec['branch']})"
+        return f"in the workspace dir {self.workspace.dir}; run `env open <repo>` before touching a repo"
+
+    def situation(self, ch: dict) -> str:
+        """Spec §5.3: the volatile facts — one line at the top of every message, never in the system prompt."""
+        s = self._stories[ch["story_key"]]
+        owes = ", ".join("#" + t for t in self.owes(ch)) or "nothing"
+        awaits = ", ".join(("#" + a) if a.startswith("thr_") else a for a in self.awaits(ch)) or "nothing"
+        return (f"[situation] phase {s.phase} · attending #{ch.get('attention') or s.main_thread} · you owe {owes} · "
+                f"you await {awaits} · {self.environment_line(ch)}")
 
     def story(self, key: str) -> lc.Story | None:
         try:
@@ -357,19 +368,16 @@ class StoryStore(QObject):
                 out.append(cid)
         return out
 
-    def _format(self, ch: dict, comment: dict, phase_before: str = "") -> str:
+    def _format(self, ch: dict, comment: dict) -> str:
         kind = "reply" if comment.get("reply_to") else ("comment" if comment["kind"] == "text" else comment["kind"])
         where = f"#{comment['thread_id']}" + (f" of {comment['story_key']}" if comment["story_key"] != ch["story_key"] else "")
         text = f"[{author_name(comment['author'], self._characters)}] {kind} in {where}: {comment['body']}"
         opts = comment.get("structured", {}).get("options")
         if opts:
             text += f"\n(options: {', '.join(opts)})"
-        phase = self._stories[comment["story_key"]].phase
-        if phase_before and phase != phase_before:
-            text += f"\nPhase is now {phase}."
-        return text
+        return self.situation(ch) + "\n" + text
 
-    def _deliver_to(self, ch: dict, comment: dict, phase_before: str = ""):
+    def _deliver_to(self, ch: dict, comment: dict):
         """Spec §2.3 delivery: mid-turn, the attended thread is pushed now and everything else waits in the inbox;
         a waiting or idle character is woken by whatever arrives and attends its thread."""
         if self._stories[ch["story_key"]].phase in lc.TERMINAL:
@@ -384,13 +392,11 @@ class StoryStore(QObject):
             return
         ch["attention"] = comment["thread_id"]
         self._save_characters()
-        role_cfg = self._roles.get(ch["role"]) or {}
-        ctx.meta["systemPrompt"] = self._system_prompt(self._stories[ch["story_key"]], ch, role_cfg)
-        ctx.send(self._format(ch, comment, phase_before))
+        ctx.send(self._format(ch, comment))
 
-    def _route(self, key: str, comment: dict, phase_before: str = ""):
+    def _route(self, key: str, comment: dict):
         for cid in self.addressees(key, comment):
-            self._deliver_to(self._characters[cid], comment, phase_before)
+            self._deliver_to(self._characters[cid], comment)
 
     # ---------------------------------------------------------------- turn end (spec §2.3)
     def _character_by_context(self, context_id: str) -> dict | None:
@@ -439,8 +445,6 @@ class StoryStore(QObject):
                 ch["attention"] = comment["thread_id"]
                 self._save_characters()
                 if ctx is not None:
-                    role_cfg = self._roles.get(ch["role"]) or {}
-                    ctx.meta["systemPrompt"] = self._system_prompt(s, ch, role_cfg)
                     ctx.send(self._format(ch, comment))
                 break
         self._save_characters()
@@ -517,16 +521,15 @@ class StoryStore(QObject):
         title = f"{key} · {name}"
         try:
             if fork_from is None:
-                cid = self._contexts.create(role_cfg["name"], story_key=key, owner=chr_id, title=title,
-                                            system_prompt=self._system_prompt(s, ch, role_cfg), env=env)
-                first = render_brief(s, self._comments[key], self._characters, role_cfg, note, substories=self._substories(key))
+                cid = self._contexts.create(role_cfg["name"], story_key=key, owner=chr_id, title=title, env=env)
+                first = render_brief(s, self._comments[key], self._characters, note, substories=self._substories(key))
             else:
                 src = self._characters[fork_from]
                 src_ctx = self._contexts.get(src["live_context"]) if src.get("live_context") else None
                 if src_ctx is None or src_ctx.status in WORKING or not getattr(src_ctx, "sessionId", ""):
                     raise lc.Rejected(f"{src['name']} is working or has never run; fork it when it stops")
                 cid = self._contexts.fork(src["live_context"], role_name=role_cfg["name"], owner=chr_id, story_key=key,
-                                          title=title, system_prompt=self._system_prompt(s, ch, role_cfg), env=env)
+                                          title=title, env=env)
                 first = getattr(cfg, "FORK_NOTE", "").format(name=name, source=src["name"]) + note
         except Exception:
             del self._characters[chr_id]
@@ -536,25 +539,31 @@ class StoryStore(QObject):
         self._contexts.get(cid).send(first)
         return ch
 
-    def _system_prompt(self, s: lc.Story, ch: dict, role_cfg: dict) -> str:
+    def system_prompt(self, ctx) -> str | None:
+        """Spec §5.3: the stable prompt of the character that owns `ctx`, built now from config, the role and the
+        skill files; None for contexts no character owns (bare contexts and asides keep their stored prompts)."""
+        ch = self._characters.get(ctx.meta.get("owner") or "")
+        if ch is None or ch["story_key"] not in self._stories:
+            return None
+        return self._character_prompt(self._stories[ch["story_key"]], ch, self._roles.get(ch["role"]) or {})
+
+    def _character_prompt(self, s: lc.Story, ch: dict, role_cfg: dict) -> str:
         rule = getattr(cfg, "OUTLINE_RULE_REQUIRED", "") if role_cfg.get("outline_first") else getattr(cfg, "OUTLINE_RULE_OPTIONAL", "")
+        instructions = (role_cfg.get("instructions") or "").strip()
+        role = f"Role: {role_cfg.get('name', ch['role'])}." + (f" {instructions}" if instructions else "") + f"\n{rule}"
         return getattr(cfg, "CHARACTER_SYSTEM_PROMPT", "").format(
-            name=ch["name"], character_id=ch["id"], story_key=s.key, title=s.title, phase=s.phase,
-            thread_id=s.main_thread or "", attention=ch.get("attention") or s.main_thread or "",
-            owes=", ".join("#" + t for t in self.owes(ch)) or "nothing",
-            awaits=", ".join("#" + t for t in self.awaits(ch)) or "nothing", outline_rule=rule,
-            environment=self.environment_line(ch))
+            name=ch["name"], character_id=ch["id"], story_key=s.key, title=s.title,
+            meta_skill=skills.skill_body("being-a-character"), role=role)
 
     def _author_action(self, key, action, *, resume: bool):
         key = self._key(key)
-        before = self._stories[key].phase
         comment = self._apply(key, action)
         if resume:
-            self._route(key, comment, before)
+            self._route(key, comment)
         owner = self._characters.get(self._stories[key].author)
         if owner is not None and comment["author"] == owner["id"] and getattr(action, "by", None) == owner["id"]:
             if resume or comment["kind"] == "system":  # the human acted for the owner (§2.3): the owner is told
-                self._deliver_to(owner, comment, before)
+                self._deliver_to(owner, comment)
         return comment
 
     def _on_behalf(self, key: str) -> str:
@@ -610,13 +619,12 @@ class StoryStore(QObject):
             return
         key = self._key(key)
         action = lc.Reopen(by=self._on_behalf(key), note=note)
-        before = self._stories[key].phase
         comment = self._apply(key, action)
         self._recast_now(self._characters[self._stories[key].protagonist], role, model)
-        self._route(key, comment, before)   # _author_action(resume=True), with the recast in between
+        self._route(key, comment)   # _author_action(resume=True), with the recast in between
         owner = self._characters.get(self._stories[key].author)
         if owner is not None and comment["author"] == owner["id"] and action.by == owner["id"]:
-            self._deliver_to(owner, comment, before)
+            self._deliver_to(owner, comment)
 
     @Slot(str, str, result="QVariantMap")
     @Slot(str, str, str, result="QVariantMap")
@@ -704,8 +712,7 @@ class StoryStore(QObject):
                      f"You were attending #{ch.get('attention') or s.main_thread}; {len(ch.get('inbox', []))} items wait in your inbox; "
                      f"you await {', '.join(self.awaits(ch)) or 'nothing'} and owe {', '.join('#' + t for t in self.owes(ch)) or 'nothing'}.")
         cid = self._contexts.create(role_cfg["name"], story_key=key, owner=ch["id"], title=f"{key} · {ch['name']}",
-                                    system_prompt=self._system_prompt(s, ch, role_cfg), env={"HARNESS_CHARACTER_ID": ch["id"]},
-                                    predecessor=old_id)
+                                    env={"HARNESS_CHARACTER_ID": ch["id"]}, predecessor=old_id)
         if model:
             self._contexts.get(cid).meta.setdefault("roleConfig", {})["model"] = model
         ch["live_context"] = cid
@@ -714,7 +721,7 @@ class StoryStore(QObject):
         if old is not None:
             old.stop()
         self._apply(key, lc.Note(thread_id=s.main_thread, body=f"recast {ch['name']} as {role_cfg['name']} ({rung})"))
-        self._contexts.get(cid).send(render_brief(s, self._comments[key], self._characters, role_cfg, "",
+        self._contexts.get(cid).send(render_brief(s, self._comments[key], self._characters, "",
                                                   substories=self._substories(key), situation=situation))
         self._refresh()
         return cid

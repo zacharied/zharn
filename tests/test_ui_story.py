@@ -102,8 +102,8 @@ def test_reply_composer_posts_a_human_comment(ui):
 def test_action_bar_follows_the_cell(ui):
     key = ui.store.stories.create("Bar", "")
     chr_id = ui.store.stories.start(key, "", "protagonist")
+    ui.store.stories.cast_yield(chr_id, "handoff", "the outline")   # before the character's own turn can finish and auto-yield
     open_story(ui, key)
-    ui.store.stories.cast_yield(chr_id, "handoff", "the outline")
     QTest.qWait(80)
     assert ui.visible(ui.find("proceedButton")) and not ui.visible(ui.find("approveButton"))
     ui.click(ui.find("proceedButton"))
@@ -281,6 +281,9 @@ def test_story_page_shows_environments_and_folds_passing_checks(ui):
     ui.store.stories.cast_yield(chr_id, "handoff", "built it", checks=[
         {"repo": "api", "cmd": "echo ok", "exit": 0, "output": "ok"},
         {"repo": "web", "cmd": "npm test", "exit": 1, "output": "1 failed"}])
+    # the resumed process still has its own (irrelevant) turn in flight; let it settle now rather
+    # than racing its trailing refresh against the fold-toggle click below.
+    assert wait_until(lambda: ctx.status not in ("starting", "working"))
     QTest.qWait(80)
     c = ui.store.stories.comments(key)[-1]
     assert ui.find("checksFailingChip").property("text") == "1 check failing"

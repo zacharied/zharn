@@ -301,7 +301,7 @@ def test_character_moves_into_its_worktree_at_the_next_turn(app_store):
     init = _inits(app_store, ctx.id)[-1]
     assert Path(init["cwd"]).resolve() == Path(d["path"]).resolve()
     assert init["harness_env"]["HARNESS_REPO"] == "client" and init["harness_env"]["HARNESS_ENV"] == d["path"]
-    assert d["path"] in ctx.meta["systemPrompt"]
+    assert d["path"] in [r["text"] for r in ctx.transcript.rows() if r["role"] == "user"][-1]
 
 
 def test_handoff_over_the_cli_carries_the_checks(app_store):

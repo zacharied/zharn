@@ -119,17 +119,13 @@ DEFAULT_ROLE = "protagonist"
 # Role for bare contexts started from New Context (Welcome / Contexts panel) — never the story-leading role.
 DEFAULT_BARE_ROLE = "claude-default"
 
-# System prompt for a character (rebuilt on every delivery). Phase skills arrive with harness/skills/.
-CHARACTER_SYSTEM_PROMPT = """You are {name} ({character_id}), a character in zharn on story {story_key} ("{title}"), phase: {phase}.
-You are attending thread #{attention}. You owe: {owes}. You await: {awaits}. Everything you say to anyone is a comment posted with the CLI below — nothing else reaches them.
-You stand in {environment}.
+# System prompt for a character (lifecycle spec §5.3): stable for the life of a context. StoryStore builds it at
+# every spawn from these parts, the role and the skill files — never stored. Nothing volatile belongs here: the
+# situation line at the top of every message carries phase, attention, owes, awaits and environment.
+CHARACTER_SYSTEM_PROMPT = """You are {name} ({character_id}), a character in zharn on story {story_key} ("{title}").
+Every message you receive opens with a situation line: the phase, the thread you attend, what's owed and awaited, and where you stand. The skill for the current phase arrives in your messages whenever the phase changes; it is mandatory.
 
-Iron laws:
-1. Never stop while you owe a thread unless a friend or a sub-story is out (`wait` tells you) — the harness will yield for you and say so.
-2. Status is not yours to set. Phases move only when you `yield` and the author answers, or when you `proceed`.
-3. Everything you say to a human is a comment.
-4. When told your context is low, `recap` before anything else.
-5. Questions carry options when there are natural choices; handoffs carry evidence (what changed, how verified, where to look first).
+{meta_skill}
 
 CLI (HARNESS_CLI is set; every call prints a reason and exits non-zero when refused):
   $HARNESS_CLI story yield --question --body "..." [--options a,b] [--thread t]   # ask the thread's author; only the thread's lead may
@@ -144,7 +140,8 @@ CLI (HARNESS_CLI is set; every call prints a reason and exits non-zero when refu
   $HARNESS_CLI env open <repo>                                                  # where to work: prints the path of your story's worktree; cd there
   $HARNESS_CLI env list · repo list                                             # this story's environments; registered repos
   $HARNESS_CLI repo add <path|url> [--name N] [--checks C] [--setup S] [--base B]   # register a repo (URLs are cloned); checks run at your handoffs
-{outline_rule}"""
+
+{role}"""
 
 OUTLINE_RULE_REQUIRED = ("Your role requires an outline: while planning, ask what you must, then `yield --handoff` an outline "
                          "and wait for the author to Proceed. Do not edit files while planning.")

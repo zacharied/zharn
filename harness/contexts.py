@@ -143,6 +143,9 @@ class Context(QObject):
         return env
 
     def _system_prompt(self) -> str:
+        composed = self._store.system_prompt(self)   # a character's stable prompt, built at every spawn; None for bare contexts and asides
+        if composed is not None:
+            return composed
         role = self.meta.get("roleConfig", {})
         base = self.meta.get("systemPrompt") or getattr(cfg, "BARE_CONTEXT_SYSTEM_PROMPT", "").format(context_id=self.id)
         return "\n\n".join(p for p in (base, role.get("instructions", "")) if p)
@@ -274,6 +277,7 @@ class ContextStore(QObject):
         self.roles = roles
         self.extra_env = lambda: {}
         self.placement = lambda c: (c.meta.get("cwd") or str(self.workspace_dir), {})   # StoryStore overrides (spec §4.5)
+        self.system_prompt = lambda c: None   # StoryStore overrides: a character's stable prompt (lifecycle spec §5.3); None = use the stored one
         self._contexts: dict[str, Context] = {}
         self._model = DictListModel(CONTEXT_ROLES, self)
         self._load()

@@ -6,6 +6,7 @@ import pytest
 from PySide6.QtCore import QObject, Signal
 
 from harness import config as cfg
+from harness import skills
 from harness.lifecycle import Comment, OpenThread, Rejected, Yield
 from harness.stories import StoryStore, author_name, needs_you_flavor, render_brief
 from harness.workspace import Workspace
@@ -181,10 +182,11 @@ def test_start_casts_protagonist_with_context_brief_and_env(store, contexts, ws)
     role_name, kw = contexts.created[0]
     assert role_name == "protagonist" and kw["story_key"] == key and kw["owner"] == chr_id
     assert kw["env"] == {"HARNESS_CHARACTER_ID": chr_id} and kw["title"] == f"{key} · protagonist"
-    prompt = kw["system_prompt"]
-    assert "protagonist" in prompt and key in prompt and "story yield" in prompt and "outline" in prompt.lower()
+    assert kw.get("system_prompt", "") == ""      # never stored (spec §5.3)
+    prompt = store.system_prompt(contexts.get("ctx_1"))
+    assert "protagonist" in prompt and key in prompt and "story yield" in prompt and "outline" in prompt.lower() and "Lead." in prompt
     brief = contexts.get("ctx_1").sent[0]
-    assert brief.startswith(f"# {key}: Title") and "Desc" in brief and "please build it" in brief and "Lead." in brief
+    assert brief.startswith(f"# {key}: Title") and "Desc" in brief and "please build it" in brief and "## Instructions" not in brief
     row = store.get(key)
     assert row["phase"] == "planning" and row["ball"] == "cast" and row["castCount"] == 1 and row["workingCount"] == 1
     assert store.comments(key)[0] == {**store.comments(key)[0], "kind": "text", "body": "please build it", "authorName": "you"}
@@ -308,7 +310,7 @@ def test_human_comment_while_waiting_is_a_reply_delivered_to_protagonist(store, 
     n = len(ctx.sent)
     c = store.comment(key, "sqlite")
     assert c["reply_to"] is not None and store.get(key)["ball"] == "cast"
-    assert ctx.sent[n].startswith("[you] reply in #thr_") and ctx.sent[n].endswith(": sqlite")
+    assert "\n[you] reply in #thr_" in ctx.sent[n] and ctx.sent[n].endswith(": sqlite")
 
 
 def test_human_comment_while_cast_has_ball_is_delivered_without_moving_it(store, contexts):
@@ -316,7 +318,7 @@ def test_human_comment_while_cast_has_ball_is_delivered_without_moving_it(store,
     ctx = contexts.get("ctx_1")
     n = len(ctx.sent)
     store.comment(key, "btw prefer sqlite")
-    assert store.get(key)["ball"] == "cast" and ctx.sent[n].startswith("[you] comment in #thr_")
+    assert store.get(key)["ball"] == "cast" and "\n[you] comment in #thr_" in ctx.sent[n]
 
 
 def test_proceed_moves_phase_and_tells_protagonist(store, contexts):
@@ -325,17 +327,43 @@ def test_proceed_moves_phase_and_tells_protagonist(store, contexts):
     ctx = contexts.get("ctx_1")
     store.proceed(key, "go ahead")
     assert store.get(key)["phase"] == "implementing" and store.get(key)["ball"] == "cast"
-    assert "outline approved" in ctx.sent[-1] and "Phase is now implementing" in ctx.sent[-1]
+    assert "outline approved" in ctx.sent[-1] and ctx.sent[-1].startswith("[situation] phase implementing")
 
 
-def test_deliver_refreshes_system_prompt_with_current_phase(store, contexts):
+def test_system_prompt_is_stable_across_a_proceed_and_carries_no_situation(store, contexts):
     key, chr_id = started(store)
     ctx = contexts.get("ctx_1")
+    before = store.system_prompt(ctx)
     store.cast_yield(chr_id, "handoff", "outline")
     store.proceed(key, "go ahead")
-    # _deliver rewrites ctx.meta["systemPrompt"] (Context._spawn reads it fresh on every resume)
-    # so a resumed protagonist sees the phase it's actually in, not the one frozen at cast time.
-    assert "phase: implementing" in ctx.meta["systemPrompt"]
+    after = store.system_prompt(ctx)
+    assert before == after
+    meta = skills.skill_body("being-a-character")
+    assert meta and meta in after and "story yield" in after and "Role: protagonist. Lead." in after and cfg.OUTLINE_RULE_REQUIRED in after
+    main = store.story(key).main_thread
+    assert "phase planning" not in after and "phase implementing" not in after and main not in after and "you owe #" not in after
+    assert ctx.meta.get("systemPrompt", "") == ""
+
+
+def test_system_prompt_is_none_for_contexts_no_character_owns(store, contexts):
+    cid = contexts.create("claude-fast", owner="human", title="bare")
+    assert store.system_prompt(contexts.get(cid)) is None
+
+
+def test_every_delivery_opens_with_the_situation_line(store, contexts):
+    key, chr_id = started(store)
+    ctx = contexts.get("ctx_1")
+    main = store.story(key).main_thread
+    store.cast_yield(chr_id, "question", "which?")
+    store.comment(key, "that one")
+    lines = ctx.sent[-1].splitlines()
+    assert lines[0] == (f"[situation] phase planning · attending #{main} · you owe #{main} · you await nothing · "
+                        f"in the workspace dir {store.workspace.dir}; run `env open <repo>` before touching a repo")
+    assert lines[1] == f"[you] reply in #{main}: that one"
+    r = store.cast_call(chr_id, "claude-fast", "build it")
+    store.cast_yield(chr_id, "question", "and?")
+    store.comment(key, "so")
+    assert f"you await #{r['thread']}" in ctx.sent[-1].splitlines()[0]
 
 
 def test_approve_ends_story_and_sends_nothing(store, contexts):
@@ -455,13 +483,12 @@ def test_render_brief_folds_threads_and_lists_cast(store):
     key, chr_id = started(store, "note")
     store.cast_yield(chr_id, "question", "q1", options=["a", "b"])
     store.comment(key, "a")
-    text = render_brief(store.story(key), store.comments(key), {chr_id: store.character(chr_id)},
-                        {"name": "protagonist", "instructions": "Lead."}, "the call-in note")
+    text = render_brief(store.story(key), store.comments(key), {chr_id: store.character(chr_id)}, "the call-in note")
     assert text.startswith(f"# {key}: Title\n\nDesc\n")
     assert "## Threads" in text and "**you** (text): note" in text and "**protagonist** (question): q1" in text
     assert "options: a, b" in text and "**you** (text): a" in text
     assert "## Cast" in text and "protagonist — protagonist" in text
-    assert "## Instructions\nLead." in text and text.rstrip().endswith("## Note\nthe call-in note")
+    assert "## Instructions" not in text and text.rstrip().endswith("## Note\nthe call-in note")
 
 
 def test_needs_you_flavor():
@@ -622,7 +649,7 @@ def test_open_thread_addresses_the_protagonist_by_default(store, contexts):
     tid = store.openThread(key, "why pyte?")
     t = store.story(key).thread(tid)
     assert (t.author, t.lead) == ("human", chr_id)
-    assert live.sent[-1].startswith("[you] comment in #" + tid) and store.character(chr_id)["attention"] == tid
+    assert ("\n[you] comment in #" + tid) in live.sent[-1] and store.character(chr_id)["attention"] == tid
 
 
 def test_open_thread_to_a_named_character(store, contexts):
@@ -841,7 +868,7 @@ def test_cast_yield_reaches_the_threads_author(store, contexts):
     live = contexts.get(store.character(chr_id)["live_context"]); live.status = "idle"
     r = store.cast_call(chr_id, "claude-fast", "build")
     store.cast_yield(r["character"], "handoff", "built it")
-    assert live.sent[-1].startswith(f"[claude-fast] handoff in #{r['thread']}: built it")
+    assert f"\n[claude-fast] handoff in #{r['thread']}: built it" in live.sent[-1]
 
 
 # ---------------------------------------------------------------- retirement (characters plan, Task 7)
@@ -890,7 +917,7 @@ def test_sub_story_yield_reaches_the_author_character_cross_story(store, context
     sub = store.cast_create(chr_id, "screen model", start=True, role="claude-fast")
     lead = store.story(sub).protagonist
     store.cast_yield(lead, "question", "rows or cells?")
-    assert live.sent[-1].startswith(f"[claude-fast] question in #{store.get(sub)['mainThread']} of {sub}: rows or cells?")
+    assert f"\n[claude-fast] question in #{store.get(sub)['mainThread']} of {sub}: rows or cells?" in live.sent[-1]
     assert store.character(chr_id)["attention"] == store.get(sub)["mainThread"]
     c = store.cast_author(chr_id, "reply", sub, body="rows", thread_id=store.get(sub)["mainThread"])
     assert store.story(sub).ball == "cast" and c["reply_to"]
@@ -918,7 +945,7 @@ def test_human_acting_on_a_character_owned_sub_story_notifies_the_owner(store, c
     store.cast_yield(lead, "handoff", "outline")
     store.proceed(sub)                                              # the human, on behalf of the owner
     assert store.story(sub).phase == "implementing"
-    assert live.sent[-1].startswith(f"[protagonist] system in #{store.get(sub)['mainThread']} of {sub}: outline approved")
+    assert f"\n[protagonist] system in #{store.get(sub)['mainThread']} of {sub}: outline approved" in live.sent[-1]
 
 
 def test_cancel_cascades_to_open_sub_stories(store, contexts):
@@ -1101,7 +1128,7 @@ def test_env_checks_only_for_an_implementing_handoff_on_the_main_thread(store, r
     assert store.env_checks(chr_id, side)["run"] is False
 
 
-def test_system_prompt_names_the_environment(store, repo):
+def test_situation_line_names_the_environment(store, repo):
     key, chr_id = started(store)
     ch = store.character(chr_id)
     assert "workspace dir" in store.environment_line(ch) and "env open" in store.environment_line(ch)
@@ -1109,5 +1136,5 @@ def test_system_prompt_names_the_environment(store, repo):
     line = store.environment_line(store.character(chr_id))
     assert d["path"] in line and "client" in line and f"zharn/{key}" in line
     ctx = store._contexts.get(store.character(chr_id)["live_context"])
-    store.comment(key, "reply")        # any delivery rebuilds the system prompt
-    assert d["path"] in ctx.meta["systemPrompt"]
+    store.comment(key, "reply")
+    assert f"in client at {d['path']}" in ctx.sent[-1].splitlines()[0]
