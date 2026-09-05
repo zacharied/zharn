@@ -101,7 +101,7 @@ class EnvironmentStore:
         return self._records.get(env_key(story, repo))
 
     def records(self, story: str) -> list[dict]:
-        return [r for r in self._records.values() if r["story"] == story]
+        return [r for r in self._records.values() if r["story"] == story and not r.get("removed")]
 
     def _repo(self, name: str) -> tuple[dict, Path]:
         r = self.ws.repo(name)
@@ -155,6 +155,17 @@ class EnvironmentStore:
                 git(repo_path, "branch", "-f", tgt, br)
         return {"repo": rec["repo"], "branch": br, "target": tgt, "from": frm, "to": to, "commits": n}
 
+    def remove(self, rec: dict) -> None:
+        """§4.8 cleanup: the worktree goes; the branch (the story's history) and the record stay, stamped `removed`.
+        `open` brings it back on the same branch."""
+        _, repo_path = self._repo(rec["repo"])
+        if Path(rec["path"]).is_dir():
+            git(repo_path, "worktree", "remove", "--force", rec["path"])
+        else:
+            git(repo_path, "worktree", "prune")
+        rec["removed"] = time.time()
+        self._save()
+
     # ---------------------------------------------------------------- open (§4.4)
     def open(self, story: str, repo: str) -> dict:
         """Idempotent per (story, repo). First use resolves the parent chain — creating the parent story's
@@ -172,11 +183,12 @@ class EnvironmentStore:
             git(repo_path, "worktree", "add", "-q", "-b", rec["branch"], rec["path"], base)
             self._records[env_key(story, repo)] = rec
             self._save()
-        elif not Path(rec["path"]).is_dir():
-            _, repo_path = self._repo(repo)   # deleted by hand: prune the stale entry, re-add on the existing branch
+        elif rec.get("removed") or not Path(rec["path"]).is_dir():
+            _, repo_path = self._repo(repo)   # removed after Approve, or deleted by hand: prune, re-add on the kept branch
             git(repo_path, "worktree", "prune")
             Path(rec["path"]).parent.mkdir(parents=True, exist_ok=True)
             git(repo_path, "worktree", "add", "-q", rec["path"], rec["branch"])
+            rec.pop("removed", None)
             rec["setup_done"] = False   # a fresh tree: §3.1 setup runs once in every new worktree, including a re-added one
             self._save()
         if not rec["setup_done"]:

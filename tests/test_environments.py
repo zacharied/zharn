@@ -359,6 +359,34 @@ def test_integrate_refuses_when_the_parents_dirty_file_would_be_overwritten(ws, 
     assert run(repo, "rev-parse", "zharn/ZH-1") == before and (Path(parent["path"]) / "shared.txt").read_text() == "theirs"
 
 
+# ---------------------------------------------------------------- remove (§4.8 cleanup)
+
+def test_remove_deletes_the_worktree_and_keeps_the_branch_and_record(ws, repo):
+    es = store(ws, **{"ZH-1": None})
+    d = es.open("ZH-1", "client")
+    commit_file(Path(d["path"]), "work.txt")
+    es.remove(es.get("ZH-1", "client"))
+    assert not Path(d["path"]).exists()
+    assert "zharn/ZH-1" in run(repo, "branch", "--list", "zharn/ZH-1")
+    assert es.records("ZH-1") == [] and es.get("ZH-1", "client")["removed"] > 0
+    assert json.loads((ws.local_dir / "environments.json").read_text())[env_key("ZH-1", "client")]["removed"] > 0
+    assert "zharn/ZH-1" not in run(repo, "worktree", "list")
+
+
+def test_open_revives_a_removed_environment_on_its_branch_and_reruns_setup(ws, tmp_path):
+    p = make_repo(tmp_path / "ws" / "api")
+    marker = tmp_path / "setups"
+    register_repo(ws, str(p), setup=f"echo run >> {marker}")
+    es = store(ws, **{"ZH-1": None})
+    d = es.open("ZH-1", "api")
+    commit_file(Path(d["path"]), "work.txt")
+    es.remove(es.get("ZH-1", "api"))
+    d2 = es.open("ZH-1", "api")
+    assert d2["path"] == d["path"] and Path(d2["path"]).is_dir() and branch_of(Path(d2["path"])) == "zharn/ZH-1"
+    assert (Path(d2["path"]) / "work.txt").exists() and "removed" not in d2
+    assert marker.read_text().count("run") == 2 and es.records("ZH-1") == [es.get("ZH-1", "api")]
+
+
 # ---------------------------------------------------------------- end to end: cwd at spawn (§4.5)
 import os
 import shutil
