@@ -248,6 +248,53 @@ def test_result_with_missing_numbers_is_tolerated(interp):
     assert (interp.turns, interp.cost_usd) == (0, 0.0)
 
 
+# --------------------------------------------------------------------------- context usage (lifecycle spec §2.3)
+def usage_ev(input_tokens, cache_read, cache_creation):
+    ev = assistant_ev({"type": "text", "text": "hi"})
+    ev["message"]["usage"] = {"input_tokens": input_tokens, "cache_read_input_tokens": cache_read,
+                              "cache_creation_input_tokens": cache_creation, "output_tokens": 4}
+    return ev
+
+
+def test_assistant_usage_is_a_reading_not_a_sum(interp):
+    assert interp.context_tokens == 0
+    interp.apply(usage_ev(10, 13615, 8249))
+    assert interp.context_tokens == 21874
+    interp.apply(usage_ev(10, 13615, 8249))     # one API message → one assistant event per block, same usage each
+    assert interp.context_tokens == 21874
+    interp.apply(usage_ev(5, 30000, 0))
+    assert interp.context_tokens == 30005
+
+
+def test_assistant_without_usage_keeps_the_reading(interp):
+    interp.apply(usage_ev(10, 1000, 0))
+    interp.apply(assistant_ev({"type": "text", "text": "no usage here"}))
+    assert interp.context_tokens == 1010
+
+
+def test_result_model_usage_sets_the_window(interp):
+    interp.apply(init_ev(model="claude-haiku-4-5"))
+    assert interp.context_window == 0
+    interp.apply(result_ev(modelUsage={"claude-haiku-4-5": {"contextWindow": 200000, "maxOutputTokens": 32000}}))
+    assert interp.context_window == 200000
+    interp.apply(result_ev())                  # a result without modelUsage keeps it
+    assert interp.context_window == 200000
+
+
+def test_result_window_prefers_the_sessions_model(interp):
+    interp.apply(init_ev(model="claude-opus-5"))
+    interp.apply(result_ev(modelUsage={"claude-haiku-4-5": {"contextWindow": 200000},
+                                       "claude-opus-5": {"contextWindow": 1000000}}))
+    assert interp.context_window == 1000000
+
+
+def test_compact_boundary_is_a_visible_error(interp, model):
+    ev = {"type": "system", "subtype": "compact_boundary", "compact_metadata": {"trigger": "auto", "pre_tokens": 150000}}
+    assert interp.apply(ev) is None
+    row = model.rows()[-1]
+    assert row["role"] == "system" and row["kind"] == "error" and row["isError"] and "compacted" in row["text"]
+
+
 # --------------------------------------------------------------------------- misc
 @pytest.mark.parametrize("ev", [
     {"type": "system", "subtype": "status", "status": "requesting"},

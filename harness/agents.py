@@ -215,6 +215,8 @@ class StreamInterpreter:
         self.model_name = ""
         self.cost_usd = 0.0
         self.turns = 0
+        self.context_tokens = 0   # the input side of the latest API call: what the context holds (lifecycle spec §2.3)
+        self.context_window = 0   # the model's window, from the latest result's modelUsage; 0 until the first
         self._current = -1        # index of the block currently streaming
         self._tool_json = ""
 
@@ -225,11 +227,21 @@ class StreamInterpreter:
             self.session_id = ev.get("session_id", self.session_id)
             self.model_name = ev.get("model", self.model_name)
             return "working"
+        if t == "system" and ev.get("subtype") == "compact_boundary":
+            # Never expected: every spawn sets DISABLE_AUTO_COMPACT=1. Visible rather than silent if it happens.
+            self.model.append(role="system", kind="error", isError=True,
+                              text="the CLI compacted this context on its own; the reading below is no longer the whole conversation")
+            return None
         if t == "stream_event":
             self._stream(ev.get("event") or {})
             return None
         if t == "assistant":
-            for block in (ev.get("message") or {}).get("content", []):
+            msg = ev.get("message") or {}
+            usage = msg.get("usage") or {}
+            if usage:
+                self.context_tokens = sum(int(usage.get(k) or 0) for k in
+                                          ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"))
+            for block in msg.get("content", []):
                 self._finalize_block(block)
             return None
         if t == "user":
@@ -242,6 +254,10 @@ class StreamInterpreter:
             self.turns += int(ev.get("num_turns") or 0)
             self.cost_usd += float(ev.get("total_cost_usd") or 0.0)
             self.session_id = ev.get("session_id", self.session_id)
+            per_model = ev.get("modelUsage") or {}
+            mu = per_model.get(self.model_name) or next(iter(per_model.values()), {})
+            if mu.get("contextWindow"):
+                self.context_window = int(mu["contextWindow"])
             self._current = -1
             if ev.get("is_error"):
                 self.model.append(role="system", kind="error", text=_block_text(ev.get("result")) or ev.get("subtype", "error"), isError=True)

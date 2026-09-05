@@ -96,6 +96,13 @@ FORK_NOTE = ("You are {name}, a fork of {source}: a new character with a copy of
 # A recap older than this many turns of its context is stale: recast falls from rung 1 to rung 3 (spec §3.4).
 RECAP_STALE_TURNS = 20
 
+# Context usage (lifecycle spec §2.3), in tokens: the input side of a context's latest API call, read off the CLI's
+# usage fields. For a 1M window; a smaller known window scales both by window/1M. Past WARN the harness asks for a
+# recap once and the situation line says `recap due` until one lands; past MAX the character is asked to finish
+# the step in hand and is recast at the turn boundary. Claude Code's own auto-compaction is off in every context.
+CONTEXT_WARN = 300_000
+CONTEXT_MAX = 500_000
+
 # ---- environments (workspace spec §4) ---------------------------------------------------------
 # What a failing repo check does at an implementing handoff (§4.6). "gate": the handoff is refused until the
 # character fixes it or passes --despite-checks. "attach": it posts anyway with the red results attached.

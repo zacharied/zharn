@@ -225,13 +225,20 @@ body{font:13px/1.35 var(--ui);color:var(--text);-webkit-font-smoothing:antialias
 .st.idle{border:1.5px solid var(--dim)}
 .member .nm{font-weight:500}
 .member .nm .role{color:var(--muted);font-weight:400;margin-left:6px}
-.member .what{font-size:11px;grid-column:2}
+.member .what{font-size:11px}
 .member .what.you{color:var(--amber)} .member .what.m{color:var(--muted)}
-.member .meta{grid-column:2;display:flex;align-items:center;gap:10px;font-size:11px;color:var(--dim);white-space:nowrap;overflow:hidden;min-width:0}
+.member .meta{display:flex;align-items:center;gap:10px;font-size:11px;color:var(--dim);white-space:nowrap;overflow:hidden;min-width:0}
 .member .meta .ic{color:var(--dim);margin-right:-6px}
-.meter{width:56px;height:5px;border-radius:3px;background:var(--border);overflow:hidden;display:inline-block;vertical-align:middle}
-.meter i{display:block;height:100%;background:var(--muted)} .meter i.hot{background:var(--amber)}
-.member .btn{grid-column:3;grid-row:1/span 3;align-self:start}
+.member .vitals{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--dim);white-space:nowrap;overflow:hidden;min-width:0;margin-top:1px;font-variant-numeric:tabular-nums}
+.member .vitals.due{color:var(--amber)}
+.meter{position:relative;flex:none;width:72px;height:4px;border-radius:2px;background:var(--border);display:inline-block;vertical-align:middle}
+.meter i{display:block;height:100%;border-radius:2px;background:var(--muted)} .meter i.hot{background:var(--amber)}
+.meter b{position:absolute;left:60%;top:-2px;width:1px;height:8px;background:var(--text);opacity:.55}
+.member .what,.member .meta,.member .vitals{grid-column:2/span 2}
+.member .btn{grid-column:3;grid-row:1;align-self:start}
+.member.retired{opacity:.55}
+.cv-head .meter{width:72px}
+.cv-head .due{color:var(--amber)}
 .sect{display:flex;align-items:center;gap:6px;height:24px;padding:0 12px;margin-top:6px;color:var(--muted);font-weight:600;font-size:12px}
 .sect .ic{color:var(--dim)}
 .substory{display:flex;align-items:center;gap:8px;height:24px;padding:0 12px 0 30px}
@@ -408,32 +415,60 @@ def stories_tree(selected="ZH-12"):
   </div>
 </div>"""
 
+def meter(tokens, hot=False, max_=500):
+    """The runway: the bar ends at the recast line (500K on a 1M window), the tick is the recap line (300K)."""
+    pct = min(100, round(100 * tokens / max_))
+    return f'<span class="meter"><i{" class=hot" if hot else ""} style="width:{pct}%"></i><b></b></span>'
+
+def member(st, name, role, what, meta, tokens, turns, cost, due=False, maxed=False, retired=False, what_cls="m"):
+    parts = [f"{tokens}K" if tokens else "", "recap due" if due else "", "recast at turn end" if maxed else "",
+             f"{turns} turn{'' if turns == 1 else 's'}", f"${cost:.2f}"]
+    line = " · ".join(p for p in parts if p)
+    return f"""
+    <div class="member{" retired" if retired else ""}"><span class="st {st}"></span><span class="nm">{name}<span class="role">{role}</span></span>
+      {'' if retired else '<span class="btn sm quiet">Recast</span>'}
+      <span class="what {what_cls}">{what}</span>
+      <span class="meta">{meta}</span>
+      <span class="vitals{" due" if due else ""}">{meter(tokens, due)}{line}</span></div>"""
+
+def cast_members():
+    return (member("asks", "Protagonist", "opus", "waits on you · ready for review", "inbox 1 · owes #1 · in zharn", 312, 41, 0.61, due=True, what_cls="you")
+          + member("live", "Implementor", "sonnet", "working on #3", "inbox 0 · in zharn", 503, 88, 1.12, maxed=True)
+          + member("idle", "Reviewer", "sonnet", "waiting · awaits #5", "inbox 0 · in pywinpty-shim", 96, 9, 0.09)
+          + member("idle", "Implementor-2", "sonnet · forked from Implementor", "idle", "inbox 0", 184, 2, 0.03))
+
 def cast_toolwin():
     return f"""
 <div class="toolwin right">
   <div class="tw-head"><span class="t">Cast</span><span class="sub">· ZH-12</span><span class="sp"></span>
     <span class="a">{ic('more')}</span><span class="a">{ic('minus')}</span></div>
   <div class="cast">
-    <div class="member"><span class="st asks"></span><span class="nm">Protagonist<span class="role">opus</span></span>
-      <span class="btn sm quiet">Recast</span>
-      <span class="what you">waits on you · #1 handoff</span>
-      <span class="meta">inbox 1 · {ic('git',12)} zharn · <span class="meter"><i class="hot" style="width:78%"></i></span> 78%</span></div>
-    <div class="member"><span class="st live"></span><span class="nm">Implementor<span class="role">sonnet</span></span>
-      <span class="btn sm quiet">Recast</span>
-      <span class="what m">working on #3 · turn 41</span>
-      <span class="meta">inbox 0 · {ic('git',12)} zharn · <span class="meter"><i style="width:36%"></i></span> 36%</span></div>
-    <div class="member"><span class="st idle"></span><span class="nm">Reviewer<span class="role">codex</span></span>
-      <span class="btn sm quiet">Recast</span>
-      <span class="what m">waiting · awaits #5</span>
-      <span class="meta">inbox 0 · {ic('git',12)} pywinpty-shim · <span class="meter"><i style="width:22%"></i></span> 22%</span></div>
-    <div class="member"><span class="st idle"></span><span class="nm">Implementor-2<span class="role">sonnet · forked from Implementor</span></span>
-      <span class="btn sm quiet">Recast</span>
-      <span class="what m">idle</span>
-      <span class="meta">inbox 0 · <span class="meter"><i style="width:31%"></i></span> 31%</span></div>
+    {cast_members()}
     <div class="sect">{ic('story',14)}Sub-stories</div>
     <div class="substory"><span class="k">ZH-15</span><span class="t">Extract pyte screen model</span><span class="ph ph-impl">implementing · cast</span></div>
   </div>
 </div>"""
+
+def cast_closeup():
+    """The cast tool window at 1:1: the ZH-12 scene, then one row per state of the meter, captioned."""
+    states = [("no reading yet", member("idle", "Protagonist", "opus", "idle · attending #1", "inbox 0 · in zharn", 0, 0, 0.00)),
+              ("first call", member("live", "Protagonist", "opus", "working on #1", "inbox 0 · in zharn", 22, 1, 0.01)),
+              ("well inside", member("live", "Protagonist", "opus", "working on #1", "inbox 0 · in zharn", 184, 23, 0.28)),
+              ("past the recap line, recap due", member("live", "Protagonist", "opus", "working on #1", "inbox 0 · owes #1 · in zharn", 312, 41, 0.61, due=True)),
+              ("past the recap line, recap posted", member("idle", "Protagonist", "opus", "waiting · awaits #3", "inbox 0 · in zharn", 348, 44, 0.66)),
+              ("past the recast line, recap due", member("live", "Protagonist", "opus", "working on #1", "inbox 0 · owes #1 · in zharn", 503, 88, 1.12, due=True, maxed=True)),
+              ("past the recast line, recap posted", member("live", "Protagonist", "opus", "working on #1", "inbox 0 · in zharn", 503, 88, 1.12, maxed=True)),
+              ("retired", member("idle", "Protagonist", "opus", "retired", "inbox 0", 214, 61, 0.80, retired=True))]
+    rows = "".join(f'<div class="state"><div class="toolwin right">{m}</div><div class="cap">{c}</div></div>' for c, m in states)
+    body = f"""<div class="frame" style="position:static;transform:none;width:100%;min-height:100%;box-shadow:none;background:#131417">
+      <div class="closeup-grid">
+        <div class="toolwin right">{cast_toolwin().split('<div class="toolwin right">',1)[1]}
+        <div class="states">{rows}</div>
+      </div></div>"""
+    css = """html,body{overflow:auto} .closeup-grid{display:flex;gap:28px;padding:24px;align-items:flex-start}
+    .closeup-grid .toolwin{border:1px solid var(--border);height:auto;padding:2px 0} .states{display:flex;flex-direction:column;gap:10px}
+    .state{display:flex;gap:14px;align-items:center} .cap{font-size:12px;color:var(--muted)}"""
+    return page("zharn — cast panel, 1:1", body, extra_css=css)
 
 def editor_tabs(active="ZH-12", workspace=False):
     def tab(icon, label, key, live=False, closable=True):
@@ -560,25 +595,25 @@ def contexts_toolwin():
   <div class="ctx-body">
     <div class="ctx-tree">
       {row(0,'down','ZH-12  Terminal panel on pyte')}
-      {row(1,'down','Protagonist · opus','asks','ctx 3 · 78%',sel=True)}
-      {row(2,'','ctx 2 — recast at 96%','','read-only',dim=True)}
-      {row(2,'','ctx 1 — recast, no recap','','read-only',dim=True)}
-      {row(1,'down','Implementor · sonnet','live','ctx 1 · 36%')}
+      {row(1,'down','Protagonist · opus','asks','312K · 41t · $0.61',sel=True)}
+      {row(2,'','recast at 512K','','read-only',dim=True)}
+      {row(2,'','recast at 498K','','read-only',dim=True)}
+      {row(1,'down','Implementor · sonnet','live','503K · 88t · $1.12')}
       {row(2,'','minion: find every caller of Screen.resize','','running',dim=True)}
-      {row(1,'right','Reviewer · codex','idle','ctx 1 · 22%')}
+      {row(1,'right','Reviewer · sonnet','idle','96K · 9t · $0.09')}
       {row(1,'','aside on #1 · Protagonist','','yours',dim=True)}
       {row(0,'down','ZH-14  Git status panel')}
-      {row(1,'right','Protagonist · sonnet','live','ctx 1 · 12%')}
+      {row(1,'right','Protagonist · sonnet','live','58K · 4t · $0.04')}
       {row(0,'down','Bare')}
-      {row(1,'','what does ipc.py actually do','idle','2m ago')}
+      {row(1,'','what does ipc.py actually do','idle','31K · 3t · $0.02')}
     </div>
     <div class="ctx-view">
       <div class="cv-head"><span class="st asks" style="width:9px;height:9px;border-radius:50%;background:conic-gradient(var(--amber) 0 50%,transparent 50% 100%);border:1.5px solid var(--amber)"></span>
-        <span class="nm">Protagonist</span><span>opus · ZH-12 · ctx 3 of 3</span><span class="sp"></span>
-        <span>78% context</span><span>$0.61</span><span class="a">{ic('splitv',14)}</span></div>
+        <span class="nm">Protagonist</span><span>opus · idle</span><span class="sp"></span>
+        {meter(312, True)}<span class="due">312K · recap due</span><span>$0.611</span><span class="a">{ic('splitv',14)}</span></div>
       <div class="cv-scroll">
-        <div class="pred">{ic('right',12)}ctx 2 · 212 turns · recast at 96% · recap posted in #1</div>
-        <div class="pred">{ic('right',12)}ctx 1 · 88 turns · recast, no recap (rung 3)</div>
+        <div class="pred">{ic('right',12)}recast at 512K · 212 turns · recap posted in #1</div>
+        <div class="pred">{ic('right',12)}recast at 498K · 88 turns · no recap (rung 3)</div>
         <div class="ev think"><div class="kind">thinking</div><div class="body">Both checks ran; the pywinpty shim fails on resize. That is the part I flagged. Hand off anyway with the failure attached, since the author asked for Windows first and the failure is real information.</div></div>
         <div class="ev tool"><div class="kind">{ic('terminal',12)}Bash</div><div class="body">$HARNESS_CLI story yield --handoff --body-file /tmp/handoff.md</div></div>
         <div class="ev tool"><div class="kind">result</div><div class="body res">yielded on #1 · checks attached: zharn ✓ pywinpty-shim ✗ · turn → author</div></div>
@@ -677,6 +712,7 @@ OUT = {
     "04-start-screen.html": welcome,
     "05-workspace-page.html": workspace_window,
     "06-workspace-1to1.html": workspace_closeup,
+    "07-cast-1to1.html": cast_closeup,
 }
 if __name__ == "__main__":
     for name, fn in OUT.items():

@@ -296,3 +296,59 @@ def test_system_prompt_hook_replaces_the_stored_prompt_at_spawn(store, tmp_path)
     c = store.get(cid)
     assert wait_until(lambda: c.status == "idle"), (c.status, c.lastError)
     assert inits(tmp_path, cid)[-1]["system_prompt"] == "COMPOSED for " + cid
+
+
+# --------------------------------------------------------------------------- context usage (lifecycle spec §2.3)
+def test_every_spawn_turns_the_clis_auto_compaction_off(store, tmp_path):
+    cid = store.spawn("claude-fast", "hello")
+    assert wait_until(lambda: store.get(cid).status == "idle")
+    assert inits(tmp_path, cid)[0]["auto_compact_disabled"] is True
+    bare = store.get(store.newBare("claude-default"))
+    assert bare._env()["DISABLE_AUTO_COMPACT"] == "1"
+
+
+def test_usage_reaches_the_context_its_row_and_a_signal(store):
+    seen = []
+    store.contextUsage.connect(seen.append)
+    cid = store.spawn("claude-fast", "hello tokens=4321")
+    c = store.get(cid)
+    assert wait_until(lambda: c.status == "idle"), (c.status, c.lastError)
+    assert c.contextTokens == 4331 and c.contextWindow == 1000000      # 10 input + 4321 cached
+    assert cid in seen
+    row = next(r for r in store.model.rows() if r["id"] == cid)
+    assert row["contextTokens"] == 4331 and row["contextWindow"] == 1000000
+    assert c.summary()["contextTokens"] == 4331
+    assert (row["contextWarn"], row["contextMax"]) == (c.contextWarn, c.contextMax) == (300_000, 500_000)   # the meter's frame
+
+
+def test_the_warn_and_max_lines_scale_to_a_smaller_window():
+    from harness.contexts import context_lines
+    assert context_lines(1_000_000) == (300_000, 500_000)
+    assert context_lines(200_000) == (60_000, 100_000)
+    assert context_lines(0) == (300_000, 500_000)          # unknown window: the 1M lines
+    assert context_lines(2_000_000) == (300_000, 500_000)  # a bigger window does not move them
+
+
+def test_usage_survives_a_restart_through_replay(store, tmp_path):
+    cid = store.spawn("claude-fast", "hello tokens=4321")
+    assert wait_until(lambda: store.get(cid).status == "idle")
+    fresh = ContextStore(ROOT, tmp_path / "contexts", RoleStore(tmp_path), workspace_dir=tmp_path)
+    assert fresh.get(cid).contextTokens == 4331 and fresh.get(cid).contextWindow == 1000000
+
+
+def test_a_fork_starts_with_its_sources_reading_and_keeps_it_across_a_restart(store, tmp_path):
+    src = store.get(store.spawn("claude-fast", "hello tokens=4321"))
+    assert wait_until(lambda: src.status == "idle")
+    fid = store.fork(src.id, role_name="claude-default")
+    f = store.get(fid)
+    assert f.contextTokens == 4331 and f.contextWindow == 1000000 and f._proc is None
+    fresh = ContextStore(ROOT, tmp_path / "contexts", RoleStore(tmp_path), workspace_dir=tmp_path)
+    assert fresh.get(fid).contextTokens == 4331
+    f.send("what was said?")                  # its own first call replaces the seed with a real reading
+    assert wait_until(lambda: f.status == "idle"), (f.status, f.lastError)
+    assert f.contextTokens == 1010
+
+
+def test_a_recast_successor_starts_at_zero(store):
+    cid = store.create("claude-fast", predecessor="ctx_old")
+    assert store.get(cid).contextTokens == 0 and store.get(cid).contextWindow == 0

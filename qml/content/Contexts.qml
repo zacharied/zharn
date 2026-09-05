@@ -3,6 +3,7 @@ import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import ".."
 import "../ui"
+import "../ui/Theme.js" as T
 
 // Contexts (the Services tool window): every conversation, grouped by story — characters with
 // their recast lineage, bare contexts at the end — and a view of the selected one. New context
@@ -13,6 +14,8 @@ ContentBase {
     property var rows: []
     property string selected: ""
     readonly property var selectedContext: selected ? app.contexts.get(selected) : null
+    // the character behind the selected context, if any; re-read with `rows` so `recap due` follows the store
+    readonly property var selectedCharacter: (rows, selectedContext && String(selectedContext.owner).indexOf("chr_") === 0) ? app.stories.character(selectedContext.owner) : null
     readonly property string headerSubtitle: {
         var n = 0; for (var i = 0; i < rows.length; i++) if (rows[i].status === "working" || rows[i].status === "starting") n++
         return n ? "· " + n + " live" : ""
@@ -92,7 +95,7 @@ ContentBase {
                                     readonly property bool sel: panel.selected === ctx.id
                                     readonly property bool isCharacter: String(ctx.owner).indexOf("chr_") === 0
                                     readonly property string display: {
-                                        if (lineageRow) return "recast · read-only"
+                                        if (lineageRow) return ctx.contextTokens > 0 ? "recast at " + T.tokens(ctx.contextTokens) : "recast"
                                         var t = ctx.title || ""
                                         var i = t.indexOf(" · "); return isCharacter && i >= 0 ? t.slice(i + 3) : (t || ctx.id)
                                     }
@@ -104,9 +107,12 @@ ContentBase {
                                         spacing: 8
                                         StatusDot { visible: !cr.lineageRow && !cr.asideRow; status: cr.ctx.status; size: 8 }
                                         Icon { visible: cr.asideRow; name: "aside"; size: 13; color: app.theme.textMuted }
-                                        Text { text: cr.display; color: cr.lineageRow ? app.theme.textMuted : app.theme.text; font.italic: cr.lineageRow; elide: Text.ElideRight; Layout.fillWidth: true }
+                                        Text { objectName: "contextName_" + cr.ctx.id; text: cr.display; color: cr.lineageRow ? app.theme.textMuted : app.theme.text; font.italic: cr.lineageRow; elide: Text.ElideRight; Layout.fillWidth: true }
                                         Text { visible: !cr.lineageRow && !!cr.ctx.roleName && cr.ctx.roleName !== cr.display; text: cr.ctx.roleName; color: app.theme.textMuted; font.pixelSize: app.theme.fontSizeSmall }
-                                        Text { text: cr.lineageRow ? "read-only" : cr.asideRow ? "yours" : cr.ctx.turns + "t · $" + Number(cr.ctx.costUsd).toFixed(2); color: app.theme.textDim; font.pixelSize: app.theme.fontSizeSmall }
+                                        Text { objectName: "contextVitals_" + cr.ctx.id
+                                               text: cr.lineageRow ? "read-only" : cr.asideRow ? "yours"
+                                                   : [T.tokens(cr.ctx.contextTokens), cr.ctx.turns + "t", "$" + Number(cr.ctx.costUsd).toFixed(2)].filter(function (x) { return x }).join(" · ")
+                                               color: app.theme.textDim; font.pixelSize: app.theme.fontSizeSmall }
                                     }
                                     HoverHandler { id: rh }
                                     TapHandler { onTapped: panel.selected = cr.ctx.id }
@@ -133,6 +139,12 @@ ContentBase {
                     Text { objectName: "paneContextTitle"; text: panel.selectedContext ? panel.selectedContext.title : "Select a context"; color: panel.selectedContext ? app.theme.text : app.theme.textDim; font.weight: Font.DemiBold; elide: Text.ElideRight }
                     Text { visible: !!panel.selectedContext; text: panel.selectedContext ? [panel.selectedContext.roleName, panel.selectedContext.model, panel.selectedContext.status].filter(function (x) { return x }).join(" · ") : ""; color: app.theme.textMuted; font.pixelSize: app.theme.fontSizeSmall; elide: Text.ElideRight; Layout.fillWidth: true }
                     Item { Layout.fillWidth: !panel.selectedContext }
+                    Meter { visible: !!panel.selectedContext && panel.selectedContext.contextTokens > 0; Layout.preferredWidth: 72; Layout.preferredHeight: 4
+                            value: panel.selectedContext ? panel.selectedContext.contextTokens : 0; max: panel.selectedContext ? panel.selectedContext.contextMax : 1
+                            tick: panel.selectedCharacter ? panel.selectedContext.contextWarn : 0; hot: !!(panel.selectedCharacter && panel.selectedCharacter.recapDue) }
+                    Text { objectName: "paneContextReading"; visible: !!panel.selectedContext && panel.selectedContext.contextTokens > 0
+                           text: panel.selectedContext ? T.tokens(panel.selectedContext.contextTokens) + (panel.selectedCharacter && panel.selectedCharacter.recapDue ? " · recap due" : "") : ""
+                           color: panel.selectedCharacter && panel.selectedCharacter.recapDue ? app.theme.needsYou : app.theme.textMuted; font.pixelSize: app.theme.fontSizeSmall }
                     Text { visible: !!panel.selectedContext; text: panel.selectedContext ? "$" + panel.selectedContext.costUsd.toFixed(3) : ""; color: app.theme.textMuted; font.pixelSize: app.theme.fontSizeSmall }
                     IconButton { objectName: "contextStop"; visible: !!panel.selectedContext && (panel.selectedContext.status === "working" || panel.selectedContext.status === "starting"); icon: "stop"; tip: "Stop"; onClicked: panel.selectedContext.stop() }
                     IconButton { objectName: "contextOpenInTab"; visible: !!panel.selectedContext; icon: "open-in-tab"; tip: "Open in a tab"

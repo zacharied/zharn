@@ -185,13 +185,20 @@ body{font:13px/1.35 var(--ui);color:var(--text);-webkit-font-smoothing:antialias
 .st.idle{border:1.5px solid var(--dim)}
 .member .nm{font-weight:500}
 .member .nm .role{color:var(--muted);font-weight:400;margin-left:6px}
-.member .what{font-size:11px;grid-column:2}
+.member .what{font-size:11px}
 .member .what.you{color:var(--amber)} .member .what.m{color:var(--muted)}
-.member .meta{grid-column:2;display:flex;align-items:center;gap:10px;font-size:11px;color:var(--dim);white-space:nowrap;overflow:hidden;min-width:0}
+.member .meta{display:flex;align-items:center;gap:10px;font-size:11px;color:var(--dim);white-space:nowrap;overflow:hidden;min-width:0}
 .member .meta .ic{color:var(--dim);margin-right:-6px}
-.meter{width:56px;height:5px;border-radius:3px;background:var(--border);overflow:hidden;display:inline-block;vertical-align:middle}
-.meter i{display:block;height:100%;background:var(--muted)} .meter i.hot{background:var(--amber)}
-.member .btn{grid-column:3;grid-row:1/span 3;align-self:start}
+.member .vitals{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--dim);white-space:nowrap;overflow:hidden;min-width:0;margin-top:1px;font-variant-numeric:tabular-nums}
+.member .vitals.due{color:var(--amber)}
+.meter{position:relative;flex:none;width:72px;height:4px;border-radius:2px;background:var(--border);display:inline-block;vertical-align:middle}
+.meter i{display:block;height:100%;border-radius:2px;background:var(--muted)} .meter i.hot{background:var(--amber)}
+.meter b{position:absolute;left:60%;top:-2px;width:1px;height:8px;background:var(--text);opacity:.55}
+.member .what,.member .meta,.member .vitals{grid-column:2/span 2}
+.member .btn{grid-column:3;grid-row:1;align-self:start}
+.member.retired{opacity:.55}
+.cv-head .meter{width:72px}
+.cv-head .due{color:var(--amber)}
 .sect{display:flex;align-items:center;gap:6px;height:24px;padding:0 12px;margin-top:6px;color:var(--muted);font-weight:600;font-size:12px}
 .sect .ic{color:var(--dim)}
 .substory{display:flex;align-items:center;gap:8px;height:24px;padding:0 12px 0 30px}
@@ -414,22 +421,27 @@ body{font:13px/1.35 var(--ui);color:var(--text);-webkit-font-smoothing:antialias
   <div class="tw-head"><span class="t">Cast</span><span class="sub">· ZH-12</span><span class="sp"></span>
     <span class="a"><svg class="ic " width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="3.5" cy="8" r="1.1" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r="1.1" fill="currentColor" stroke="none"/><circle cx="12.5" cy="8" r="1.1" fill="currentColor" stroke="none"/></svg></span><span class="a"><svg class="ic " width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h10"/></svg></span></div>
   <div class="cast">
+    
     <div class="member"><span class="st asks"></span><span class="nm">Protagonist<span class="role">opus</span></span>
       <span class="btn sm quiet">Recast</span>
-      <span class="what you">waits on you · #1 handoff</span>
-      <span class="meta">inbox 1 · <svg class="ic " width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="4" cy="3.5" r="1.5"/><circle cx="4" cy="12.5" r="1.5"/><circle cx="12" cy="5.5" r="1.5"/><path d="M4 5v6M12 7c0 3-8 1.5-8 4"/></svg> zharn · <span class="meter"><i class="hot" style="width:78%"></i></span> 78%</span></div>
+      <span class="what you">waits on you · ready for review</span>
+      <span class="meta">inbox 1 · owes #1 · in zharn</span>
+      <span class="vitals due"><span class="meter"><i class=hot style="width:62%"></i><b></b></span>312K · recap due · 41 turns · $0.61</span></div>
     <div class="member"><span class="st live"></span><span class="nm">Implementor<span class="role">sonnet</span></span>
       <span class="btn sm quiet">Recast</span>
-      <span class="what m">working on #3 · turn 41</span>
-      <span class="meta">inbox 0 · <svg class="ic " width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="4" cy="3.5" r="1.5"/><circle cx="4" cy="12.5" r="1.5"/><circle cx="12" cy="5.5" r="1.5"/><path d="M4 5v6M12 7c0 3-8 1.5-8 4"/></svg> zharn · <span class="meter"><i style="width:36%"></i></span> 36%</span></div>
-    <div class="member"><span class="st idle"></span><span class="nm">Reviewer<span class="role">codex</span></span>
+      <span class="what m">working on #3</span>
+      <span class="meta">inbox 0 · in zharn</span>
+      <span class="vitals"><span class="meter"><i style="width:100%"></i><b></b></span>503K · recast at turn end · 88 turns · $1.12</span></div>
+    <div class="member"><span class="st idle"></span><span class="nm">Reviewer<span class="role">sonnet</span></span>
       <span class="btn sm quiet">Recast</span>
       <span class="what m">waiting · awaits #5</span>
-      <span class="meta">inbox 0 · <svg class="ic " width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="4" cy="3.5" r="1.5"/><circle cx="4" cy="12.5" r="1.5"/><circle cx="12" cy="5.5" r="1.5"/><path d="M4 5v6M12 7c0 3-8 1.5-8 4"/></svg> pywinpty-shim · <span class="meter"><i style="width:22%"></i></span> 22%</span></div>
+      <span class="meta">inbox 0 · in pywinpty-shim</span>
+      <span class="vitals"><span class="meter"><i style="width:19%"></i><b></b></span>96K · 9 turns · $0.09</span></div>
     <div class="member"><span class="st idle"></span><span class="nm">Implementor-2<span class="role">sonnet · forked from Implementor</span></span>
       <span class="btn sm quiet">Recast</span>
       <span class="what m">idle</span>
-      <span class="meta">inbox 0 · <span class="meter"><i style="width:31%"></i></span> 31%</span></div>
+      <span class="meta">inbox 0</span>
+      <span class="vitals"><span class="meter"><i style="width:37%"></i><b></b></span>184K · 2 turns · $0.03</span></div>
     <div class="sect"><svg class="ic " width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="2.5" width="11" height="11" rx="1.5"/><path d="M5 6h6M5 8.5h6M5 11h3.5"/></svg>Sub-stories</div>
     <div class="substory"><span class="k">ZH-15</span><span class="t">Extract pyte screen model</span><span class="ph ph-impl">implementing · cast</span></div>
   </div>

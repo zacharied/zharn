@@ -23,11 +23,18 @@ Character { id, story_key, role, name, live_context: <context_id>,
             attention: <thread_id> | null,                  # thread of the last delivery
             inbox: [<comment_id>],                          # may hold sub-story comments
             recaps: [<comment_id>],
+            context_warned: <int> | absent,                 # recaps it had when its context crossed CONTEXT_WARN (§2.3)
+            context_maxed: true | absent,                   # its context crossed CONTEXT_MAX; a recast is pending (§3.4)
             phase_seen: <phase> | null }                    # the phase whose skill it last received (§5.3)
 Context   { id, owner: <character_id> | <minion of character_id> | "human",
             session_id, predecessor: <context_id> | null,   # recast lineage
             forked_from: <context_id> | null,               # forked friends, asides (and minions)
             about: {story_key, comment_id} | null }         # asides: the pinned comment
+
+Derived per context, never stored:
+  reading = input_tokens + cache_read_input_tokens + cache_creation_input_tokens of its latest assistant
+            event: what the context holds. A fork starts with its source's reading.
+  window  = the model's context window, from the latest result's modelUsage; unknown until the first
 
 Derived per character, never stored:
   owes    = threads it leads with turn = cast
@@ -118,12 +125,19 @@ in this order:
 
 | Trigger | Effect |
 |---|---|
-| Context passes `config.CONTEXT_WARN` (default 0.8) | Inject: "context low — post a `recap` in #<attended> now" |
-| Context passes `config.CONTEXT_MAX`, or character unresumable when it must act | Auto-recast at the turn boundary per the ladder (§3.4); system comment says which rung |
+| Reading passes `config.CONTEXT_WARN` mid-turn (300K tokens for a 1M window; a smaller window scales it) | Once per context: push `[harness] context past the warn line: post a `recap` in #<attended> now — your successor is built from the story record and that recap.`; the situation line ends `· recap due` until a recap lands (§5.3) |
+| Reading passes `config.CONTEXT_MAX` mid-turn (500K, scaled likewise) | Once per context: push `[harness] context at the limit: finish the step in hand and post a `recap` in #<attended> now. You are recast when this turn ends.`; recast at the turn boundary per the ladder (§3.4), the system comment naming the cause |
+| Character unresumable when it must act | Recast at the turn boundary per the ladder (§3.4) |
 | Sub-story's ball reaches author or terminal | The triggering comment is delivered to the author character like any other (cross-story) |
 | Human acts as author on a character-owned sub-story | Applied; the resulting system comment is delivered to the owning character |
 | Human types in a character's context view | Posted as a human comment in the character's attended thread (root comment addressed to it, if it attends nothing) |
 | Story becomes terminal | Every character retires: Cancel stops each live context now; Approve lets a mid-turn context finish its turn (its verbs are already rejected). Nothing is delivered to a retired character; Reopen resumes the protagonist |
+
+**The reading** is the input side of the context's latest API call (§1), pushed like a steering comment
+the moment a line is crossed: the character is told mid-turn, not at the next delivery. A recap lowers
+nothing; only recast does. Claude Code's own compaction is off in every context the harness spawns
+(`DISABLE_AUTO_COMPACT=1`): the ladder is the only compaction, and a `compact_boundary` event is an
+error row in the transcript.
 
 `AskUserQuestion` does not exist under `claude -p` (verified 2026-08-31); `yield --question`
 with `options` is the only way to ask.
@@ -188,6 +202,10 @@ rung). Recast applies to any character and may change role/model; it takes effec
 boundary (a waiting character is at one already); old context becomes `predecessor`. The new
 context's first message is the brief with its situation line (§3.1); then the ordinary delivery
 loop continues — nothing bespoke.
+A recast clears `context_warned` and `context_maxed`: the crossings belong to the context that is gone.
+Its system comment reads `recast <name> as <role> (context; rung 1: fresh recap)` when the max line caused
+it and `recast <name> as <role> (rung 1: fresh recap)` when the author did; a manual recast already
+pending when the max line hits keeps its role and model.
 
 ### 3.5 Asides
 
@@ -310,9 +328,12 @@ name them: the main thread is `#main` (`--thread main` resolves to it in every v
 any other by its id, with ` of KEY` when the thread belongs to another story:
 
 ```
-[situation] phase <phase> · attending #<thread> · you owe <threads> · you await <threads or nothing> · in <repo> at <path>
+[situation] phase <phase> · attending #<thread> · you owe <threads> · you await <threads or nothing> · in <repo> at <path>[ · recap due]
 [<author>] <kind> in #<thread>: <body>
 ```
+
+`· recap due` appears while the character's context is past the warn line with no recap since the
+crossing (§2.3); the line never carries the reading itself.
 
 **Phase skill.** In messages only, never in the system prompt. Sent whenever the story's phase
 differs from `Character.phase_seen`, which is then updated — the comparison is against what the
@@ -363,8 +384,16 @@ New/edited skills: baseline failure first.
   the source is working); a composer per thread and
   one for new threads, `@` autocomplete over the cast, `/call <role> [note]` and
   `/fork @Name [note]`; side panel: cast (status: working on #n / waiting / idle / retired ·
-  forked from · inbox depth · context meter · Recast button → role/model dialog), sub-stories
+  forked from · inbox depth · the context's vitals · Recast button → role/model dialog), sub-stories
   (phase+ball → open).
+* **Context vitals** (`qml/ui/Meter.qml`, on every cast row and the Contexts pane header): the
+  reading (§1) laid on the harness's runway — the bar ends at `CONTEXT_MAX`, a tick marks
+  `CONTEXT_WARN`, both scaled to the window (`contexts.context_lines`); the window itself is not the
+  frame. Beside it the reading in tokens (`312K`), then `recap due` while a recap is outstanding
+  (§2.3) — the only state that colors the bar and the text amber — then `recast at turn end` once
+  past the max line, then turns and cost. The tooltip carries the exact count, the window and both
+  lines. A context with no reading yet shows an empty bar. Contexts tree rows carry the reading
+  before turns and cost; a predecessor row reads `recast at <reading>`.
 * **Contexts** (`qml/content/Contexts.qml` + `ContextView.qml`): list of all contexts —
   characters' with recast lineage, bare and asides (titled "aside on #t · <Name>", under their
   story), minions under dispatcher — and **New Context**. Views
@@ -390,9 +419,16 @@ New/edited skills: baseline failure first.
 * `tests/test_ui_story.py`, `test_ui_board.py`, `test_ui_contexts.py` via `tests/ui.py`: action
   bars per cell and per waiting thread, option buttons, needs-you sort/count, `@` and `/call`,
   context-view input posting comments, New Context, Promote.
+* `tests/test_ui_cast.py`: the vitals line and meter frame from a reading, amber with `recap due`
+  past the warn line and back once a recap lands (cast row and Contexts pane alike), a
+  predecessor row naming the reading it was recast at.
 * `tests/test_stories.py`, `test_agents.py`: §5.4 cheap layer — the stable system prompt, the situation
   line, the phase skill on `phase_seen` changes.
 * `tests/skills/`: §5.4 paid layer.
+* Context usage: the reading and window from hand-built events and through replay
+  (`test_stream_interpreter.py`, `test_contexts_unit.py`); a fork's inherited reading; `DISABLE_AUTO_COMPACT`
+  at every spawn; warn once with `recap due` until a recap, max marking a recast that fires at the boundary
+  and names its cause, small-window scaling, nothing on an idle or retired character (`test_stories.py`).
 
 ## 8. Out of scope
 
@@ -400,5 +436,4 @@ Approve's effect on the environment (merge/PR/worktree); workspaces, repos and e
 themselves ([their own spec](workspace-model.md)); roles beyond `outline_first` and `instructions`; multi-machine
 execution; harness-spawned minions (`minion`, `minion --fork` — Claude's native `Agent` tool
 serves for now); a mechanical cap on guest mention loops; escalating an aside into a thread (a
-thread led by a forked friend is the manual path); provider-side compaction (recast supersedes
-it).
+thread led by a forked friend is the manual path).

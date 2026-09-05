@@ -19,6 +19,7 @@ class StubContext:
         self.id, self.meta, self.status, self.sent, self.stopped = cid, meta, "idle", [], False
         self.sessionId = "sess-" + cid
         self.transcript_text, self.last_error, self.turns = "", "", 0
+        self.contextTokens, self.contextWindow = 0, 0
 
     def last_assistant_text(self):
         return self.transcript_text
@@ -39,6 +40,7 @@ class StubContext:
 class StubContexts(QObject):
     contextsChanged = Signal()
     contextSettled = Signal(str)
+    contextUsage = Signal(str)
 
     def __init__(self):
         super().__init__()
@@ -1301,3 +1303,107 @@ def test_env_checks_lists_every_environment(store, ws, repo, contexts, tmp_path)
     store.cast_env_open(chr_id, "client"); store.cast_env_open(chr_id, "plain")
     plan = store.env_checks(chr_id)
     assert plan["run"] and {e["repo"]: e["checks"] for e in plan["environments"]} == {"client": "echo ok", "plain": ""}
+
+
+# ---------------------------------------------------------------- context usage (spec §2.3)
+
+def reading(store, contexts, chr_id, tokens, window=1_000_000):
+    """The character's live context reports a reading, as the real store does on every assistant event."""
+    ctx = contexts.get(store.character(chr_id)["live_context"])
+    ctx.contextTokens, ctx.contextWindow = tokens, window
+    contexts.contextUsage.emit(ctx.id)
+    return ctx
+
+
+def test_warn_line_pushes_one_recap_request_and_marks_recap_due(store, contexts):
+    key, chr_id = started(store)                        # the stub is working: the brief was just sent
+    ctx = reading(store, contexts, chr_id, 299_999)
+    assert len(ctx.sent) == 1                            # under the line: nothing
+    reading(store, contexts, chr_id, 300_000)
+    assert len(ctx.sent) == 2
+    lines = ctx.sent[-1].splitlines()
+    assert lines[0].startswith("[situation] phase planning · attending #main") and lines[0].endswith(" · recap due")
+    assert lines[1] == ("[harness] context past the warn line: post a `recap` in #main now — "
+                        "your successor is built from the story record and that recap.")
+    reading(store, contexts, chr_id, 350_000)
+    assert len(ctx.sent) == 2                            # once per context
+    assert store.character(chr_id)["context_warned"] == 0 and store.cast(key)[0]["recapDue"] is True
+
+
+def test_a_recap_clears_recap_due_but_neither_the_reading_nor_the_crossing(store, contexts):
+    key, chr_id = started(store)
+    ctx = reading(store, contexts, chr_id, 300_000)
+    assert store.situation(store.character(chr_id)).endswith(" · recap due")
+    store.cast_recap(chr_id, "so far: the outline")
+    assert not store.situation(store.character(chr_id)).endswith("recap due")
+    assert ctx.contextTokens == 300_000 and store.cast(key)[0]["recapDue"] is False
+    reading(store, contexts, chr_id, 400_000)
+    assert len(ctx.sent) == 2                            # the warn push does not re-arm
+
+
+def test_max_line_pushes_then_recasts_at_the_turn_boundary_naming_the_cause(store, contexts):
+    key, chr_id = started(store)
+    old = store.character(chr_id)["live_context"]
+    ctx = reading(store, contexts, chr_id, 500_000)
+    assert len(ctx.sent) == 3                            # both lines in one reading: warn first, then max
+    assert "[harness] context past the warn line" in ctx.sent[1]
+    assert ctx.sent[2].splitlines()[1] == ("[harness] context at the limit: finish the step in hand and post a `recap` in #main now. "
+                                           "You are recast when this turn ends.")
+    assert store.character(chr_id)["recast_pending"] == {"role": "", "model": "", "cause": "context"}
+    assert store.character(chr_id)["context_maxed"] is True
+    store.cast_recap(chr_id, "done: half the plan")
+    settle(store, contexts, chr_id)
+    ch = store.character(chr_id)
+    assert ch["live_context"] != old and "recast_pending" not in ch
+    assert "context_warned" not in ch and "context_maxed" not in ch
+    assert store.comments(key)[-1]["body"] == "recast protagonist as protagonist (context; rung 1: fresh recap)"
+    assert not store.situation(ch).endswith("recap due")
+
+
+def test_a_manual_recast_already_pending_keeps_its_role_when_the_max_line_hits(store, contexts):
+    key, chr_id = started(store)
+    store.recast(key, chr_id, role="claude-fast")        # working: waits for the boundary
+    reading(store, contexts, chr_id, 500_000)
+    assert store.character(chr_id)["recast_pending"] == {"role": "claude-fast", "model": ""}
+    settle(store, contexts, chr_id)
+    assert store.comments(key)[-1]["body"] == "recast protagonist as claude-fast (rung 3: no fresh recap)"
+
+
+def test_thresholds_scale_to_a_small_window(store, contexts):
+    key, chr_id = started(store)
+    ctx = reading(store, contexts, chr_id, 59_999, window=200_000)
+    assert len(ctx.sent) == 1
+    reading(store, contexts, chr_id, 60_000, window=200_000)
+    assert len(ctx.sent) == 2 and "warn line" in ctx.sent[-1]
+    reading(store, contexts, chr_id, 100_000, window=200_000)
+    assert len(ctx.sent) == 3 and "at the limit" in ctx.sent[-1]
+
+
+def test_readings_on_a_context_that_is_not_working_do_nothing(store, contexts):
+    key, chr_id = started(store)
+    settle(store, contexts, chr_id)                      # idle: no turn to push into
+    ctx = reading(store, contexts, chr_id, 500_000)
+    assert not any("[harness]" in s for s in ctx.sent)
+    ch = store.character(chr_id)
+    assert "context_warned" not in ch and "context_maxed" not in ch and "recast_pending" not in ch
+
+
+def test_readings_after_approve_do_nothing(store, contexts):
+    key, chr_id = started(store)
+    store.cast_yield(chr_id, "handoff", "outline")
+    store.proceed(key)
+    store.cast_yield(chr_id, "handoff", "built")
+    store.approve(key)
+    ctx = contexts.get(store.character(chr_id)["live_context"])
+    ctx.status = "working"                               # a turn still finishing after Approve
+    reading(store, contexts, chr_id, 500_000)
+    assert not any("[harness]" in s for s in ctx.sent) and "context_warned" not in store.character(chr_id)
+
+
+def test_a_fork_inherits_no_crossings(store, contexts):
+    key, chr_id = started(store)
+    reading(store, contexts, chr_id, 300_000)
+    settle(store, contexts, chr_id)
+    forked = store.cast_call(chr_id, "claude-fast", "second opinion", fork=True)["character"]
+    assert "context_warned" not in store.character(forked) and store.character(chr_id)["context_warned"] == 0
+    assert not store.situation(store.character(forked)).endswith("recap due")

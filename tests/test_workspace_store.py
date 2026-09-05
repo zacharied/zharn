@@ -24,6 +24,7 @@ from harness.workspace_store import WorkspaceStore  # noqa: E402
 class StubContexts(QObject):
     contextsChanged = Signal()
     contextSettled = Signal(str)
+    contextUsage = Signal(str)
 
     def get(self, cid): return None
     def all(self): return []

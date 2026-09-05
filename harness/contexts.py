@@ -21,8 +21,16 @@ from harness.fsutil import write_text_atomic
 from harness.notify import intent
 from harness.qmodels import DictListModel
 
-CONTEXT_ROLES = ["id", "title", "storyKey", "owner", "status", "roleName", "costUsd", "turns", "createdAt"]
+CONTEXT_ROLES = ["id", "title", "storyKey", "owner", "status", "roleName", "costUsd", "turns", "createdAt",
+                 "contextTokens", "contextWindow", "contextWarn", "contextMax"]
 SETTLED = ("idle", "failed", "stopped")
+
+
+def context_lines(window: int) -> tuple[int, int]:
+    """The warn and max lines in tokens (lifecycle spec §2.3): CONTEXT_WARN/MAX are for a 1M window; a smaller
+    known window scales both. The UI frames its meter on these, not on the window."""
+    scale = window / 1_000_000 if 0 < window < 1_000_000 else 1
+    return int(getattr(cfg, "CONTEXT_WARN", 300_000) * scale), int(getattr(cfg, "CONTEXT_MAX", 500_000) * scale)
 
 
 def _has_text_block(ev: dict) -> bool:
@@ -50,6 +58,9 @@ class Context(QObject):
         self.transcript.setParent(self)
         self._interp = StreamInterpreter(self.transcript)
         self._interp.session_id = meta.get("sessionId", "")
+        seed = meta.get("seedUsage") or {}                       # a fork starts with its source's reading (spec §2.3)
+        self._interp.context_tokens = int(seed.get("tokens") or 0)
+        self._interp.context_window = int(seed.get("window") or 0)
         self._proc: ClaudeCodeProcess | None = None
         self._proc_cwd: str | None = None
         self._retired: list[ClaudeCodeProcess] = []  # released processes, kept alive (and referenced) until they exit
@@ -87,6 +98,18 @@ class Context(QObject):
     @Property(int, notify=changed)
     def turns(self): return self._interp.turns
 
+    @Property(int, notify=changed)
+    def contextTokens(self): return self._interp.context_tokens   # the input side of its latest API call (spec §2.3)
+
+    @Property(int, notify=changed)
+    def contextWindow(self): return self._interp.context_window   # 0 until its first result
+
+    @Property(int, notify=changed)
+    def contextWarn(self): return context_lines(self._interp.context_window)[0]
+
+    @Property(int, notify=changed)
+    def contextMax(self): return context_lines(self._interp.context_window)[1]
+
     @Property(str, notify=changed)
     def lastError(self): return self._last_error
 
@@ -112,6 +135,8 @@ class Context(QObject):
     def summary(self) -> dict:
         return {"id": self.id, "title": self.title, "storyKey": self.storyKey, "owner": self.owner, "status": self._status,
                 "roleName": self.roleName, "costUsd": round(self._interp.cost_usd, 4), "turns": self._interp.turns,
+                "contextTokens": self._interp.context_tokens, "contextWindow": self._interp.context_window,
+                "contextWarn": self.contextWarn, "contextMax": self.contextMax,
                 "createdAt": self.meta.get("createdAt", 0), "sessionId": self._interp.session_id, "model": self.model,
                 "predecessor": self.meta.get("predecessor"), "forkedFrom": self.meta.get("forkedFrom"),
                 "about": self.meta.get("about"),
@@ -137,6 +162,7 @@ class Context(QObject):
         # (an editable install elsewhere, in a worktree) rather than the code this app is actually running.
         env = {"HARNESS_CONTEXT_ID": self.id, "HARNESS_STORY_KEY": self.storyKey, "HARNESS_ROOT": str(self._store.root),
                "HARNESS_WORKSPACE": str(self._store.workspace_dir), "HARNESS_CLI": f"{sys.executable} -m harness.cli",
+               "DISABLE_AUTO_COMPACT": "1",   # the ladder is the only compaction (spec §2.3)
                "PYTHONPATH": os.pathsep.join(p for p in (str(self._store.root), os.environ.get("PYTHONPATH", "")) if p)}
         env.update(self.meta.get("env") or {})
         env.update(extra or {})
@@ -214,6 +240,7 @@ class Context(QObject):
         self._log(ev)
         if ev.get("type") == "user" and _has_text_block(ev):
             self._unacked = max(0, self._unacked - 1)   # claude echoed a pushed message: it has been consumed
+        before = (self._interp.context_tokens, self._interp.context_window)
         hint = self._interp.apply(ev)
         if hint == "idle" and self._unacked > 0:
             hint = "working"                             # a pushed message is still queued: not a turn end
@@ -221,6 +248,8 @@ class Context(QObject):
             self._set_status(hint)
         else:
             self.changed.emit()
+        if (self._interp.context_tokens, self._interp.context_window) != before:
+            self._store._usage_changed(self)
 
     def _on_stderr(self, text: str):
         if text.strip():
@@ -266,6 +295,7 @@ class Context(QObject):
 class ContextStore(QObject):
     contextsChanged = Signal()
     contextSettled = Signal(str)
+    contextUsage = Signal(str)     # a context's reading or window moved (lifecycle spec §2.3)
     revealChanged = Signal()   # the Contexts panel should select revealTarget (e.g. a fresh aside)
     notifier = None
 
@@ -309,7 +339,7 @@ class ContextStore(QObject):
 
     def create(self, role_name: str, *, story_key: str = "", owner: str = "human", title: str = "", system_prompt: str = "",
                env: dict | None = None, cwd: str = "", predecessor: str | None = None, forked_from: str | None = None,
-               about: dict | None = None, fork_session: str = "") -> str:
+               about: dict | None = None, fork_session: str = "", seed_usage: dict | None = None) -> str:
         role = self.roles.get(role_name)
         if not role:
             raise ValueError(f"unknown role {role_name!r}")
@@ -317,7 +347,7 @@ class ContextStore(QObject):
             raise ValueError(f"provider {role['provider']!r} not implemented yet")
         meta = {"id": new_context_id(), "title": title or role["name"], "storyKey": story_key, "owner": owner,
                 "role": role["name"], "roleConfig": role, "predecessor": predecessor, "forkedFrom": forked_from,
-                "forkSession": fork_session, "about": dict(about) if about else None,
+                "forkSession": fork_session, "seedUsage": dict(seed_usage or {}), "about": dict(about) if about else None,
                 "cwd": cwd or str(self.workspace_dir), "env": dict(env or {}), "systemPrompt": system_prompt,
                 "createdAt": time.time(), "status": "idle"}
         c = Context(self, meta)
@@ -349,7 +379,8 @@ class ContextStore(QObject):
             raise ValueError(f"{source_id} is working; fork it when it stops")
         return self.create(role_name, story_key=story_key, owner=owner, title=title or f"fork of {src.title}",
                            system_prompt=system_prompt, env=env, cwd=src.meta.get("cwd", ""),
-                           forked_from=source_id, fork_session=src.sessionId, about=about)
+                           forked_from=source_id, fork_session=src.sessionId, about=about,
+                           seed_usage={"tokens": src.contextTokens, "window": src.contextWindow})
 
     @Slot(str, result=str)
     @intent
@@ -406,3 +437,7 @@ class ContextStore(QObject):
         self._model.upsert(c.summary())
         self._persist_index()
         self.contextsChanged.emit()
+
+    def _usage_changed(self, c: Context):
+        self._model.upsert(c.summary())
+        self.contextUsage.emit(c.id)

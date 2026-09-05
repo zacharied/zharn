@@ -29,3 +29,13 @@ function hex(color) {  // "#rrggbb" for image://icon URLs (drops the alpha byte 
     var s = String(color)
     return s.length === 9 ? s.slice(3) : s.slice(1)
 }
+
+// A reading in tokens, the way the knobs are spoken of: "22K", "312K", "1.2M". Zero is nothing to say.
+function tokens(n) {
+    n = Number(n) || 0
+    if (n <= 0) return ""
+    if (n < 1000) return String(n)
+    if (n < 1000000) return Math.round(n / 1000) + "K"
+    var m = n / 1000000
+    return (m < 10 ? m.toFixed(1).replace(/\.0$/, "") : Math.round(m)) + "M"
+}

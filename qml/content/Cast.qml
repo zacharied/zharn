@@ -3,6 +3,7 @@ import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import ".."
 import "../ui"
+import "../ui/Theme.js" as T
 
 // Cast: the characters of the story in the active editor tab (the Structure tool window follows
 // the editor the same way), with the derived state of lifecycle §6 — working on #n / waiting /
@@ -94,12 +95,16 @@ ContentBase {
                                            status: m.retired ? "none" : m.modelData.contextStatus } }
                         ColumnLayout {
                             Layout.fillWidth: true; spacing: 3
-                            Row { spacing: 6
-                                  Text { text: m.modelData.name; color: app.theme.text; font.weight: Font.Medium }
-                                  Text { readonly property string role: m.modelData.role !== m.modelData.name ? m.modelData.role : ""
-                                         readonly property string fork: m.modelData.forkedFrom ? "forked from " + cast.memberName(m.modelData.forkedFrom) : ""
-                                         text: [role, m.ctx && m.ctx.model ? m.ctx.model : "", fork].filter(function (x) { return x }).join(" · ")
-                                         color: app.theme.textMuted; elide: Text.ElideRight } }
+                            RowLayout {   // the name line carries the Recast button; the lines below run the full width
+                                Layout.fillWidth: true; spacing: 8
+                                Text { text: m.modelData.name; color: app.theme.text; font.weight: Font.Medium }
+                                Text { readonly property string role: m.modelData.role !== m.modelData.name ? m.modelData.role : ""
+                                       readonly property string fork: m.modelData.forkedFrom ? "forked from " + cast.memberName(m.modelData.forkedFrom) : ""
+                                       text: [role, m.ctx && m.ctx.model ? m.ctx.model : "", fork].filter(function (x) { return x }).join(" · ")
+                                       color: app.theme.textMuted; elide: Text.ElideRight; Layout.fillWidth: true; Layout.leftMargin: -2 }
+                                Btn { objectName: "recastButton_" + m.modelData.id; visible: !m.retired
+                                      small: true; quiet: true; text: "Recast"; onClicked: cast.openRecast(m.modelData) }
+                            }
                             Text {
                                 objectName: "castStatus_" + m.modelData.id
                                 Layout.fillWidth: true; elide: Text.ElideRight; font.pixelSize: app.theme.fontSizeSmall
@@ -117,11 +122,31 @@ ContentBase {
                                 text: "inbox " + (m.modelData.inboxDepth || 0)
                                       + (m.modelData.owes.length ? " · owes " + m.modelData.owes.map(cast.place).join(", ") : "")
                                       + (m.modelData.environment ? " · in " + m.modelData.environment : "")
-                                      + (m.ctx ? " · " + m.ctx.turns + (m.ctx.turns === 1 ? " turn" : " turns") + " · $" + m.ctx.costUsd.toFixed(2) : "")
+                            }
+                            // the context's vitals: its reading on the harness's runway, then what it has cost
+                            RowLayout {
+                                visible: !!m.ctx; spacing: 6
+                                Layout.fillWidth: true; Layout.topMargin: 1
+                                Meter { objectName: "castMeter_" + m.modelData.id; Layout.preferredWidth: 72; Layout.preferredHeight: 4
+                                        value: m.ctx ? m.ctx.contextTokens : 0; max: m.ctx ? m.ctx.contextMax : 1; tick: m.ctx ? m.ctx.contextWarn : 0
+                                        hot: !!m.modelData.recapDue }
+                                Text {
+                                    objectName: "castContext_" + m.modelData.id
+                                    Layout.fillWidth: true; elide: Text.ElideRight; font.pixelSize: app.theme.fontSizeSmall
+                                    color: m.modelData.recapDue ? app.theme.needsYou : app.theme.textDim
+                                    text: !m.ctx ? "" : [T.tokens(m.ctx.contextTokens),
+                                                         m.modelData.recapDue ? "recap due" : "",
+                                                         m.modelData.context_maxed ? "recast at turn end" : "",
+                                                         m.ctx.turns + (m.ctx.turns === 1 ? " turn" : " turns"),
+                                                         "$" + m.ctx.costUsd.toFixed(2)].filter(function (x) { return x }).join(" · ")
+                                }
+                                HoverHandler { id: vitalsHover }
+                                ToolTip.visible: vitalsHover.hovered && !!m.ctx && m.ctx.contextTokens > 0; ToolTip.delay: 600
+                                ToolTip.text: !m.ctx ? "" : Number(m.ctx.contextTokens).toLocaleString(Qt.locale(), "f", 0) + " tokens"
+                                              + (m.ctx.contextWindow ? " of a " + T.tokens(m.ctx.contextWindow) + " window" : "")
+                                              + " · recap asked at " + T.tokens(m.ctx.contextWarn) + " · recast at " + T.tokens(m.ctx.contextMax)
                             }
                         }
-                        Btn { objectName: "recastButton_" + m.modelData.id; visible: !m.retired; Layout.alignment: Qt.AlignTop
-                              small: true; quiet: true; text: "Recast"; onClicked: cast.openRecast(m.modelData) }
                     }
                     HoverHandler { id: mh }
                     TapHandler { onTapped: if (m.modelData.live_context) app.layout.openContent("context", m.modelData.live_context, cast.storyKey + " · " + m.modelData.name) }

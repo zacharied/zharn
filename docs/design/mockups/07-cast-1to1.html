@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><title>zharn — story thread, 1:1</title>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>zharn — cast panel, 1:1</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
 :root{
@@ -304,69 +304,78 @@ body{font:13px/1.35 var(--ui);color:var(--text);-webkit-font-smoothing:antialias
 .w-row .rt{text-align:right;font-size:11px;color:var(--dim)}
 .w-row .rt b{display:block;font:500 12px var(--mono);color:var(--muted)}
 .w-row .rt .chip{margin-top:3px}
-html,body{overflow:auto;background:var(--bg)} .story{overflow:visible}</style></head><body><div class="frame" style="position:static;transform:none;width:100%;min-height:100%;box-shadow:none">
-      <div style="max-width:880px">
-<div class="story"><div class="story-in">
-  <div class="sh-title"><span class="k">ZH-12</span><h1>Terminal panel on pyte</h1><span class="a"><svg class="ic " width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="3.5" cy="8" r="1.1" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r="1.1" fill="currentColor" stroke="none"/><circle cx="12.5" cy="8" r="1.1" fill="currentColor" stroke="none"/></svg></span></div>
-  <div class="sh-state"><span class="ph ph-impl">Implementing</span><span>·</span>
-    <span class="turn"><span class="ball"></span>your turn — ready for review</span>
-    <span>·</span><span>3 threads</span><span>·</span><span>cast of 3</span></div>
-  <div class="envs">
-    <div class="env"><svg class="ic " width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="4" cy="3.5" r="1.5"/><circle cx="4" cy="12.5" r="1.5"/><circle cx="12" cy="5.5" r="1.5"/><path d="M4 5v6M12 7c0 3-8 1.5-8 4"/></svg><span class="repo">zharn</span><span class="br">zharn/ZH-12</span><span class="into">into <b>main</b></span><span class="path">.zharn/local/worktrees/zharn/ZH-12</span></div>
-    <div class="env"><svg class="ic " width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="4" cy="3.5" r="1.5"/><circle cx="4" cy="12.5" r="1.5"/><circle cx="12" cy="5.5" r="1.5"/><path d="M4 5v6M12 7c0 3-8 1.5-8 4"/></svg><span class="repo">pywinpty-shim</span><span class="br">zharn/ZH-12</span><span class="into">into <b>main</b></span><span class="path">.zharn/local/worktrees/pywinpty-shim/ZH-12</span></div>
+html,body{overflow:auto} .closeup-grid{display:flex;gap:28px;padding:24px;align-items:flex-start}
+    .closeup-grid .toolwin{border:1px solid var(--border);height:auto;padding:2px 0} .states{display:flex;flex-direction:column;gap:10px}
+    .state{display:flex;gap:14px;align-items:center} .cap{font-size:12px;color:var(--muted)}</style></head><body><div class="frame" style="position:static;transform:none;width:100%;min-height:100%;box-shadow:none;background:#131417">
+      <div class="closeup-grid">
+        <div class="toolwin right">
+  <div class="tw-head"><span class="t">Cast</span><span class="sub">· ZH-12</span><span class="sp"></span>
+    <span class="a"><svg class="ic " width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="3.5" cy="8" r="1.1" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r="1.1" fill="currentColor" stroke="none"/><circle cx="12.5" cy="8" r="1.1" fill="currentColor" stroke="none"/></svg></span><span class="a"><svg class="ic " width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h10"/></svg></span></div>
+  <div class="cast">
+    
+    <div class="member"><span class="st asks"></span><span class="nm">Protagonist<span class="role">opus</span></span>
+      <span class="btn sm quiet">Recast</span>
+      <span class="what you">waits on you · ready for review</span>
+      <span class="meta">inbox 1 · owes #1 · in zharn</span>
+      <span class="vitals due"><span class="meter"><i class=hot style="width:62%"></i><b></b></span>312K · recap due · 41 turns · $0.61</span></div>
+    <div class="member"><span class="st live"></span><span class="nm">Implementor<span class="role">sonnet</span></span>
+      <span class="btn sm quiet">Recast</span>
+      <span class="what m">working on #3</span>
+      <span class="meta">inbox 0 · in zharn</span>
+      <span class="vitals"><span class="meter"><i style="width:100%"></i><b></b></span>503K · recast at turn end · 88 turns · $1.12</span></div>
+    <div class="member"><span class="st idle"></span><span class="nm">Reviewer<span class="role">sonnet</span></span>
+      <span class="btn sm quiet">Recast</span>
+      <span class="what m">waiting · awaits #5</span>
+      <span class="meta">inbox 0 · in pywinpty-shim</span>
+      <span class="vitals"><span class="meter"><i style="width:19%"></i><b></b></span>96K · 9 turns · $0.09</span></div>
+    <div class="member"><span class="st idle"></span><span class="nm">Implementor-2<span class="role">sonnet · forked from Implementor</span></span>
+      <span class="btn sm quiet">Recast</span>
+      <span class="what m">idle</span>
+      <span class="meta">inbox 0</span>
+      <span class="vitals"><span class="meter"><i style="width:37%"></i><b></b></span>184K · 2 turns · $0.03</span></div>
+    <div class="sect"><svg class="ic " width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="2.5" width="11" height="11" rx="1.5"/><path d="M5 6h6M5 8.5h6M5 11h3.5"/></svg>Sub-stories</div>
+    <div class="substory"><span class="k">ZH-15</span><span class="t">Extract pyte screen model</span><span class="ph ph-impl">implementing · cast</span></div>
   </div>
-  <div class="actions"><span class="why">Protagonist handed off. Approve, reply with changes, or send it back to planning.</span>
-    <span class="chip red">1 check failing</span>
-    <span class="btn primary">Approve</span><span class="btn">Reply</span><span class="btn">Back to planning</span><span class="btn quiet">Cancel</span></div>
-
-  <div class="thread">
-    <div class="th-head"><svg class="ic " width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5l4 3.5 4-3.5"/></svg><span class="n">#1</span><span class="t">Main thread</span><span>You → Protagonist</span><span class="w you">waits on you</span></div>
-    <div class="script">
-      <div class="line"><div class="speaker you"><span class="who">You</span><span class="at">yesterday 22:14</span></div>
-        <div class="said"><p>Let's get the terminal panel in on top of <code>pyte</code>. Windows has to work — no qtermwidget. Keep it reloadable.</p></div></div>
-      <div class="stage">(Started · Protagonist cast from <i>claude-deep</i>)</div>
-
-      <div class="line"><div class="speaker"><span class="who">Protagonist</span>· opus<span class="at">22:16</span></div>
-        <span class="aside-btn has" title="Reopen the aside on this comment"><svg class="ic " width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path stroke-dasharray="2.6 1.9" d="M2.5 3.5h11v7h-6.5L4 13v-2.5H2.5z"/></svg>aside</span>
-        <div class="said"><p>This needs an outline — the screen model, the QML view, and the PTY driver are three separable pieces and the PTY story differs per OS. One question before I write it:</p></div>
-        <div class="yield question">Question</div>
-        <div class="said"><p>Should a terminal be scoped to an <b>environment</b> (one shell per worktree, shared by the cast) or to a <b>context</b> (each character gets its own)?</p></div>
-        <div class="opts"><span class="btn sm opt picked"><svg class="ic " width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3 3 7-7"/></svg>Per environment</span><span class="btn sm opt dis">Per context</span><span class="btn sm opt dis">Both, environment default</span></div></div>
-      <div class="reply"><div class="line" style="margin-top:8px"><div class="speaker you"><span class="who">You</span><span class="at">22:31</span></div>
-        <div class="said"><p>Per environment. A character can always open a second one.</p></div></div></div>
-
-      <div class="line"><div class="speaker"><span class="who">Protagonist</span>· opus<span class="at">22:58</span></div>
-        <div class="yield settled">Handoff · outline</div>
-        <div class="said"><p>Outline: (1) <code>harness/term.py</code> — pyte <code>Screen</code> + <code>ByteStream</code> behind a QObject, exposes a row model; (2) <code>qml/content/Terminal.qml</code> — <code>ListView</code> of rows, monospace cells, selection later; (3) PTY: <code>pty.fork</code> on POSIX, ConPTY via <code>pywinpty</code> on Windows, chosen at import. Sub-story for (1) so the screen model gets its own tests.</p></div></div>
-      <div class="stage">(Outline approved — Proceed by you, 23:05 · implementing)</div>
-      <div class="stage">(Protagonist called in Implementor · sonnet on #3 · created sub-story ZH-15)</div>
-
-      <div class="line"><div class="speaker"><span class="who">Protagonist</span>· opus<span class="at">today 09:42</span></div>
-        <span class="aside-btn ghost" title="Aside: ask a private copy of Protagonist about this comment"><svg class="ic " width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path stroke-dasharray="2.6 1.9" d="M2.5 3.5h11v7h-6.5L4 13v-2.5H2.5z"/></svg></span>
-        <div class="yield pending">Handoff · ready for review</div>
-        <div class="said">
-          <p><b>What changed.</b> <code>harness/term.py</code> (from ZH-15), <code>qml/content/Terminal.qml</code>, ConPTY driver behind <code>HARNESS_PTY</code>. The panel opens one shell per environment and survives QML reloads (screen state lives in Python).</p>
-          <p><b>How verified.</b> 31 new unit tests on the screen model; UI test drives <code>ls</code> through the fake PTY and asserts rows. Reviewer signed off in #3 after one round of fixes.</p>
-          <p><b>Look first at</b> <code>term.py::Screen.feed</code> — the resize path is the only part I am not fully happy with.</p>
-        </div>
-        <div class="checks">
-          <div class="ch"><svg class="ic chev" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 4l3.5 4-3.5 4"/></svg><svg class="ic ok" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3 3 7-7"/></svg><span>zharn</span><span class="mono" style="color:var(--muted)">pytest -q</span><span class="r">passed</span></div>
-          <div class="ch"><svg class="ic chev" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5l4 3.5 4-3.5"/></svg><svg class="ic bad" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7"/></svg><span>pywinpty-shim</span><span class="mono" style="color:var(--muted)">npm test</span><span class="r" style="color:var(--red)">exit 1</span></div>
-          <pre>FAIL  resize.spec.ts › shrinks columns without dropping the prompt
-  expected 80, received <b>81</b>
-  at Screen.resize (src/screen.ts:118)</pre>
-        </div></div>
-
-      <div class="composer"><div class="box focus"><span class="lbl">Reply to Protagonist</span><span>The resize failure is real — fix that before I look further.<span class="cur"></span></span></div><span class="btn primary">Send</span></div>
-    </div>
-  </div>
-
-  <div class="thread" style="padding-top:6px">
-    <div class="folded"><svg class="ic " width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 4l3.5 4-3.5 4"/></svg><span class="n">#2</span><span class="t">why pyte and not a real PTY lib?</span><span>You → Protagonist · 2 comments</span><span class="w you">answered · waits on you</span><span class="acts"><span class="btn sm quiet">Reply</span><span class="btn sm quiet">Resolve</span></span></div>
-    <div class="folded"><svg class="ic " width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 4l3.5 4-3.5 4"/></svg><span class="n">#3</span><span class="t">build the terminal view</span><span>Protagonist → Implementor · 7 comments</span><span class="w">Implementor's turn</span></div>
-    <div class="folded"><svg class="ic " width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 4l3.5 4-3.5 4"/></svg><span class="n">#5</span><span class="t">review #3</span><span>Protagonist → Reviewer · 2 comments</span><span class="w">Reviewer's turn</span></div>
-    <div class="folded"><svg class="ic " width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 4l3.5 4-3.5 4"/></svg><span class="n">#4</span><span class="t">does ConPTY need Windows 10 1809+?</span><span>You → Protagonist · 3 comments</span><span class="w res">resolved</span></div>
-  </div>
-
-  <div class="newthread"><div class="composer"><div class="box"><span class="lbl">New thread</span><span>Write to the Protagonist, @Name, /call &lt;role&gt;, or /fork @Name for a copy of their memory</span></div><span class="btn">Open</span></div></div>
-</div></div></div></div></body></html>
+</div>
+        <div class="states"><div class="state"><div class="toolwin right">
+    <div class="member"><span class="st idle"></span><span class="nm">Protagonist<span class="role">opus</span></span>
+      <span class="btn sm quiet">Recast</span>
+      <span class="what m">idle · attending #1</span>
+      <span class="meta">inbox 0 · in zharn</span>
+      <span class="vitals"><span class="meter"><i style="width:0%"></i><b></b></span>0 turns · $0.00</span></div></div><div class="cap">no reading yet</div></div><div class="state"><div class="toolwin right">
+    <div class="member"><span class="st live"></span><span class="nm">Protagonist<span class="role">opus</span></span>
+      <span class="btn sm quiet">Recast</span>
+      <span class="what m">working on #1</span>
+      <span class="meta">inbox 0 · in zharn</span>
+      <span class="vitals"><span class="meter"><i style="width:4%"></i><b></b></span>22K · 1 turn · $0.01</span></div></div><div class="cap">first call</div></div><div class="state"><div class="toolwin right">
+    <div class="member"><span class="st live"></span><span class="nm">Protagonist<span class="role">opus</span></span>
+      <span class="btn sm quiet">Recast</span>
+      <span class="what m">working on #1</span>
+      <span class="meta">inbox 0 · in zharn</span>
+      <span class="vitals"><span class="meter"><i style="width:37%"></i><b></b></span>184K · 23 turns · $0.28</span></div></div><div class="cap">well inside</div></div><div class="state"><div class="toolwin right">
+    <div class="member"><span class="st live"></span><span class="nm">Protagonist<span class="role">opus</span></span>
+      <span class="btn sm quiet">Recast</span>
+      <span class="what m">working on #1</span>
+      <span class="meta">inbox 0 · owes #1 · in zharn</span>
+      <span class="vitals due"><span class="meter"><i class=hot style="width:62%"></i><b></b></span>312K · recap due · 41 turns · $0.61</span></div></div><div class="cap">past the recap line, recap due</div></div><div class="state"><div class="toolwin right">
+    <div class="member"><span class="st idle"></span><span class="nm">Protagonist<span class="role">opus</span></span>
+      <span class="btn sm quiet">Recast</span>
+      <span class="what m">waiting · awaits #3</span>
+      <span class="meta">inbox 0 · in zharn</span>
+      <span class="vitals"><span class="meter"><i style="width:70%"></i><b></b></span>348K · 44 turns · $0.66</span></div></div><div class="cap">past the recap line, recap posted</div></div><div class="state"><div class="toolwin right">
+    <div class="member"><span class="st live"></span><span class="nm">Protagonist<span class="role">opus</span></span>
+      <span class="btn sm quiet">Recast</span>
+      <span class="what m">working on #1</span>
+      <span class="meta">inbox 0 · owes #1 · in zharn</span>
+      <span class="vitals due"><span class="meter"><i class=hot style="width:100%"></i><b></b></span>503K · recap due · recast at turn end · 88 turns · $1.12</span></div></div><div class="cap">past the recast line, recap due</div></div><div class="state"><div class="toolwin right">
+    <div class="member"><span class="st live"></span><span class="nm">Protagonist<span class="role">opus</span></span>
+      <span class="btn sm quiet">Recast</span>
+      <span class="what m">working on #1</span>
+      <span class="meta">inbox 0 · in zharn</span>
+      <span class="vitals"><span class="meter"><i style="width:100%"></i><b></b></span>503K · recast at turn end · 88 turns · $1.12</span></div></div><div class="cap">past the recast line, recap posted</div></div><div class="state"><div class="toolwin right">
+    <div class="member retired"><span class="st idle"></span><span class="nm">Protagonist<span class="role">opus</span></span>
+      
+      <span class="what m">retired</span>
+      <span class="meta">inbox 0</span>
+      <span class="vitals"><span class="meter"><i style="width:43%"></i><b></b></span>214K · 61 turns · $0.80</span></div></div><div class="cap">retired</div></div></div>
+      </div></div></body></html>

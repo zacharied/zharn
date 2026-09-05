@@ -279,9 +279,15 @@ Known churn: every intent re-parses the whole tree and rebuilds all groups (fine
    (plan `docs/superpowers/plans/2026-09-02-characters-delivery.md`): friends fresh or forked, routing to
    addressees, delivery by attention (push mid-turn / inbox), the quiet check at every turn end, `call`/`wait`,
    retirement, sub-stories authored by characters, recast rungs 1 and 3; asides (`Comment.context`,
-   `ContextStore.fork`, `stories.aside`). **Deferred:** context-usage tracking and therefore auto-recast at
-   `CONTEXT_WARN`/`CONTEXT_MAX`; recast rung 2 (a final restricted recap turn); repo `checks` at handoff
+   `ContextStore.fork`, `stories.aside`). **Deferred:** recast rung 2 (a final restricted recap turn); repo `checks` at handoff
    (workspace plan); the QML for cast panel / `/fork` / sub-stories (UI thread).
+   **Context usage shipped 2026-09-04** (proposal `docs/superpowers/proposals/2026-09-04-context-usage.md`, plan
+   `docs/superpowers/plans/2026-09-04-context-usage.md`): the reading is the input side of the latest API call from the
+   CLI's usage fields, the window from `modelUsage`; `CONTEXT_WARN`/`CONTEXT_MAX` are tokens (300K/500K, scaled to a
+   smaller window); a `[harness]` line at each crossing, `recap due` on the situation line, recast at the boundary;
+   Claude Code's auto-compaction is off in every context. **The meter shipped 2026-09-04** (spec §6 "Context vitals"):
+   every cast row and the Contexts pane header lay the reading on the warn/max runway, amber only while a recap is due;
+   tree rows carry the reading, predecessor rows the reading they were recast at (mockup `07-cast-1to1.html`).
 4. **Skills** (proposal `docs/superpowers/proposals/2026-09-03-skills.md`). **Shipped 2026-09-04** (plan
    `docs/superpowers/plans/2026-09-03-skills.md`): `harness/skills/` is one Claude Code plugin (`zharn:<name>`,
    `--plugin-dir` at every spawn) holding `being-a-character`, `planning-a-story`, `implementing-a-story`, `delegating`

@@ -17,6 +17,7 @@ from PySide6.QtCore import QObject, Property, Signal, Slot
 from harness import config as cfg
 from harness import lifecycle as lc
 from harness import skills
+from harness.contexts import context_lines
 from harness.environments import EnvError, EnvironmentStore, register_repo
 from harness.fsutil import write_text_atomic
 from harness.notify import intent
@@ -119,6 +120,7 @@ class StoryStore(QObject):
         self._load()
         contexts.contextsChanged.connect(self._refresh)
         contexts.contextSettled.connect(self._on_turn_end)
+        contexts.contextUsage.connect(self._on_usage)
 
     # ---------------------------------------------------------------- persistence
     def _load(self):
@@ -241,11 +243,52 @@ class StoryStore(QObject):
             return f"#{thread_id}"
         return f"#{lc.thread_label(self._stories[skey], thread_id)}" + (f" of {skey}" if skey != ch["story_key"] else "")
 
+    # ---------------------------------------------------------------- context usage (spec §2.3)
+    def recap_due(self, ch: dict) -> bool:
+        """Past the warn line with no recap since the crossing."""
+        warned = ch.get("context_warned")
+        return warned is not None and len(ch.get("recaps", [])) <= warned
+
+    def _thresholds(self, ctx) -> tuple[int, int]:
+        """The warn and max lines for this context's window (`contexts.context_lines`, the meter's frame)."""
+        return context_lines(getattr(ctx, "contextWindow", 0) or 0)
+
+    def _nudge(self, ch: dict, ctx, text: str):
+        """A harness line into a live context mid-turn, dressed like a delivery: the situation line, then `[harness] …`."""
+        ctx.send(self.situation(ch) + f"\n[harness] {text}")
+
+    def _on_usage(self, context_id: str):
+        """A context's reading moved. Each line is crossed once per context, only mid-turn: warn asks for a recap and
+        the situation line says `recap due` until one lands; max asks the character to finish the step in hand and
+        marks a recast for the turn boundary (§3.4)."""
+        ch = self._character_by_context(context_id)
+        if ch is None:
+            return
+        s = self._stories[ch["story_key"]]
+        ctx = self._contexts.get(context_id)
+        if s.phase in lc.TERMINAL or ctx is None or ctx.status not in WORKING:
+            return
+        tokens = getattr(ctx, "contextTokens", 0) or 0
+        warn, limit = self._thresholds(ctx)
+        where = self._where(ch, ch.get("attention") or s.main_thread)
+        if tokens >= warn and ch.get("context_warned") is None:
+            ch["context_warned"] = len(ch.get("recaps", []))
+            self._nudge(ch, ctx, f"context past the warn line: post a `recap` in {where} now — "
+                                 "your successor is built from the story record and that recap.")
+        if tokens >= limit and not ch.get("context_maxed"):
+            ch["context_maxed"] = True
+            ch.setdefault("recast_pending", {"role": "", "model": "", "cause": "context"})   # a manual one keeps its role
+            self._nudge(ch, ctx, f"context at the limit: finish the step in hand and post a `recap` in {where} now. "
+                                 "You are recast when this turn ends.")
+        self._save_characters()
+        self._refresh()
+
     def situation(self, ch: dict) -> str:
         """Spec §5.3: the volatile facts — one line at the top of every message, never in the system prompt."""
         s = self._stories[ch["story_key"]]
         return (f"[situation] phase {s.phase} · attending {self._where(ch, ch.get('attention') or s.main_thread)} · you owe {self._owes_line(ch)} · "
-                f"you await {self._awaits_line(ch)} · {self.environment_line(ch)}")
+                f"you await {self._awaits_line(ch)} · {self.environment_line(ch)}"
+                + (" · recap due" if self.recap_due(ch) else ""))
 
     def story(self, key: str) -> lc.Story | None:
         try:
@@ -291,7 +334,7 @@ class StoryStore(QObject):
             if ch["story_key"] == key:
                 ctx = self._contexts.get(ch["live_context"]) if ch.get("live_context") else None
                 out.append({**ch, "contextStatus": ctx.status if ctx is not None else "none", "status": self.status(ch),
-                            "owes": self.owes(ch), "awaits": self.awaits(ch), "inboxDepth": len(ch.get("inbox", [])),
+                            "owes": self.owes(ch), "awaits": self.awaits(ch), "inboxDepth": len(ch.get("inbox", [])), "recapDue": self.recap_due(ch),
                             "forkedFrom": ch.get("forked_from") or "", "environment": ch.get("environment") or ""})
         return out
 
@@ -314,7 +357,8 @@ class StoryStore(QObject):
 
     @Slot(str, result="QVariantMap")
     def character(self, character_id):
-        return dict(self._characters[character_id]) if character_id in self._characters else None
+        ch = self._characters.get(character_id)
+        return {**ch, "recapDue": self.recap_due(ch)} if ch is not None else None
 
     # ---------------------------------------------------------------- the one way state changes
     def _apply(self, key: str, action, extra: dict | None = None) -> dict:
@@ -454,7 +498,7 @@ class StoryStore(QObject):
             return  # retired
         if ch.get("recast_pending") is not None:  # a recast waited for this boundary
             pending = ch.pop("recast_pending")
-            self._recast_now(ch, pending.get("role", ""), pending.get("model", ""))
+            self._recast_now(ch, pending.get("role", ""), pending.get("model", ""), pending.get("cause", ""))
             return
         if not self.awaits(ch):
             status = getattr(ctx, "status", "idle")
@@ -725,7 +769,7 @@ class StoryStore(QObject):
             return ""
         return self._recast_now(ch, role, model)
 
-    def _recast_now(self, ch: dict, role: str = "", model: str = "") -> str:
+    def _recast_now(self, ch: dict, role: str = "", model: str = "", cause: str = "") -> str:
         key = ch["story_key"]
         s = self._stories[key]
         role_cfg = dict(self._roles.get(role or ch["role"]) or {})
@@ -751,10 +795,13 @@ class StoryStore(QObject):
             self._contexts.get(cid).meta.setdefault("roleConfig", {})["model"] = model
         ch["live_context"] = cid
         ch.pop("recast_pending", None)
+        ch.pop("context_warned", None)              # the crossings belong to the context that is gone (§3.4)
+        ch.pop("context_maxed", None)
         self._save_characters()
         if old is not None:
             old.stop()
-        self._apply(key, lc.Note(thread_id=s.main_thread, body=f"recast {ch['name']} as {role_cfg['name']} ({rung})"))
+        self._apply(key, lc.Note(thread_id=s.main_thread,
+                                 body=f"recast {ch['name']} as {role_cfg['name']} ({'context; ' if cause == 'context' else ''}{rung})"))
         self._contexts.get(cid).send(render_brief(s, self._comments[key], self._characters, "",
                                                   substories=self._substories(key), situation=situation, skill=skill))
         self._refresh()
@@ -1033,6 +1080,7 @@ class StoryStore(QObject):
         ctx = self._contexts.get(ch["live_context"]) if ch.get("live_context") else None
         ch["recap_turns"] = getattr(ctx, "turns", 0) if ctx is not None else 0
         self._save_characters()
+        self._refresh()   # `_apply` already refreshed, but before the recap counted: `recap due` clears now
         return c
 
     def cast_comment(self, character_id, body, thread_id="", to=()) -> dict:
