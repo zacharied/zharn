@@ -5,7 +5,7 @@ import shutil
 import pytest
 from PySide6.QtTest import QTest
 
-from gitfix import make_repo
+from gitfix import make_repo, rmtree
 from ui import OUT, start, wait_until
 
 
@@ -71,7 +71,7 @@ def test_missing_repo_offers_relocate_and_recovers(ui):
     repo = fresh_repo("ui-ws-repo-c")
     ui.store.workspace.register(str(repo), "c", "", "", "")
     moved = OUT / "ui-ws-repo-c-moved"
-    shutil.rmtree(moved, ignore_errors=True)
+    rmtree(moved)
     shutil.move(str(repo), str(moved))
     ui.store.workspace.workspaceChanged.emit()   # nothing watches the filesystem; the page re-reads status on the signal
     QTest.qWait(80)

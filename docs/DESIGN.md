@@ -251,9 +251,14 @@ Virtual Keyboard, Timeline).
 * WSL (openSUSE Tumbleweed): no sudo, no `tar`; inotify is exhausted by bb's node daemon
   (524,273 / 524,288 watches) → poll. `guiApplications=false` in `.wslconfig` → no display in WSL.
 * Working envs: WSL `~/.venvs/mh-conda` (conda-forge PySide6 6.11.2), Windows
-  `C:\Users\zachd\.venvs\zharn-win` (Python 3.10 + PySide6 6.11.2).
-* Long-term the GUI likely runs on Windows and drives agents in WSL (bb's "machine" concept),
-  or WSLg gets re-enabled. Either works with the architecture above.
+  `C:\Users\zachd\.venvs\My-harness-win` (Python 3.10 + PySide6 6.11.2 + pytest; an editable install of the
+  old `C:\Users\zachd\Code\my-harness` checkout — `python -m harness` from another checkout's directory still
+  runs that checkout, since its cwd is first on `sys.path`; pin `PYTHONPATH` for pytest).
+* Windows runs natively from WSL: `cd` to a `/mnt/c/...` checkout and
+  `cmd.exe /c "set HARNESS_WORKSPACE=%CD%&& ...\python.exe -m harness"` — env vars go inside the cmd string,
+  and cmd.exe refuses a WSL (UNC) working directory.
+* Long-term the GUI may run on Windows and drive agents in WSL (bb's "machine" concept), but that needs
+  the IPC pipe and `HARNESS_CLI` to cross the boundary; today a character runs on the harness's own OS.
 
 ## 8. Next steps
 

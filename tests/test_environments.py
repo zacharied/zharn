@@ -3,6 +3,7 @@ Real temporary git repos via tests/gitfix.py; no network."""
 import json
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -58,7 +59,7 @@ def test_git_suppresses_prompts_and_is_bounded(tmp_path, monkeypatch):
     assert calls, "git() should shell out via subprocess.run"
     kw = calls[-1]
     assert kw["env"]["GIT_TERMINAL_PROMPT"] == "0"
-    assert kw["env"]["GIT_ASKPASS"] == "/bin/echo" and kw["env"]["SSH_ASKPASS"] == "/bin/echo"
+    assert kw["env"]["GIT_ASKPASS"] == "echo" and kw["env"]["SSH_ASKPASS"] == "echo"   # git resolves it via its own shell on every platform
     assert kw["env"]["GIT_SSH_COMMAND"] == "ssh -oBatchMode=yes"
     assert kw["timeout"] == getattr(cfg, "GIT_TIMEOUT_S", 600)
 
@@ -152,7 +153,8 @@ def test_open_unknown_or_missing_repo_creates_nothing(ws, repo, tmp_path):
 def test_setup_runs_once_in_the_worktree_and_is_retried_after_failure(ws, tmp_path):
     p = make_repo(tmp_path / "ws" / "api")
     marker = tmp_path / "gate"
-    register_repo(ws, str(p), setup=f"test -f {marker} && echo ran >> setup.log")
+    # a bash line: the path is quoted because a Windows path has backslashes
+    register_repo(ws, str(p), setup=f"test -f '{marker}' && echo ran >> setup.log")
     es = store(ws, **{"ZH-1": None})
     with pytest.raises(EnvError, match="setup failed"):
         es.open("ZH-1", "api")
@@ -161,7 +163,7 @@ def test_setup_runs_once_in_the_worktree_and_is_retried_after_failure(ws, tmp_pa
     marker.write_text("")
     es.open("ZH-1", "api")
     es.open("ZH-1", "api")
-    assert (path / "setup.log").read_text() == "ran\n" and es.get("ZH-1", "api")["setup_done"] is True
+    assert (path / "setup.log").read_text().split() == ["ran"] and es.get("ZH-1", "api")["setup_done"] is True
 
 
 def test_setup_times_out_raises_env_error_and_leaves_worktree(ws, tmp_path, monkeypatch):
@@ -170,8 +172,10 @@ def test_setup_times_out_raises_env_error_and_leaves_worktree(ws, tmp_path, monk
     register_repo(ws, str(p), setup="sleep 5")
     monkeypatch.setattr(cfg, "SETUP_TIMEOUT_S", 0.2, raising=False)
     es = store(ws, **{"ZH-1": None})
+    t0 = time.time()
     with pytest.raises(EnvError, match="timed out"):
         es.open("ZH-1", "api")
+    assert time.time() - t0 < 3, "the whole process tree must die at the timeout, not just the shell"
     path = ws.local_dir / "worktrees" / "api" / "ZH-1"
     assert path.is_dir() and es.get("ZH-1", "api")["setup_done"] is False
 
@@ -181,7 +185,7 @@ def test_open_recreates_a_deleted_worktree_runs_setup_again(ws, tmp_path):
     import shutil
     p = make_repo(tmp_path / "ws" / "api")
     log = tmp_path / "setup.log"
-    register_repo(ws, str(p), setup=f"echo ran >> {log}")
+    register_repo(ws, str(p), setup=f"echo ran >> '{log}'")
     es = store(ws, **{"ZH-1": None})
     d = es.open("ZH-1", "api")
     assert log.read_text().splitlines() == ["ran"]
@@ -189,6 +193,21 @@ def test_open_recreates_a_deleted_worktree_runs_setup_again(ws, tmp_path):
     es.open("ZH-1", "api")
     assert log.read_text().splitlines() == ["ran", "ran"]
     assert es.get("ZH-1", "api")["setup_done"] is True
+
+
+def test_setup_without_bash_is_an_env_error_naming_the_install(ws, tmp_path, monkeypatch):
+    """The character reads this in its refused `env open`; it must say what to install, and setup stays undone."""
+    from harness import procs
+    p = make_repo(tmp_path / "ws" / "api")
+    register_repo(ws, str(p), setup="echo ran")
+
+    def missing():
+        raise procs.NoBash("Git Bash not found: install Git for Windows")
+    monkeypatch.setattr(procs, "bash_path", missing)
+    es = store(ws, **{"ZH-1": None})
+    with pytest.raises(EnvError, match="Git for Windows"):
+        es.open("ZH-1", "api")
+    assert es.get("ZH-1", "api")["setup_done"] is False
 
 
 def test_describe_carries_the_repos_checks(ws, tmp_path):

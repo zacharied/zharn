@@ -81,9 +81,14 @@ setup  = ".zharn-env-setup.sh"   # optional; run once in every new managed workt
 base   = "main"            # branch managed worktrees are created from; default: the repo's HEAD branch at registration
 ```
 
-Checks are per repo, run per environment (§4.4). Both `checks` and `setup` run through the platform shell — `sh` on POSIX,
-`cmd.exe` on Windows — the same way a terminal would run them; a multi-command line needs that
-shell's syntax (`&&`, `;`, …).
+Checks are per repo, run per environment (§4.4). `checks` and `setup` are bash lines: the harness runs each as
+`bash -c <line>` in the environment directory — the system bash on POSIX, Git Bash on Windows — so one string
+serves every checkout of a committed `workspace.toml`. A multi-command line uses bash syntax (`&&`, `;`, …).
+`config.BASH_PATH` names the interpreter; unset, it is `bash` on PATH on POSIX and, on Windows,
+`CLAUDE_CODE_GIT_BASH_PATH` or Git for Windows' `bin\bash.exe` beside the `git` on PATH (never System32's
+`bash.exe`, which is WSL). The same bash is pinned into every Windows character's Claude Code
+(`CLAUDE_CODE_GIT_BASH_PATH`, PowerShell tool off), so the shell a character types into and the shell its
+checks run in are one. No bash is a refused handoff or a failed `env open` whose message names Git for Windows.
 
 ### 3.2 Who registers
 

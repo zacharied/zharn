@@ -63,6 +63,11 @@ WATCH_POLL_MS = 250
 # The claude-code CLI (`claude`). Override per machine with HARNESS_CLAUDE_CMD (tests use a fake).
 CLAUDE_CMD = ["claude"]
 
+# The bash that runs a repo's `checks` and `setup` (workspace spec §3.1) and that a Windows character's Claude Code
+# is pinned to. "" = find it: `bash` on PATH on POSIX; on Windows CLAUDE_CODE_GIT_BASH_PATH, then Git for Windows
+# beside the `git` on PATH (never System32's bash.exe, which is WSL).
+BASH_PATH = ""
+
 # harness permission → claude-code flags
 PERMISSION_FLAGS = {
     "accept-edits": ["--permission-mode", "acceptEdits"],

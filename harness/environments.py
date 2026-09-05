@@ -13,6 +13,7 @@ from typing import Callable
 
 from harness import config as cfg
 from harness.fsutil import write_text_atomic
+from harness.procs import NoBash, run_shell
 
 
 class EnvError(Exception):
@@ -21,8 +22,8 @@ class EnvError(Exception):
 
 def git(cwd: Path, *args: str) -> str:
     """Never prompts (a clone needing credentials must fail, not hang the GUI thread) and never runs unbounded."""
-    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "/bin/echo", "SSH_ASKPASS": "/bin/echo",
-           "GIT_SSH_COMMAND": "ssh -oBatchMode=yes"}
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "echo", "SSH_ASKPASS": "echo",   # git runs askpass through its
+           "GIT_SSH_COMMAND": "ssh -oBatchMode=yes"}                                                    # own shell: a bare name works everywhere
     timeout = getattr(cfg, "GIT_TIMEOUT_S", 600)
     try:
         r = subprocess.run(["git", *args], cwd=str(cwd), capture_output=True, text=True, env=env, timeout=timeout)
@@ -142,10 +143,12 @@ class EnvironmentStore:
         if cmd:
             timeout = getattr(cfg, "SETUP_TIMEOUT_S", 600)
             try:
-                res = subprocess.run(cmd, shell=True, cwd=rec["path"], capture_output=True, text=True, timeout=timeout)
-            except subprocess.TimeoutExpired:
+                code, output = run_shell(cmd, rec["path"], timeout)
+            except NoBash as e:   # the character reads this in its refused `env open`
+                raise EnvError(str(e))
+            if code is None:
                 raise EnvError(f"setup timed out after {timeout}s in {rec['path']}")
-            if res.returncode != 0:
-                raise EnvError(f"setup failed in {rec['path']} (exit {res.returncode}): {(res.stderr or res.stdout).strip()[-2000:]}")
+            if code != 0:
+                raise EnvError(f"setup failed in {rec['path']} (exit {code}): {output.strip()[-2000:]}")
         rec["setup_done"] = True
         self._save()

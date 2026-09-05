@@ -407,6 +407,7 @@ def test_server_closes_connection_after_one_reply(recording_server):
     assert pump_until(lambda: sock.state() == QLocalSocket.LocalSocketState.UnconnectedState)
 
 
+@pytest.mark.skipif(os.name == "nt", reason="a POSIX socket file outlives its process; a named pipe does not")
 def test_new_server_replaces_stale_server_of_same_name():
     name = unique_name()
     stale = IpcServer(name, lambda c, a: "stale")

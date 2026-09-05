@@ -36,12 +36,16 @@ def test_missing_program_finishes_with_failure_naming_it(monkeypatch):
 
 
 def test_program_on_path_is_resolved_to_absolute(tmp_path, monkeypatch):
-    exe = tmp_path / "fakeclaude"
-    exe.write_text("#!/bin/sh\nexit 0\n")
-    exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
+    if os.name == "nt":
+        exe = tmp_path / "fakeclaude.bat"   # PATHEXT: `fakeclaude` resolves to it, as `claude` resolves to npm's claude.cmd
+        exe.write_text("@exit /b 0\n")
+    else:
+        exe = tmp_path / "fakeclaude"
+        exe.write_text("#!/bin/sh\nexit 0\n")
+        exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
     monkeypatch.setenv("PATH", str(tmp_path) + os.pathsep + os.environ.get("PATH", ""))
     monkeypatch.setenv("HARNESS_CLAUDE_CMD", "fakeclaude --flag")
     assert claude_command() == ["fakeclaude", "--flag"]
     p = ClaudeCodeProcess(cwd=os.getcwd(), env={})
-    assert p.program == str(exe)
+    assert os.path.normcase(p.program) == os.path.normcase(str(exe))   # Windows resolves via PATHEXT, which is upper-case
     assert p.args[0] == "--flag"

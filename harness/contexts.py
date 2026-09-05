@@ -19,6 +19,7 @@ from harness import skills
 from harness.agents import ClaudeCodeProcess, StreamInterpreter, TranscriptModel
 from harness.fsutil import write_text_atomic
 from harness.notify import intent
+from harness.procs import claude_shell_env
 from harness.qmodels import DictListModel
 
 CONTEXT_ROLES = ["id", "title", "storyKey", "owner", "status", "roleName", "costUsd", "turns", "createdAt",
@@ -164,6 +165,7 @@ class Context(QObject):
                "HARNESS_WORKSPACE": str(self._store.workspace_dir), "HARNESS_CLI": f"{sys.executable} -m harness.cli",
                "DISABLE_AUTO_COMPACT": "1",   # the ladder is the only compaction (spec §2.3)
                "PYTHONPATH": os.pathsep.join(p for p in (str(self._store.root), os.environ.get("PYTHONPATH", "")) if p)}
+        env.update(claude_shell_env())   # Windows: Claude Code's Bash tool is the harness's bash; PowerShell tool off
         env.update(self.meta.get("env") or {})
         env.update(extra or {})
         env.update(self._store.extra_env())
@@ -204,6 +206,8 @@ class Context(QObject):
         if self._proc is None or not self._proc.running():
             self._set_status("starting")
             self._spawn(resume=self._interp.session_id)
+            if self._proc is None:   # FailedToStart arrived from inside start() (Windows): _on_finished has already failed us
+                return
         else:
             self._set_status("working")
         self._unacked += 1

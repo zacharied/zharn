@@ -71,6 +71,17 @@ def test_env_pythonpath_is_just_root_when_none_was_inherited(store, monkeypatch)
     assert c._env()["PYTHONPATH"] == str(ROOT)
 
 
+def test_env_carries_the_character_shell_pin(store, monkeypatch):
+    """On Windows the character's Claude Code is pinned to the harness's bash with the PowerShell tool off; the
+    pin comes from procs.claude_shell_env so one function decides it for the checks and for the character."""
+    import harness.contexts as contexts_mod
+    pin = {"CLAUDE_CODE_GIT_BASH_PATH": r"X:\Git\bin\bash.exe", "CLAUDE_CODE_USE_POWERSHELL_TOOL": "0"}
+    monkeypatch.setattr(contexts_mod, "claude_shell_env", lambda: dict(pin))
+    c = store.get(store.create("claude-fast"))
+    env = c._env()
+    assert {k: env.get(k) for k in pin} == pin
+
+
 def test_new_bare_has_human_owner_and_no_story(store):
     cid = store.newBare("claude-default")
     c = store.get(cid)
@@ -99,6 +110,18 @@ def test_unstartable_cli_fails_the_context_with_a_visible_reason(store, monkeypa
     assert wait_until(lambda: c.status == "failed"), c.status
     assert "claude-nope" in c.lastError and c.transcript.rows()[-1]["kind"] == "error"
     assert store.model.rows()[-1]["status"] == "failed"
+
+
+def test_a_cli_that_fails_to_start_synchronously_still_fails_the_context(store, monkeypatch):
+    """On Windows QProcess reports FailedToStart from inside start(), so finished() has already run — and dropped
+    the process — before send() gets to write the prompt. Linux delivers it later; the outcome must be the same."""
+    from PySide6.QtCore import QProcess
+    from harness.agents import ClaudeCodeProcess
+    monkeypatch.setattr(ClaudeCodeProcess, "start", lambda self: self._on_error(QProcess.ProcessError.FailedToStart))
+    cid = store.spawn("claude-fast", "hello")
+    c = store.get(cid)
+    assert c.status == "failed" and "failed to start" in c.lastError, (c.status, c.lastError)
+    assert c.transcript.rows()[-1]["kind"] == "error"
 
 
 def test_send_on_a_failed_context_retries_by_spawning_again(store, monkeypatch):

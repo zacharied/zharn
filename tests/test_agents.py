@@ -183,12 +183,16 @@ def test_cli_story_show_over_ipc(harness):
     app, store, _ = harness
     key = store.stories.list()[-1]["key"]
     env = {**os.environ, "HARNESS_IPC": store.ipcPath}
-    p = subprocess.Popen([sys.executable, "-m", "harness.cli", "--json", "story", "show", key], stdout=subprocess.PIPE,
-                         stderr=subprocess.PIPE, text=True, env=env, cwd=ROOT)
-    assert wait_until(lambda: p.poll() is not None, timeout_ms=30000)
-    out, err = p.communicate()
-    assert p.returncode == 0, err
-    data = json.loads(out)
+    # stdout goes to a file: nobody drains a pipe while wait_until pumps the event loop, and a story's JSON is
+    # bigger than a pipe buffer (4 KiB on Windows) — the CLI would block on its print and never exit.
+    with open(OUT / "story-show.json", "w+", encoding="utf-8") as out_file:
+        p = subprocess.Popen([sys.executable, "-m", "harness.cli", "--json", "story", "show", key], stdout=out_file,
+                             stderr=subprocess.PIPE, text=True, env=env, cwd=ROOT)
+        assert wait_until(lambda: p.poll() is not None, timeout_ms=30000)
+        _, err = p.communicate()
+        assert p.returncode == 0, err
+        out_file.seek(0)
+        data = json.load(out_file)
     assert data["key"] == key and data["comments"] and data["cast"][0]["name"] == "protagonist" and data["contexts"]
 
 

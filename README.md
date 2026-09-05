@@ -21,9 +21,12 @@ Always install **editable** (`-e`): the app runs from your checkout (`qml/`, `ha
 transcripts in `.zharn/local/`) — that is the whole point. A plain `pip install .` would copy
 `harness/` into site-packages, away from `qml/`.
 
-Windows: works natively (PySide6 wheels, no WSL needed). For real agents the `claude` CLI must be
-on PATH for the *same* OS the harness runs on; set `CLAUDE_CMD` in `harness/config.py` if it lives
-elsewhere (e.g. `["wsl", "claude"]` to drive the WSL install from a Windows harness).
+Windows: works natively (PySide6 wheels, no WSL needed) and requires [Git for Windows](https://git-scm.com/downloads/win):
+Claude Code runs its Bash tool in Git Bash, the harness runs every repo's `checks` and `setup` in that same bash, and
+it pins each character to it (`CLAUDE_CODE_GIT_BASH_PATH`, PowerShell tool off) so the skills' bash never meets a second
+dialect. The `claude` CLI must be installed for the *same* OS the harness runs on: a character reaches the harness over
+a local pipe and runs `python -m harness.cli` with the harness's own interpreter, and neither crosses the WSL boundary.
+Set `CLAUDE_CMD` in `harness/config.py` if it is not on PATH, and `BASH_PATH` if bash lives somewhere unusual.
 
 The UI follows JetBrains' New UI conventions (DESIGN.md §3a): tool windows on icon strips, editor
 tabs in the middle, a Stories tree on the left, the Cast of the focused story on the right, Contexts

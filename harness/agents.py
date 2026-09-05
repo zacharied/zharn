@@ -77,11 +77,19 @@ class TranscriptModel(QAbstractListModel):
 
 
 # --------------------------------------------------------------------------- claude-code process
+def split_command(text: str, nt: bool) -> list[str]:
+    """A command line into argv. POSIX quoting on POSIX. On Windows a backslash is a path separator, not an escape,
+    and a double-quoted token is one argument with the quotes removed (shlex's non-POSIX mode leaves them on)."""
+    if not nt:
+        return shlex.split(text)
+    return [t[1:-1] if len(t) >= 2 and t[0] == t[-1] == '"' else t for t in shlex.split(text, posix=False)]
+
+
 def claude_command() -> list[str]:
     """The CLI to run. HARNESS_CLAUDE_CMD overrides (tests point it at a fake)."""
     override = os.environ.get("HARNESS_CLAUDE_CMD")
     if override:
-        return shlex.split(override, posix=os.name != "nt")
+        return split_command(override, nt=os.name == "nt")
     return list(getattr(cfg, "CLAUDE_CMD", ["claude"]))
 
 

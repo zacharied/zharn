@@ -2,6 +2,8 @@
 The end-to-end CLI-over-IPC path lives in test_agents.py::test_cli_over_ipc."""
 import io
 import json
+from pathlib import Path
+import sys
 import os
 import socket
 import subprocess
@@ -24,12 +26,11 @@ def test_request_exits_with_clear_message_when_ipc_unset(monkeypatch):
     assert "HARNESS_IPC is not set" in str(e.value)
 
 
-posix_only = pytest.mark.skipif(os.name == "nt", reason="AF_UNIX fake server")
-
-
 @pytest.fixture
 def fake_server(tmp_path, monkeypatch):
     """One-shot AF_UNIX server in a thread: reads one line, records it, replies with `reply`."""
+    if os.name == "nt":
+        pytest.skip("AF_UNIX fake server; the Windows named-pipe client is covered by test_agents.py")
     path = str(tmp_path / "ipc.sock")
     srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     srv.bind(path)
@@ -59,14 +60,12 @@ def fake_server(tmp_path, monkeypatch):
     t.join(timeout=5)
 
 
-@posix_only
 def test_request_sends_cmd_and_args_and_returns_result(fake_server):
     state = fake_server({"ok": True, "result": {"pid": 42}})
     assert cli.request("ping", {"a": 1}) == {"pid": 42}
     assert state["received"] == {"cmd": "ping", "args": {"a": 1}}
 
 
-@posix_only
 def test_request_exits_with_server_error_text_when_not_ok(fake_server):
     fake_server({"ok": False, "error": "KeyError: 'nope'"})
     with pytest.raises(SystemExit) as e:
@@ -74,7 +73,7 @@ def test_request_exits_with_server_error_text_when_not_ok(fake_server):
     assert str(e.value) == "error: KeyError: 'nope'"
 
 
-@posix_only
+@pytest.mark.skipif(os.name == "nt", reason="AF_UNIX fake server")
 def test_request_exits_with_clear_message_when_the_harness_never_replies(tmp_path, monkeypatch):
     """C2: a clone/worktree/setup on the harness side can run far longer than a short socket timeout; the CLI
     must say plainly that it gave up waiting, not crash with a raw socket.timeout traceback."""
@@ -431,6 +430,8 @@ def test_story_create_and_author_verbs_inside_a_character(recorder, monkeypatch)
 @pytest.fixture
 def fake_ipc(tmp_path, monkeypatch):
     """Serves `replies` in order, one connection each; records every request."""
+    if os.name == "nt":
+        pytest.skip("AF_UNIX fake server; the Windows named-pipe client is covered by test_agents.py")
     path = str(tmp_path / "ipc2.sock")
     srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     srv.bind(path); srv.listen(8); srv.settimeout(10)
@@ -471,7 +472,6 @@ def test_repo_add_and_env_open_use_a_long_request_timeout(recorder, monkeypatch,
     assert timeouts["env.open"]["timeout"] == cli.LONG_REQUEST_TIMEOUT_S
 
 
-@posix_only
 def test_repo_and_env_verbs(fake_ipc, capsys, tmp_path):
     st = fake_ipc({"name": "api"}, [{"name": "api", "status": "ok"}], {"repo": "api", "path": "/wt/api"}, [])
     cli.main(["repo", "add", str(tmp_path / "api"), "--checks", "pytest -q"])
@@ -486,7 +486,6 @@ def test_repo_and_env_verbs(fake_ipc, capsys, tmp_path):
     assert "/wt/api\n" in out and "name=api  status=ok" in out
 
 
-@posix_only
 def test_repo_add_keeps_urls_and_absolutises_paths(fake_ipc, monkeypatch, tmp_path):
     st = fake_ipc({"name": "a"}, {"name": "b"})
     monkeypatch.chdir(tmp_path)
@@ -500,15 +499,18 @@ def test_run_checks_runs_each_env_and_truncates(tmp_path):
     a, b = tmp_path / "a", tmp_path / "b"
     a.mkdir(); b.mkdir()
     (a / "ok.txt").write_text("")
-    res = cli.run_checks([{"repo": "a", "checks": "test -f ok.txt && echo fine", "path": str(a)},
-                          {"repo": "b", "checks": "echo 0123456789; test -f ok.txt", "path": str(b)}], limit=6, timeout=30)
-    assert res == [{"repo": "a", "cmd": "test -f ok.txt && echo fine", "exit": 0, "output": "fine\n"[-6:]},
-                   {"repo": "b", "cmd": "echo 0123456789; test -f ok.txt", "exit": 1, "output": "56789\n"}]
+    ok, missing = "test -f ok.txt && echo fine", "echo 0123456789; test -f ok.txt"
+    res = cli.run_checks([{"repo": "a", "checks": ok, "path": str(a)},
+                          {"repo": "b", "checks": missing, "path": str(b)}], limit=6, timeout=30)
+    assert res == [{"repo": "a", "cmd": ok, "exit": 0, "output": "fine\n"[-6:]},
+                   {"repo": "b", "cmd": missing, "exit": 1, "output": "56789\n"}]
 
 
 def test_run_checks_times_out(tmp_path):
+    t0 = time.time()
     res = cli.run_checks([{"repo": "s", "checks": "sleep 5", "path": str(tmp_path)}], limit=100, timeout=0.2)
     assert res[0]["exit"] == -1 and "timed out" in res[0]["output"]
+    assert time.time() - t0 < 3, "the whole process tree must die at the timeout, not just the shell"
 
 
 def test_run_checks_output_is_empty_when_limit_is_zero(tmp_path):
@@ -517,19 +519,17 @@ def test_run_checks_output_is_empty_when_limit_is_zero(tmp_path):
     assert res[0]["exit"] == 0 and res[0]["output"] == ""
 
 
-@posix_only
 def test_run_checks_kills_the_whole_process_group_on_timeout(tmp_path):
     """M4: a timed-out check must not leave grandchildren (spawned by the shell it ran in) running — the whole
     process group started for the check has to die, not just the immediate shell."""
     marker = tmp_path / "child-ran"
-    cmd = f"sh -c 'sleep 3; touch {marker}' & wait"
+    cmd = f"bash -c 'sleep 3; touch {marker}' & wait"
     res = cli.run_checks([{"repo": "s", "checks": cmd, "path": str(tmp_path)}], limit=100, timeout=0.3)
     assert res[0]["exit"] == -1
     time.sleep(1)   # the backgrounded child's sleep would have finished by now if it survived the timeout
     assert not marker.exists()
 
 
-@posix_only
 def test_handoff_refuses_a_dirty_tree_before_running_checks(fake_ipc, tmp_path, capsys):
     repo = _git_repo(tmp_path / "api"); (repo / "hello.py").write_text("changed")
     st = fake_ipc({"run": True, "policy": "gate", "limit": 100, "timeout": 30,
@@ -549,7 +549,6 @@ def test_handoff_skips_repos_without_checks(fake_ipc, tmp_path):
     assert [r["args"]["checks"] for r in st["received"] if r["cmd"] == "story.yield"] == [[]]
 
 
-@posix_only
 def test_handoff_runs_checks_and_gates_on_failure(fake_ipc, tmp_path, capsys):
     tmp_path = _git_repo(tmp_path / "api")
     plan = {"run": True, "policy": "gate", "limit": 100, "timeout": 30,
@@ -562,7 +561,6 @@ def test_handoff_runs_checks_and_gates_on_failure(fake_ipc, tmp_path, capsys):
     assert "[api] test -f ok.txt" in capsys.readouterr().err
 
 
-@posix_only
 def test_handoff_posts_with_checks_when_they_pass_or_despite_or_attach(fake_ipc, tmp_path):
     tmp_path = _git_repo(tmp_path / "api")
     (tmp_path / "ok.txt").write_text("")
@@ -583,6 +581,22 @@ def test_handoff_posts_with_checks_when_they_pass_or_despite_or_attach(fake_ipc,
     assert all(y["kind"] == "handoff" for y in yields)
 
 
+def test_handoff_without_bash_is_refused_naming_the_install(fake_ipc, tmp_path, monkeypatch):
+    """No bash to run the checks in is a refused handoff whose message says what to install — not a traceback."""
+    from harness import procs
+    repo = _git_repo(tmp_path / "api")
+    st = fake_ipc({"run": True, "policy": "gate", "limit": 100, "timeout": 30,
+                   "environments": [{"repo": "api", "checks": "pytest -q", "path": str(repo)}]})
+
+    def missing():
+        raise procs.NoBash("Git Bash not found: install Git for Windows")
+    monkeypatch.setattr(procs, "bash_path", missing)
+    with pytest.raises(SystemExit) as e:
+        cli.main(["story", "yield", "--handoff", "--body", "done"])
+    assert str(e.value).startswith("handoff refused:") and "Git for Windows" in str(e.value)
+    assert [r["cmd"] for r in st["received"]] == ["env.checks"]     # nothing posted
+
+
 def test_story_proceed_prints_the_skill_after_the_comment(recorder, monkeypatch, capsys):
     monkeypatch.setenv("HARNESS_CHARACTER_ID", "chr1")
     recorder.replies["story.proceed"] = {"id": "cmt_1", "kind": "system", "skill": "# Implementing\n\nBuild."}
@@ -590,3 +604,17 @@ def test_story_proceed_prints_the_skill_after_the_comment(recorder, monkeypatch,
     assert capsys.readouterr().out == "id: cmt_1\nkind: system\n\n# Implementing\n\nBuild.\n"
     cli.main(["--json", "story", "proceed"])
     assert json.loads(capsys.readouterr().out)["skill"] == "# Implementing\n\nBuild."
+
+
+# ---------------------------------------------------------------- encoding
+
+def test_cli_stdio_is_utf8_whatever_the_console_says(tmp_path):
+    """Piped under Claude Code on Windows the streams default to the ANSI code page; a story body with a check mark
+    then kills `story show`. The CLI owns its encoding: bash hands it UTF-8 bytes and gets UTF-8 back."""
+    env = {k: v for k, v in os.environ.items() if k not in ("PYTHONUTF8",)}
+    env["PYTHONIOENCODING"] = "cp1252"   # the worst console, on every platform
+    env["PYTHONPATH"] = str(Path(__file__).resolve().parent.parent)
+    r = subprocess.run([sys.executable, "-c", "import harness.cli, sys; print(sys.stdin.encoding, sys.stdout.encoding, sys.stderr.encoding); print('\u2713')"],
+                       capture_output=True, env=env, timeout=30)
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.decode("utf-8").splitlines()[:2] == ["utf-8 utf-8 utf-8", "\u2713"]

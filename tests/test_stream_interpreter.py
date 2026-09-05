@@ -7,7 +7,7 @@ import json
 import pytest
 
 from harness import config as cfg
-from harness.agents import StreamInterpreter, TranscriptModel, _block_text, claude_command
+from harness.agents import StreamInterpreter, TranscriptModel, _block_text, claude_command, split_command
 
 
 # --------------------------------------------------------------------------- event builders
@@ -354,6 +354,18 @@ def test_claude_command_honors_env_override(monkeypatch):
 def test_claude_command_env_override_supports_quoting(monkeypatch):
     monkeypatch.setenv("HARNESS_CLAUDE_CMD", '"/path with space/claude" --x')
     assert claude_command() == ["/path with space/claude", "--x"]
+
+
+def test_split_command_on_windows_drops_quotes_and_keeps_backslashes():
+    """Windows has no POSIX quoting: shlex's non-POSIX mode keeps the quotes on a token, which would make the
+    program name a path with literal quotes in it (never found). Backslashes are path separators, not escapes."""
+    assert split_command(r'"C:\path with space\claude.exe" --x', nt=True) == [r"C:\path with space\claude.exe", "--x"]
+    assert split_command(r"C:\Users\z\Scripts\python.exe fake.py --flag", nt=True) == [r"C:\Users\z\Scripts\python.exe", "fake.py", "--flag"]
+
+
+def test_split_command_on_posix_honors_shell_quoting():
+    assert split_command('"/path with space/claude" --x', nt=False) == ["/path with space/claude", "--x"]
+    assert split_command(r"/usr/bin/python3 /tmp/fake\ claude.py", nt=False) == ["/usr/bin/python3", "/tmp/fake claude.py"]
 
 
 def test_claude_command_falls_back_to_config(monkeypatch):

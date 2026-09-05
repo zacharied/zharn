@@ -5,14 +5,18 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import signal
 import socket
 import subprocess
 import sys
 import threading
 import time
 
+from harness.procs import NoBash, run_shell
+
 sys.dont_write_bytecode = True  # never dirty the watched tree (would trigger a reload)
+for _stream in (sys.stdin, sys.stdout, sys.stderr):   # bash hands us UTF-8 and expects it back, whatever the console's
+    if hasattr(_stream, "reconfigure"):                  # code page says (cp1252 when piped under Claude Code on Windows)
+        _stream.reconfigure(encoding="utf-8", errors="replace")
 
 LONG_REQUEST_TIMEOUT_S = 1500.0   # longer than GIT_TIMEOUT_S + SETUP_TIMEOUT_S (600 + 600), for repo.add / env.open
 
@@ -99,27 +103,13 @@ def dirty_trees(envs: list[dict]) -> list[dict]:
 
 def run_checks(envs: list[dict], limit: int, timeout: float) -> list[dict]:
     """Workspace spec §4.6: each repo's `checks` in that environment; a repo without `checks` contributes nothing.
-    Output truncated to `limit` characters. Runs in its own process group on POSIX so a timeout can kill the
-    whole tree a shell command may have spawned, not just the shell."""
+    Output truncated to `limit` characters; a timeout kills the whole process tree and reports exit -1."""
     results = []
     for e in envs:
         if not e.get("checks"):
             continue
-        kwargs = {"start_new_session": True} if os.name != "nt" else {}
-        p = subprocess.Popen(e["checks"], shell=True, cwd=e["path"], stdout=subprocess.PIPE,
-                             stderr=subprocess.STDOUT, text=True, **kwargs)
-        try:
-            output, _ = p.communicate(timeout=timeout)
-            code = p.returncode
-        except subprocess.TimeoutExpired:
-            if os.name != "nt":
-                try:
-                    os.killpg(os.getpgid(p.pid), signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-            else:
-                p.kill()
-            p.communicate()
+        code, output = run_shell(e["checks"], e["path"], timeout)
+        if code is None:
             code, output = -1, f"timed out after {timeout}s"
         results.append({"repo": e["repo"], "cmd": e["checks"], "exit": code, "output": output[-limit:] if limit else ""})
     return results
@@ -268,7 +258,10 @@ def main(argv=None):
                 for d in dirty:
                     print(f"[{d['repo']}] {d['path']}\n{d['status']}", file=sys.stderr)
                 sys.exit("handoff refused: uncommitted changes in " + ", ".join(d["repo"] for d in dirty) + " — commit them and retry")
-            checks = run_checks(plan["environments"], plan["limit"], plan["timeout"])
+            try:
+                checks = run_checks(plan["environments"], plan["limit"], plan["timeout"])
+            except NoBash as e:
+                sys.exit(f"handoff refused: {e}")
             failed = [c for c in checks if c["exit"] != 0]
             if failed and plan["policy"] == "gate" and not a.despite_checks:
                 for c in failed:
