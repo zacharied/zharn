@@ -259,6 +259,38 @@ def test_parents_later_commits_do_not_move_the_substory(ws, repo):
     assert not (Path(sub["path"]) / "later.txt").exists()     # plain git: a branch, not a view
 
 
+# ---------------------------------------------------------------- target and behind (§4.8)
+
+def test_target_is_base_at_the_root_and_the_parents_branch_below(ws, repo):
+    es = store(ws, **{"ZH-1": None, "ZH-2": "ZH-1"})
+    child = es.open("ZH-2", "client")
+    assert es.target(es.get("ZH-1", "client")) == "main"
+    assert es.target(es.get("ZH-2", "client")) == "zharn/ZH-1"
+    assert child["target"] == "zharn/ZH-1" and child["repo_path"] == str(repo.resolve())
+
+
+def test_behind_counts_target_commits_the_branch_lacks(ws, repo):
+    es = store(ws, **{"ZH-1": None})
+    es.open("ZH-1", "client")
+    rec = es.get("ZH-1", "client")
+    assert es.behind(rec) == 0
+    commit_file(repo, "m1.txt"); commit_file(repo, "m2.txt")        # main moves on in the main checkout
+    assert es.behind(rec) == 2
+    run(Path(rec["path"]), "rebase", "-q", "main")
+    assert es.behind(rec) == 0
+    commit_file(Path(rec["path"]), "work.txt")                        # ahead is not behind
+    assert es.behind(rec) == 0
+
+
+def test_behind_on_a_missing_repo_is_the_missing_message(ws, repo):
+    from gitfix import rmtree
+    es = store(ws, **{"ZH-1": None})
+    es.open("ZH-1", "client")
+    rmtree(repo)
+    with pytest.raises(EnvError, match="missing"):
+        es.behind(es.get("ZH-1", "client"))
+
+
 # ---------------------------------------------------------------- end to end: cwd at spawn (§4.5)
 import os
 import shutil

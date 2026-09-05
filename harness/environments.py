@@ -107,7 +107,23 @@ class EnvironmentStore:
 
     def describe(self, rec: dict) -> dict:
         r = self.ws.repo(rec["repo"]) or {}
-        return {**rec, "checks": r.get("checks", "")}
+        return {**rec, "checks": r.get("checks", ""), "target": self.target(rec),
+                "repo_path": str(self.ws.repo_path(r)) if r else ""}
+
+    # ---------------------------------------------------------------- the target (§4.8)
+    def target(self, rec: dict) -> str:
+        """The branch this environment's branch lands in: the parent environment's branch, else the repo's `base`.
+        No git call — this is read for every board row — and "" when the repo is no longer registered."""
+        if rec.get("parent"):
+            pk, prepo = rec["parent"].split(":", 1)
+            prec = self.get(pk, prepo)
+            return prec["branch"] if prec else f"zharn/{pk}"
+        return (self.ws.repo(rec["repo"]) or {}).get("base", "")
+
+    def behind(self, rec: dict) -> int:
+        """Commits on the target that the branch lacks. 0 means up to date: the target's tip is an ancestor."""
+        _, repo_path = self._repo(rec["repo"])
+        return int(git(repo_path, "rev-list", "--count", f"{rec['branch']}..{self.target(rec)}") or 0)
 
     # ---------------------------------------------------------------- open (§4.4)
     def open(self, story: str, repo: str) -> dict:
