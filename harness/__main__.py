@@ -39,6 +39,7 @@ def build(argv=None, force_poll=False):
     sys.dont_write_bytecode = True  # hot reload must compile from source (stale .pyc has 1s mtime granularity)
     import harness.config as cfg
     from harness.content import ContentRegistry
+    from harness.icons import app_icon
     from harness.ipc import IpcServer, make_handler
     from harness.notify import Notifier
     from harness.roles import RoleStore
@@ -52,6 +53,7 @@ def build(argv=None, force_poll=False):
     app = QGuiApplication.instance() or QGuiApplication(argv or sys.argv)
     app.setApplicationName("zharn")
     app.setOrganizationName("zharn")
+    app.setWindowIcon(app_icon())
     QQuickStyle.setStyle("Basic")
 
     ws_env = os.environ.get("HARNESS_WORKSPACE")

@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!-- zharn's mark: a milled Z seated on a violet plate. Drawn as real geometry, not filters:
+       Qt's SVG renderer is Tiny 1.2 and ignores filter/feDropShadow, so the bevel is three
+       offset copies of the one letterform (wall, lit rim, face). -->
+  <defs>
+    <linearGradient id="plate" x1="0.1233" y1="-0.0801" x2="0.8767" y2="1.0801">
+      <stop offset="0" stop-color="#8E72FF"/>
+      <stop offset="0.42" stop-color="#7C5CFF"/>
+      <stop offset="1" stop-color="#4B1FBF"/>
+    </linearGradient>
+    <linearGradient id="face" x1="0" y1="0" x2="0.3" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#E3D6FF"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="59" fill="url(#plate)"/>
+  <path d="M41 41H215V84L108 172H215V215H41V172L148 84H41Z" transform="translate(6 7)" fill="#17121F" fill-opacity="0.20"/>
+  <path d="M41 41H215V84L108 172H215V215H41V172L148 84H41Z" transform="translate(5 5)" fill="#3A1596"/>
+  <path d="M41 41H215V84L108 172H215V215H41V172L148 84H41Z" transform="translate(-3.6 -3.6)" fill="#FFFFFF"/>
+  <path d="M41 41H215V84L108 172H215V215H41V172L148 84H41Z" fill="url(#face)"/>
+</svg>

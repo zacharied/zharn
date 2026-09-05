@@ -10,13 +10,27 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QSize, Qt
-from PySide6.QtGui import QImage, QPainter
+from PySide6.QtGui import QIcon, QImage, QPainter
 from PySide6.QtQuick import QQuickImageProvider
 from PySide6.QtSvg import QSvgRenderer
 
 ICON_DIR = Path(__file__).resolve().parent.parent / "qml" / "icons"
+BRAND_DIR = Path(__file__).resolve().parent.parent / "qml" / "brand"
+APP_ICON_SIZES = (16, 24, 32, 48, 64, 128, 256)
 PLACEHOLDER = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">'
                '<rect x="2.5" y="2.5" width="11" height="11" rx="2"/><path d="M5 5l6 6M11 5l-6 6"/></svg>')
+
+
+def app_icon() -> QIcon:
+    """The window and taskbar icon. Pre-rendered PNGs rather than qml/brand/zharn.svg: the mark's
+    bevel is sub-pixel below 32px, and Qt's own downscale of it is muddier than a rendered size.
+    Regenerate the PNGs with tools/build_icon.py after editing the SVG."""
+    icon = QIcon()
+    for px in APP_ICON_SIZES:
+        path = BRAND_DIR / f"zharn-{px}.png"
+        if path.exists():
+            icon.addFile(str(path), QSize(px, px))
+    return icon
 
 
 def icon_names() -> list[str]:
