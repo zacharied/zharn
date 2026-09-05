@@ -62,7 +62,7 @@ ContentBase {
                     readonly property bool open: !board.collapsed[modelData.phase]
                     readonly property color phaseColor: T.phaseColor(app.theme, modelData.phase)
                     width: tree.width
-                    visible: modelData.phase !== "canceled" || cards.length > 0
+                    visible: board.rows.length > 0 && (modelData.phase !== "canceled" || cards.length > 0)
                     Rectangle {  // group header
                         objectName: "treeGroup_" + grp.modelData.phase
                         property int count: grp.cards.length
@@ -111,12 +111,13 @@ ContentBase {
                     }
                 }
             }
-        }
-        Text {
-            visible: board.rows.length === 0
-            anchors { top: parent.top; topMargin: 40; horizontalCenter: parent.horizontalCenter }
-            width: parent.width - 40; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.Wrap
-            text: "No stories yet. Press New story in the toolbar to write the first one."; color: app.theme.textMuted
+            Text {  // last in the flow, so a section that draws pushes it down instead of under it
+                objectName: "emptyStories"
+                visible: board.rows.length === 0
+                width: tree.width; topPadding: 36; leftPadding: 20; rightPadding: 20
+                horizontalAlignment: Text.AlignHCenter; wrapMode: Text.Wrap
+                text: "No stories yet. Press New story in the toolbar to write the first one."; color: app.theme.textMuted
+            }
         }
     }
 }
