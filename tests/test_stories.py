@@ -1082,8 +1082,8 @@ def test_reopen_with_a_role_recasts_instead_of_resuming(store, contexts):
 import sys as _sys
 from pathlib import Path as _Path
 _sys.path.insert(0, str(_Path(__file__).resolve().parent))
-from gitfix import make_repo, branch_of  # noqa: E402
-from harness.environments import register_repo  # noqa: E402
+from gitfix import make_repo, branch_of, commit_file, run  # noqa: E402
+from harness.environments import EnvError, register_repo  # noqa: E402
 
 
 @pytest.fixture
@@ -1199,6 +1199,124 @@ def test_situation_line_names_the_environment(store, repo):
     ctx = store._contexts.get(store.character(chr_id)["live_context"])
     store.comment(key, "reply")
     assert f"in client at {d['path']}" in ctx.sent[-1].splitlines()[0]
+
+
+# ---------------------------------------------------------------- Approve fast-forwards (workspace spec §4.8)
+
+def implementing_with_work(store, contexts, repo_name="client"):
+    """A started story, in implementing, one commit in its worktree, handed off: the ball is the author's."""
+    key, chr_id = started(store)
+    d = store.cast_env_open(chr_id, repo_name)
+    store.cast_yield(chr_id, "handoff", "outline"); store.proceed(key)
+    commit_file(_Path(d["path"]), "work.txt")
+    store.cast_yield(chr_id, "handoff", "done")
+    return key, chr_id, d
+
+
+def test_approve_fast_forwards_base_records_it_and_removes_the_worktree(store, contexts, repo, ws):
+    key, chr_id, d = implementing_with_work(store, contexts)
+    contexts.get(store.character(chr_id)["live_context"]).status = "idle"
+    c = store.approve(key, "nice")
+    assert store.story(key).phase == "done"
+    assert run(repo, "rev-parse", "main") == run(repo, "rev-parse", f"zharn/{key}") and (repo / "work.txt").exists()
+    last = store.comments(key)[-1]
+    assert last["body"].splitlines()[0] == "approved — nice"
+    assert last["body"].splitlines()[1].startswith(f"merged zharn/{key} → main in client (") and last["body"].endswith("1 commit)")
+    assert last["structured"]["merged"][0] == {**last["structured"]["merged"][0], "repo": "client", "target": "main", "commits": 1}
+    assert not _Path(d["path"]).exists() and store.get(key)["environments"] == []      # idle cast: swept now
+    assert f"zharn/{key}" in run(repo, "branch", "--list", f"zharn/{key}")             # the branch stays
+
+
+def test_approve_refuses_a_branch_behind_and_leaves_the_story_implementing(store, contexts, repo):
+    key, chr_id, d = implementing_with_work(store, contexts)
+    commit_file(repo, "m.txt")                                                          # main moved after the handoff
+    with pytest.raises(Rejected, match=f"cannot approve: zharn/{key} is 1 commit behind main in client"):
+        store.approve(key)
+    assert (store.story(key).phase, store.story(key).ball) == ("implementing", "author")
+    assert not (repo / "work.txt").exists() and _Path(d["path"]).is_dir()
+    run(_Path(d["path"]), "rebase", "-q", "main")
+    store.approve(key)
+    assert store.story(key).phase == "done" and (repo / "work.txt").exists() and (repo / "m.txt").exists()
+
+
+def test_approve_with_one_repo_behind_moves_nothing(store, contexts, repo, ws, tmp_path):
+    api = make_repo(tmp_path / "ws" / "api"); register_repo(ws, str(api))
+    key, chr_id, d = implementing_with_work(store, contexts)
+    d2 = store.cast_env_open(chr_id, "api"); commit_file(_Path(d2["path"]), "api.txt")
+    commit_file(api, "moved.txt")
+    before = run(repo, "rev-parse", "main")
+    with pytest.raises(Rejected, match="behind main in api"):
+        store.approve(key)
+    assert run(repo, "rev-parse", "main") == before and store.story(key).phase == "implementing"
+
+
+def test_approve_partial_failure_is_retried_to_completion(store, contexts, repo, ws, tmp_path):
+    api = make_repo(tmp_path / "ws" / "api"); register_repo(ws, str(api))
+    key, chr_id, d = implementing_with_work(store, contexts)
+    d2 = store.cast_env_open(chr_id, "api"); commit_file(_Path(d2["path"]), "api.txt")
+    (api / "api.txt").write_text("dirty")                     # api's main checkout would be overwritten: git refuses
+    with pytest.raises(EnvError, match="would be overwritten"):
+        store.approve(key)
+    assert (repo / "work.txt").exists() and store.story(key).phase == "implementing"   # client landed, api did not
+    (api / "api.txt").unlink()
+    store.approve(key)
+    body = store.comments(key)[-1]["body"]
+    assert f"merged zharn/{key} → main in client (no changes)" in body and "in api (" in body and (api / "api.txt").exists()
+
+
+def test_approve_on_a_missing_repo_is_refused_with_the_missing_message(store, contexts, repo):
+    from gitfix import rmtree
+    key, chr_id, d = implementing_with_work(store, contexts)
+    rmtree(repo)
+    with pytest.raises(EnvError, match="missing"):
+        store.approve(key)
+    assert store.story(key).phase == "implementing"
+
+
+def test_worktree_is_swept_when_the_last_working_character_settles(store, contexts, repo):
+    key, chr_id = started(store)
+    d = store.cast_env_open(chr_id, "client")
+    store.cast_yield(chr_id, "handoff", "outline"); store.proceed(key)
+    r = store.cast_call(chr_id, "claude-fast", "build")        # the friend's context is working
+    store._apply(key, Yield(thread_id=r["thread"], by=r["character"], kind="handoff", body="built"))
+    commit_file(_Path(d["path"]), "work.txt")
+    store.cast_yield(chr_id, "handoff", "done")
+    contexts.get(store.character(chr_id)["live_context"]).status = "idle"
+    store.approve(key)
+    assert store.story(key).phase == "done" and _Path(d["path"]).is_dir()          # a turn is still finishing there
+    settle(store, contexts, r["character"])
+    assert not _Path(d["path"]).exists() and store.get(key)["environments"] == []
+
+
+def test_reopen_after_approve_revives_the_worktree_behind_its_target(store, contexts, repo):
+    key, chr_id, d = implementing_with_work(store, contexts)
+    contexts.get(store.character(chr_id)["live_context"]).status = "idle"
+    store.approve(key)
+    commit_file(repo, "later.txt")
+    store.reopen(key, "one more thing")
+    d2 = store.cast_env_open(chr_id, "client")
+    assert d2["path"] == d["path"] and _Path(d2["path"]).is_dir() and branch_of(_Path(d2["path"])) == f"zharn/{key}"
+    assert store.get(key)["environments"][0]["into"] == "main"
+    assert store.environments.behind(store.environments.get(key, "client")) == 1
+
+
+def test_character_approves_its_substory_into_its_own_worktree(store, contexts, repo):
+    key, chr_id = started(store)
+    d = store.cast_env_open(chr_id, "client")
+    store.cast_yield(chr_id, "handoff", "outline"); store.proceed(key)
+    live = contexts.get(store.character(chr_id)["live_context"]); live.status = "idle"
+    sub = store.cast_create(chr_id, "part", start=True, role="claude-fast")
+    lead = store.story(sub).protagonist
+    ds = store.cast_env_open(lead, "client")
+    assert branch_of(_Path(ds["path"])) == f"zharn/{sub}" and store.get(sub)["environments"][0]["into"] == f"zharn/{key}"
+    commit_file(_Path(ds["path"]), "part.txt")
+    store.cast_yield(lead, "handoff", "outline"); store.cast_author(chr_id, "proceed", sub)
+    store.cast_yield(lead, "handoff", "built")
+    contexts.get(store.character(lead)["live_context"]).status = "idle"
+    c = store.cast_author(chr_id, "approve", sub)
+    assert f"merged zharn/{sub} → zharn/{key} in client (" in c["body"]
+    assert (_Path(d["path"]) / "part.txt").exists() and not (repo / "part.txt").exists()
+    assert not _Path(ds["path"]).exists() and store.story(sub).phase == "done"
 
 
 # ---------------------------------------------------------------- the phase skill in messages (spec §5.3)

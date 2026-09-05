@@ -196,18 +196,9 @@ class StoryStore(QObject):
         return self._stories[key].parent_story
 
     def _env_rows(self, key: str) -> list[dict]:
-        """One row per environment; `into` is the branch this story's branch merges into — the parent
-        environment's branch, or the repo's `base` at the root (workspace spec §4.2)."""
-        out = []
-        for r in self.environments.records(key):
-            if r["parent"]:
-                pk, prepo = r["parent"].split(":", 1)
-                prec = self.environments.get(pk, prepo)
-                into = prec["branch"] if prec else f"zharn/{pk}"
-            else:
-                into = (self.workspace.repo(r["repo"]) or {}).get("base", "")
-            out.append({"repo": r["repo"], "path": r["path"], "branch": r["branch"], "parent": r["parent"], "into": into})
-        return out
+        """One row per live environment; `into` is the branch this story's branch lands in (workspace spec §4.8)."""
+        return [{"repo": r["repo"], "path": r["path"], "branch": r["branch"], "parent": r["parent"],
+                 "into": self.environments.target(r)} for r in self.environments.records(key)]
 
     def _placement(self, ctx) -> tuple[str, dict]:
         """§4.5: a character's context runs in its environment's path, else where its meta says (the workspace dir).
@@ -495,6 +486,7 @@ class StoryStore(QObject):
         key = ch["story_key"]
         s = self._stories[key]
         if s.phase in lc.TERMINAL:
+            self._sweep_environments(key)   # §4.8: a done story's worktrees go once nobody is still finishing a turn there
             return  # retired
         if ch.get("recast_pending") is not None:  # a recast waited for this boundary
             pending = ch.pop("recast_pending")
@@ -642,6 +634,41 @@ class StoryStore(QObject):
                 self._deliver_to(owner, comment)
         return comment
 
+    def _approve(self, key: str, by: str, note: str) -> dict:
+        """§2.1 Approve in the store's order (workspace spec §4.8): the lifecycle precondition, every environment
+        prechecked, each fast-forwarded, then the reducer's comment carrying what landed, then the sweep. A story is
+        never done with unmerged work; a failure partway leaves the story implementing and the retry finishes."""
+        lc.step(self._stories[key], lc.Approve(by=by, note=note), comment_id="probe", now=0.0)   # rejection only: pure
+        recs = self.environments.records(key)
+        behind = []
+        for r in recs:
+            n = self.environments.behind(r)
+            if n:
+                behind.append(f"{r['branch']} is {n} commit{'' if n == 1 else 's'} behind {self.environments.target(r)} in {r['repo']}")
+        if behind:
+            raise lc.Rejected("cannot approve: " + "; ".join(behind) + " — reply and have the cast rebase, then approve again")
+        merged = [self.environments.integrate(r) for r in recs]
+        c = self._author_action(key, lc.Approve(by=by, note=note, merged=merged), resume=False)
+        self._sweep_environments(key)
+        return c
+
+    def _sweep_environments(self, key: str) -> None:
+        """Workspace spec §4.8 cleanup: once a done story has no character mid-turn, its worktrees are removed."""
+        if self._stories[key].phase != "done":
+            return
+        for ch in self._characters.values():
+            if ch["story_key"] == key and ch.get("live_context"):
+                ctx = self._contexts.get(ch["live_context"])
+                if ctx is not None and ctx.status in WORKING:
+                    return
+        for rec in self.environments.records(key):
+            try:
+                self.environments.remove(rec)
+            except EnvError as e:
+                if self.notifier is not None:
+                    self.notifier.error(f"{key}: {e}")
+        self._refresh()
+
     def _on_behalf(self, key: str) -> str:
         """Who a human action on `key` is by: the story's author — a character for its sub-stories (§2.3)."""
         return self._stories[self._key(key)].author
@@ -665,7 +692,7 @@ class StoryStore(QObject):
     @Slot(str, str)
     @intent
     def approve(self, key, note=""):
-        self._author_action(key, lc.Approve(by=self._on_behalf(key), note=note), resume=False)
+        self._approve(self._key(key), self._on_behalf(key), note)
 
     @Slot(str, str)
     @intent
@@ -929,12 +956,16 @@ class StoryStore(QObject):
             return c
         if verb == "recast":
             return {"context": self.recast(key, kw["character"], kw.get("role", ""), kw.get("model", ""))}
-        actions = {"proceed": lc.Proceed(by=by, note=note), "approve": lc.Approve(by=by, note=note),
+        if verb == "approve":
+            c = self._approve(key, by, note)
+            self._refresh()
+            return c
+        actions = {"proceed": lc.Proceed(by=by, note=note),
                    "cancel": lc.Cancel(by=by, note=note), "reopen": lc.Reopen(by=by, note=note),
                    "back": lc.BackToPlanning(by=by, note=note)}
         if verb not in actions:
             raise lc.Rejected(f"unknown author verb {verb!r}")
-        c = self._author_action(key, actions[verb], resume=verb != "approve")
+        c = self._author_action(key, actions[verb], resume=True)
         if verb == "cancel":
             self._stop_cast(key)
             for sub in [k for k, x in self._stories.items() if x.parent_story == key and x.phase not in lc.TERMINAL]:
