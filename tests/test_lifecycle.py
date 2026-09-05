@@ -6,7 +6,7 @@ import pytest
 
 from harness.lifecycle import (ACTIVE, PHASES, TERMINAL, Approve, BackToPlanning, Cancel, Comment, Note, OpenThread,
                                Proceed, Recap, Rejected, Reopen, Reply, Resolve, Start, Story, Thread, Yield,
-                               awaits, check_invariants, owes, question_lines, step, thread_label)
+                               awaits, check_invariants, merged_lines, owes, question_lines, step, thread_label)
 
 _ids = itertools.count(1)
 Q = [{"text": "?"}]   # the smallest question document
@@ -300,6 +300,27 @@ def test_approve_and_back_rejected_outside_implementing_author(action, phase, ba
 def test_approve_by_non_author_rejected():
     with pytest.raises(Rejected, match="author"):
         step(at("implementing", "author"), Approve(by="chr1"), comment_id="x", now=1.0)
+
+
+def test_approve_records_what_landed_in_body_and_structured():
+    s = at("implementing", "author")
+    merged = [{"repo": "zharn", "branch": "zharn/ZH-1", "target": "main", "from": "a1b2c3d", "to": "e4f5a6b", "commits": 4},
+              {"repo": "client", "branch": "zharn/ZH-1", "target": "main", "from": "0000000", "to": "0000000", "commits": 0}]
+    s, c = run(s, Approve(note="ship it", merged=merged))
+    assert c["body"].splitlines() == ["approved — ship it",
+                                      "merged zharn/ZH-1 → main in zharn (a1b2c3d..e4f5a6b, 4 commits)",
+                                      "merged zharn/ZH-1 → main in client (no changes)"]
+    assert c["structured"]["merged"] == merged and c["structured"]["transition"]["to"] == ["done", None]
+
+
+def test_approve_without_environments_has_no_merged_key():
+    s, c = run(at("implementing", "author"), Approve())
+    assert c["body"] == "approved" and "merged" not in c["structured"]
+
+
+def test_merged_lines_singular_commit():
+    assert merged_lines([{"repo": "r", "branch": "zharn/K-1", "target": "zharn/K-0", "from": "aaa", "to": "bbb", "commits": 1}]) == \
+        ["merged zharn/K-1 → zharn/K-0 in r (aaa..bbb, 1 commit)"]
 
 
 # ---------------------------------------------------------------- Cancel / Reopen

@@ -104,6 +104,7 @@ class Proceed:
 class Approve:
     note: str = ""
     by: str = "human"
+    merged: list = field(default_factory=list)   # workspace spec §4.8: what the store fast-forwarded, one record per environment
 
 
 @dataclass
@@ -229,6 +230,16 @@ def question_lines(questions: list[dict]) -> list[str]:
             notes.append(f"default {q['default']}")
         lines.append(f"{i}. {q['text']}" + (f" ({'; '.join(notes)})" if notes else ""))
     return lines
+
+
+def merged_lines(merged: list[dict]) -> list[str]:
+    """One line per environment for the Approve comment: `merged <branch> → <target> in <repo> (<range>, N commits)`."""
+    out = []
+    for m in merged:
+        n = m.get("commits", 0)
+        what = f"{m['from']}..{m['to']}, {n} commit{'' if n == 1 else 's'}" if n else "no changes"
+        out.append(f"merged {m['branch']} → {m['target']} in {m['repo']} ({what})")
+    return out
 
 
 def _require_started_active(story: Story):
@@ -377,14 +388,18 @@ def step(story: Story, action, *, comment_id: str, now: float) -> tuple[Story, d
         if (s.phase, s.ball) != ("implementing", "author"):
             raise Rejected(f"requires (implementing, author); {s.key} is ({s.phase}, {s.ball})")
         m = s.main
+        structured = None
         if isinstance(action, Approve):
             for t in s.threads:  # terminal sweep: every open thread resolves, main included
                 t.turn, t.pending_yield = "resolved", None
-            s.phase, body = "done", _with_note("approved", action.note)
+            s.phase = "done"
+            body = "\n".join([_with_note("approved", action.note), *merged_lines(action.merged)])
+            if action.merged:
+                structured = {"merged": [dict(x) for x in action.merged]}
         else:
             m.turn, m.pending_yield = "cast", None
             s.phase, body = "planning", _with_note("back to planning", action.note)
-        c = _comment(s, comment_id, now, thread_id=m.id, author=action.by, kind="system", body=body)
+        c = _comment(s, comment_id, now, thread_id=m.id, author=action.by, kind="system", body=body, structured=structured)
 
     elif isinstance(action, Cancel):
         if action.by != s.author:
