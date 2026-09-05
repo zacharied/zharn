@@ -302,3 +302,7 @@ def test_story_page_shows_environments_and_folds_passing_checks(ui):
     ui.store.stories.approve(key)
     QTest.qWait(80)
     assert not ui.visible(ui.find("checksFailingChip"))          # the chip belongs to the handoff that waits on you
+    last = ui.store.stories.comments(key)[-1]
+    assert last["body"].splitlines()[1] == f"merged zharn/{key} → main in api (no changes)"
+    assert ui.find(f"comment_{last['id']}")                      # the stage direction renders with its merged line
+    assert wait_until(lambda: not ui.has("storyEnv_api"))         # swept once the protagonist's turn ended (§4.8)
