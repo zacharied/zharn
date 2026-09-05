@@ -85,12 +85,12 @@ def test_question_yield_renders_rows_and_reply_posts_the_picks(ui):
     ui.click(ui.find(f"optionButton_{c['id']}_0_1"))
     assert ui.store.stories.get(key)["ball"] == "author"              # a pick alone posts nothing
     assert ui.find("replyButton").property("enabled") and ui.find(f"optionButton_{c['id']}_0_1").property("icon_") == "check"
-    ui.focus_and_type(ui.find("replyInput"), "and quickly")
-    ui.click(ui.find("replyButton"))
+    ui.focus_and_type(ui.find("replyInput"), "and slowly")           # the reply resumes the fake, which dawdles on "slow":
+    ui.click(ui.find("replyButton"))                                 # the ball stays with the cast while we read the view
     assert ui.store.stories.get(key)["ball"] == "cast"
     last = ui.store.stories.comments(key)[-1]
-    assert last["body"] == "1. b\nand quickly" and last["reply_to"] == c["id"] and last["structured"]["answers"] == ["b"]
-    assert not ui.visible(ui.find("needsYouBanner"))                  # before the fake's turn ends and the harness yields for it
+    assert last["body"] == "1. b\nand slowly" and last["reply_to"] == c["id"] and last["structured"]["answers"] == ["b"]
+    assert not ui.visible(ui.find("needsYouBanner"))
     assert ui.find(f"optionButton_{c['id']}_0_1").property("icon_") == "check"     # the pick stays marked
     assert ui.find(f"optionButton_{c['id']}_0_0").property("icon_") == "" and ui.find("replyInput").property("text") == ""
 
