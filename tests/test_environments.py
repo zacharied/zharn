@@ -291,6 +291,74 @@ def test_behind_on_a_missing_repo_is_the_missing_message(ws, repo):
         es.behind(es.get("ZH-1", "client"))
 
 
+# ---------------------------------------------------------------- integrate (§4.8)
+
+def test_integrate_fast_forwards_base_in_the_main_checkout(ws, repo):
+    es = store(ws, **{"ZH-1": None})
+    d = es.open("ZH-1", "client")
+    commit_file(Path(d["path"]), "work.txt")
+    m = es.integrate(es.get("ZH-1", "client"))
+    assert (m["repo"], m["branch"], m["target"], m["commits"]) == ("client", "zharn/ZH-1", "main", 1)
+    assert m["to"] == run(repo, "rev-parse", "--short", "zharn/ZH-1") and m["from"] != m["to"]
+    assert run(repo, "rev-parse", "main") == run(repo, "rev-parse", "zharn/ZH-1")
+    assert (repo / "work.txt").exists()                               # the checked-out tree moved with the ref
+
+
+def test_integrate_moves_the_ref_when_base_is_checked_out_nowhere(ws, repo):
+    run(repo, "checkout", "-q", "-b", "other")                        # main is no longer checked out anywhere
+    es = store(ws, **{"ZH-1": None})
+    d = es.open("ZH-1", "client")
+    commit_file(Path(d["path"]), "work.txt")
+    es.integrate(es.get("ZH-1", "client"))
+    assert run(repo, "rev-parse", "main") == run(repo, "rev-parse", "zharn/ZH-1")
+    assert branch_of(repo) == "other" and not (repo / "work.txt").exists()
+
+
+def test_integrate_with_nothing_committed_is_a_no_op(ws, repo):
+    es = store(ws, **{"ZH-1": None})
+    es.open("ZH-1", "client")
+    before = run(repo, "rev-parse", "main")
+    m = es.integrate(es.get("ZH-1", "client"))
+    assert m["commits"] == 0 and m["from"] == m["to"] and run(repo, "rev-parse", "main") == before
+
+
+def test_integrate_refuses_a_branch_behind_its_target_and_moves_nothing(ws, repo):
+    es = store(ws, **{"ZH-1": None})
+    d = es.open("ZH-1", "client")
+    commit_file(Path(d["path"]), "work.txt")
+    commit_file(repo, "m.txt")
+    before = run(repo, "rev-parse", "main")
+    with pytest.raises(EnvError, match=r"zharn/ZH-1 is 1 commit behind main in client — rebase onto main"):
+        es.integrate(es.get("ZH-1", "client"))
+    assert run(repo, "rev-parse", "main") == before
+    run(Path(d["path"]), "rebase", "-q", "main")
+    assert es.integrate(es.get("ZH-1", "client"))["commits"] == 1 and (repo / "work.txt").exists()
+
+
+def test_integrate_substory_fast_forwards_the_parents_worktree(ws, repo):
+    es = store(ws, **{"ZH-1": None, "ZH-2": "ZH-1"})
+    child = es.open("ZH-2", "client")
+    parent = es.get("ZH-1", "client")
+    (Path(parent["path"]) / "notes.txt").write_text("wip")           # the parent's cast is mid-work, on other files
+    commit_file(Path(child["path"]), "part.txt")
+    m = es.integrate(es.get("ZH-2", "client"))
+    assert m["target"] == "zharn/ZH-1" and m["commits"] == 1
+    assert (Path(parent["path"]) / "part.txt").exists() and (Path(parent["path"]) / "notes.txt").read_text() == "wip"
+    assert run(repo, "rev-parse", "main") != run(repo, "rev-parse", "zharn/ZH-1")   # the root is untouched
+
+
+def test_integrate_refuses_when_the_parents_dirty_file_would_be_overwritten(ws, repo):
+    es = store(ws, **{"ZH-1": None, "ZH-2": "ZH-1"})
+    child = es.open("ZH-2", "client")
+    parent = es.get("ZH-1", "client")
+    (Path(parent["path"]) / "shared.txt").write_text("theirs")
+    commit_file(Path(child["path"]), "shared.txt", "mine\n")
+    before = run(repo, "rev-parse", "zharn/ZH-1")
+    with pytest.raises(EnvError, match="would be overwritten"):
+        es.integrate(es.get("ZH-2", "client"))
+    assert run(repo, "rev-parse", "zharn/ZH-1") == before and (Path(parent["path"]) / "shared.txt").read_text() == "theirs"
+
+
 # ---------------------------------------------------------------- end to end: cwd at spawn (§4.5)
 import os
 import shutil

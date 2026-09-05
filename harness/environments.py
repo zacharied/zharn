@@ -42,6 +42,17 @@ def head_branch(path: Path) -> str:
         return git(path, "rev-parse", "--short", "HEAD")
 
 
+def _checkout_of(repo_path: Path, branch: str) -> Path | None:
+    """The worktree that has `branch` checked out, or None when it is checked out nowhere."""
+    wt = None
+    for line in git(repo_path, "worktree", "list", "--porcelain").splitlines():
+        if line.startswith("worktree "):
+            wt = Path(line[len("worktree "):])
+        elif line == f"branch refs/heads/{branch}":
+            return wt
+    return None
+
+
 def _is_url(spec: str) -> bool:
     return "://" in spec or spec.startswith("git@")
 
@@ -124,6 +135,25 @@ class EnvironmentStore:
         """Commits on the target that the branch lacks. 0 means up to date: the target's tip is an ancestor."""
         _, repo_path = self._repo(rec["repo"])
         return int(git(repo_path, "rev-list", "--count", f"{rec['branch']}..{self.target(rec)}") or 0)
+
+    def integrate(self, rec: dict) -> dict:
+        """§4.8: fast-forward the target onto the branch's tip — in the target's worktree when it is checked out, so
+        its files move too; else the ref alone. Never a merge commit: what lands is what the checks ran on."""
+        _, repo_path = self._repo(rec["repo"])
+        tgt, br = self.target(rec), rec["branch"]
+        n_behind = self.behind(rec)
+        if n_behind:
+            s = "" if n_behind == 1 else "s"
+            raise EnvError(f"{br} is {n_behind} commit{s} behind {tgt} in {rec['repo']} — rebase onto {tgt} (or merge it in) and retry")
+        frm, to = git(repo_path, "rev-parse", "--short", tgt), git(repo_path, "rev-parse", "--short", br)
+        n = int(git(repo_path, "rev-list", "--count", f"{tgt}..{br}") or 0)
+        if n:
+            wt = _checkout_of(repo_path, tgt)
+            if wt is not None:
+                git(wt, "merge", "--ff-only", "-q", br)
+            else:
+                git(repo_path, "branch", "-f", tgt, br)
+        return {"repo": rec["repo"], "branch": br, "target": tgt, "from": frm, "to": to, "commits": n}
 
     # ---------------------------------------------------------------- open (§4.4)
     def open(self, story: str, repo: str) -> dict:
