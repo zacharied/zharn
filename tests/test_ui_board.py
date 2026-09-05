@@ -5,7 +5,7 @@ from PySide6.QtTest import QTest
 from ui import start
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture  # per test, not per module: the empty-board test needs a board nobody has touched
 def ui():
     h = start("ui-board")
     yield h

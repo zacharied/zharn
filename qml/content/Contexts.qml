@@ -124,6 +124,8 @@ ContentBase {
                     }
                 }
             }
+            // safe over the tree only because groups come from the data: with no rows there are no
+            // headers to land on. A fixed group list would put it back on top of them (see StoryBoard).
             Text { visible: panel.rows.length === 0; anchors { top: parent.top; topMargin: 36; horizontalCenter: parent.horizontalCenter }
                    width: parent.width - 30; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.Wrap
                    text: "No contexts yet. Start a story, or open a bare one with New context."; color: app.theme.textMuted }
