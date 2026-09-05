@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 .venv/
+*.egg-info/
 .pytest_cache/
 # your config: created from *.def.* on first run, never tracked
 harness/config.py
