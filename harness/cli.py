@@ -115,7 +115,8 @@ def behind_targets(envs: list[dict]) -> list[dict]:
         count = r.stdout.strip()
         if r.returncode != 0 or not count.isdigit():
             out.append({"repo": e["repo"], "branch": e["branch"], "target": e["target"],
-                        "error": r.stderr.strip() or f"git rev-list exited {r.returncode}"})
+                        "error": r.stderr.strip() or (f"git rev-list exited {r.returncode}" if r.returncode
+                                                      else "git rev-list gave no count")})
         elif int(count):
             out.append({"repo": e["repo"], "branch": e["branch"], "target": e["target"], "behind": int(count)})
     return out

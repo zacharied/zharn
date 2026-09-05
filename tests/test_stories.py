@@ -20,6 +20,7 @@ class StubContext:
         self.sessionId = "sess-" + cid
         self.transcript_text, self.last_error, self.turns = "", "", 0
         self.contextTokens, self.contextWindow = 0, 0
+        self.recycled, self.on_recycle = 0, None
 
     def last_assistant_text(self):
         return self.transcript_text
@@ -35,6 +36,11 @@ class StubContext:
     def stop(self):
         self.stopped = True
         self.status = "stopped"
+
+    def recycle(self):
+        self.recycled += 1
+        if self.on_recycle is not None:
+            self.on_recycle()
 
 
 class StubContexts(QObject):
@@ -1288,12 +1294,52 @@ def test_worktree_is_swept_when_the_last_working_character_settles(store, contex
     assert not _Path(d["path"]).exists() and store.get(key)["environments"] == []
 
 
+def test_the_sweep_recycles_the_idle_cast_before_the_worktree_goes(store, contexts, repo):
+    """An idle process still stands in the worktree it was spawned in: it is dropped before the directory is."""
+    key, chr_id, d = implementing_with_work(store, contexts)
+    live = contexts.get(store.character(chr_id)["live_context"])
+    live.status = "idle"
+    seen = []
+    live.on_recycle = lambda: seen.append(_Path(d["path"]).is_dir())
+    store.approve(key)
+    assert live.recycled == 1 and seen == [True]        # recycled while the worktree was still there
+    assert not _Path(d["path"]).exists()
+
+
+def test_a_failed_remove_keeps_the_record_and_the_next_load_sweeps_it(store, contexts, repo, ws, monkeypatch):
+    key, chr_id, d = implementing_with_work(store, contexts)
+    contexts.get(store.character(chr_id)["live_context"]).status = "idle"
+    real, failed = store.environments.remove, []
+
+    def flaky(rec):
+        if not failed:
+            failed.append(rec["repo"])
+            raise EnvError(f"git worktree remove --force {rec['path']} failed: locked")
+        real(rec)
+
+    monkeypatch.setattr(store.environments, "remove", flaky)
+    store.approve(key)
+    assert store.story(key).phase == "done" and _Path(d["path"]).is_dir()          # the tree is still there
+    assert store.get(key)["environments"] and [r["repo"] for r in store.environments.records(key)] == ["client"]
+    assert any("locked" in e for e in store.notifier.errors)
+    fresh = StoryStore(ws, contexts, StubRoles())                                   # a later run retries the sweep
+    assert not _Path(d["path"]).exists() and fresh.get(key)["environments"] == []
+
+
+def test_cancel_leaves_the_environment_alone(store, contexts, repo):
+    key, chr_id, d = implementing_with_work(store, contexts)
+    store.cancel(key, "not now")
+    assert _Path(d["path"]).is_dir() and [r["repo"] for r in store.get(key)["environments"]] == ["client"]
+
+
 def test_reopen_after_approve_revives_the_worktree_behind_its_target(store, contexts, repo):
     key, chr_id, d = implementing_with_work(store, contexts)
     contexts.get(store.character(chr_id)["live_context"]).status = "idle"
     store.approve(key)
     commit_file(repo, "later.txt")
     store.reopen(key, "one more thing")
+    line = store.environment_line(store.character(chr_id))
+    assert "workspace dir" in line and "env open" in line       # the swept worktree is not named as if it were there
     d2 = store.cast_env_open(chr_id, "client")
     assert d2["path"] == d["path"] and _Path(d2["path"]).is_dir() and branch_of(_Path(d2["path"])) == f"zharn/{key}"
     assert store.get(key)["environments"][0]["into"] == "main"

@@ -39,6 +39,7 @@ def build(argv=None, force_poll=False):
     sys.dont_write_bytecode = True  # hot reload must compile from source (stale .pyc has 1s mtime granularity)
     import harness.config as cfg
     from harness.content import ContentRegistry
+    from harness.environments import head_branch
     from harness.icons import app_icon
     from harness.ipc import IpcServer, make_handler
     from harness.notify import Notifier
@@ -61,7 +62,7 @@ def build(argv=None, force_poll=False):
         ws_dir = Path(ws_env)
         workspace = Workspace.open_or_create(ws_dir)
         if not workspace.repos and (ws_dir / ".git").exists():
-            workspace.add_repo(ws_dir)
+            workspace.add_repo(ws_dir, base=head_branch(ws_dir))   # a repo with no `base` has no target: the gate and Approve need one
     else:
         workspace = Workspace.scratch(ROOT)
     data_dir = workspace.local_dir

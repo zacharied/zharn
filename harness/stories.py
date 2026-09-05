@@ -147,6 +147,8 @@ class StoryStore(QObject):
             self._characters = json.loads((self.workspace.local_dir / "characters.json").read_text(encoding="utf-8"))
         except (OSError, ValueError):
             self._characters = {}
+        for key in self._stories:
+            self._sweep_environments(key)   # §4.8: a worktree a failed remove left behind is swept at the next load
         self._refresh()
 
     def _save_story(self, key: str):
@@ -214,7 +216,7 @@ class StoryStore(QObject):
     def environment_line(self, ch: dict) -> str:
         repo = ch.get("environment")
         rec = self.environments.get(ch["story_key"], repo) if repo else None
-        if rec is not None:
+        if rec is not None and not rec.get("removed") and Path(rec["path"]).is_dir():
             return f"in {repo} at {rec['path']} (your story's worktree, branch {rec['branch']})"
         return f"in the workspace dir {self.workspace.dir}; run `env open <repo>` before touching a repo"
 
@@ -644,7 +646,8 @@ class StoryStore(QObject):
         for r in recs:
             n = self.environments.behind(r)
             if n:
-                behind.append(f"{r['branch']} is {n} commit{'' if n == 1 else 's'} behind {self.environments.target(r)} in {r['repo']}")
+                tgt = self.environments.describe(r)["target"]
+                behind.append(f"{r['branch']} is {n} commit{'' if n == 1 else 's'} behind {tgt} in {r['repo']}")
         if behind:
             raise lc.Rejected("cannot approve: " + "; ".join(behind) + " — reply and have the cast rebase, then approve again")
         merged = [self.environments.integrate(r) for r in recs]
@@ -653,15 +656,26 @@ class StoryStore(QObject):
         return c
 
     def _sweep_environments(self, key: str) -> None:
-        """Workspace spec §4.8 cleanup: once a done story has no character mid-turn, its worktrees are removed."""
+        """Workspace spec §4.8 cleanup: once a done story has no character mid-turn, its worktrees are removed.
+        Every settled context of the cast is recycled first: an idle agent process still stands in the worktree it
+        was spawned in, and a directory pulled out from under it strands the next turn — on Windows it also makes
+        `worktree remove` fail. A failed remove leaves the record live; the next turn end, or the next load, retries."""
         if self._stories[key].phase != "done":
             return
+        settled = []
         for ch in self._characters.values():
             if ch["story_key"] == key and ch.get("live_context"):
                 ctx = self._contexts.get(ch["live_context"])
-                if ctx is not None and ctx.status in WORKING:
-                    return
-        for rec in self.environments.records(key):
+                if ctx is not None:
+                    if ctx.status in WORKING:
+                        return
+                    settled.append(ctx)
+        recs = self.environments.records(key)
+        if not recs:
+            return
+        for ctx in settled:
+            ctx.recycle()   # drops the idle process; the next send spawns a fresh one where §4.5 puts it
+        for rec in recs:
             try:
                 self.environments.remove(rec)
             except EnvError as e:

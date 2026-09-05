@@ -383,6 +383,16 @@ def test_behind_targets_fails_closed_when_git_cannot_compare(tmp_path):
     assert "behind" not in row and row["error"]
 
 
+def test_behind_targets_names_a_successful_rev_list_that_printed_no_count(tmp_path, monkeypatch):
+    """The other half of failing closed: exit 0 with something that is not a count. Real git cannot produce it,
+    so the stand-in is a subprocess result — what is under test is the sentence the caller reads."""
+    repo, wt = _behind_setup(tmp_path)
+    env = {"repo": "api", "path": str(wt), "branch": "zharn/X-1", "target": "main", "repo_path": str(repo)}
+    monkeypatch.setattr(cli.subprocess, "run",
+                        lambda *a, **kw: subprocess.CompletedProcess(a[0], 0, stdout="\n", stderr=""))
+    assert cli.behind_targets([env])[0]["error"] == "git rev-list gave no count"
+
+
 def test_handoff_refuses_a_branch_behind_its_target_before_running_checks(fake_ipc, tmp_path, capsys):
     repo, wt = _behind_setup(tmp_path)
     st = fake_ipc({"run": True, "policy": "gate", "limit": 100, "timeout": 30,

@@ -269,6 +269,38 @@ def test_target_is_base_at_the_root_and_the_parents_branch_below(ws, repo):
     assert child["target"] == "zharn/ZH-1" and child["repo_path"] == str(repo.resolve())
 
 
+def test_a_repo_without_a_base_targets_its_head_branch(ws, tmp_path):
+    """`add_repo` without a `base` (the workspace's own checkout, before the entry point fills it in): the target
+    resolves through the repo's HEAD branch, so nothing empty reaches git or the ancestry gate."""
+    p = make_repo(tmp_path / "ws" / "self")
+    ws.add_repo(p)                                                   # no `base`, no register_repo
+    assert ws.repo("self")["base"] == ""
+    es = store(ws, **{"ZH-1": None})
+    d = es.open("ZH-1", "self")
+    assert d["target"] == "main"
+    commit_file(Path(d["path"]), "work.txt")
+    rec = es.get("ZH-1", "self")
+    assert es.describe(rec)["target"] == "main" and es.behind(rec) == 0
+    m = es.integrate(rec)
+    assert (m["target"], m["commits"]) == ("main", 1)
+    assert run(p, "rev-parse", "main") == run(p, "rev-parse", "zharn/ZH-1") and (p / "work.txt").exists()
+
+
+def test_the_entry_point_registers_its_workspace_repo_with_a_base(tmp_path, monkeypatch):
+    """`python -m harness` with HARNESS_WORKSPACE on a git repo registers it as `.` — with its HEAD branch as
+    `base`, or the story's branch would have no target at all."""
+    from harness.__main__ import build
+    d = make_repo(tmp_path / "self", branch="trunk")
+    monkeypatch.setenv("HARNESS_WORKSPACE", str(d))
+    monkeypatch.setenv("ZHARN_APPDATA", str(tmp_path / "appdata"))
+    _, app_store, reloader = build([])
+    try:
+        assert app_store.stories.workspace.repo(d.name)["base"] == "trunk"
+    finally:
+        app_store.contexts.shutdown()
+        reloader.shutdown()
+
+
 def test_behind_counts_target_commits_the_branch_lacks(ws, repo):
     es = store(ws, **{"ZH-1": None})
     es.open("ZH-1", "client")

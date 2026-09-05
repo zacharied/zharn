@@ -118,7 +118,11 @@ class EnvironmentStore:
 
     def describe(self, rec: dict) -> dict:
         r = self.ws.repo(rec["repo"]) or {}
-        return {**rec, "checks": r.get("checks", ""), "target": self.target(rec),
+        try:
+            target = self._resolved_target(rec)
+        except EnvError:
+            target = self.target(rec)   # the repo is gone: there is no HEAD to read, and the gate skips it anyway
+        return {**rec, "checks": r.get("checks", ""), "target": target,
                 "repo_path": str(self.ws.repo_path(r)) if r else ""}
 
     # ---------------------------------------------------------------- the target (§4.8)
@@ -131,16 +135,21 @@ class EnvironmentStore:
             return prec["branch"] if prec else f"zharn/{pk}"
         return (self.ws.repo(rec["repo"]) or {}).get("base", "")
 
+    def _resolved_target(self, rec: dict) -> str:
+        """The target as git must see it: a repo registered without a `base` (the workspace's own checkout) resolves
+        through its HEAD branch, so no empty ref reaches git — which would read `<branch>..` as `..HEAD`."""
+        return self.target(rec) or self._base(rec["repo"])
+
     def behind(self, rec: dict) -> int:
         """Commits on the target that the branch lacks. 0 means up to date: the target's tip is an ancestor."""
         _, repo_path = self._repo(rec["repo"])
-        return int(git(repo_path, "rev-list", "--count", f"{rec['branch']}..{self.target(rec)}") or 0)
+        return int(git(repo_path, "rev-list", "--count", f"{rec['branch']}..{self._resolved_target(rec)}") or 0)
 
     def integrate(self, rec: dict) -> dict:
         """§4.8: fast-forward the target onto the branch's tip — in the target's worktree when it is checked out, so
         its files move too; else the ref alone. Never a merge commit: what lands is what the checks ran on."""
         _, repo_path = self._repo(rec["repo"])
-        tgt, br = self.target(rec), rec["branch"]
+        tgt, br = self._resolved_target(rec), rec["branch"]
         n_behind = self.behind(rec)
         if n_behind:
             s = "" if n_behind == 1 else "s"
