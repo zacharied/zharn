@@ -306,3 +306,104 @@ def test_story_page_shows_environments_and_folds_passing_checks(ui):
     assert last["body"].splitlines()[1] == f"merged zharn/{key} → main in api (no changes)"
     assert ui.find(f"comment_{last['id']}")                      # the stage direction renders with its merged line
     assert wait_until(lambda: not ui.has("storyEnv_api"))         # swept once the protagonist's turn ended (§4.8)
+
+
+# ---- ZHAR-4: an edit in progress is not thrown away by a refresh
+#
+# Every status transition of every live context emits contextsChanged (contexts.py: _context_changed),
+# StoryStore._refresh turns that into storiesChanged, and the story page refreshes. None of that is
+# about the story you are typing into, so a reset that follows it looks random.
+
+def churn(ui):
+    """What a working agent emits many times a turn — a context changed status, nothing else."""
+    ui.store.contexts.contextsChanged.emit()
+    QTest.qWait(60)
+
+
+def test_a_half_typed_title_survives_an_unrelated_context_change(ui):
+    key = ui.store.stories.create("", "")      # empty, so typing is the only writer — setProperty would drop the binding
+    open_story(ui, key)
+    ui.focus_and_type(ui.find("storyTitleEdit"), "Half typ")
+    churn(ui)
+    assert ui.find("storyTitleEdit").property("text") == "Half typ"
+
+
+def test_a_half_typed_description_survives_an_unrelated_context_change(ui):
+    key = ui.store.stories.create("Desc", "")
+    open_story(ui, key)
+    ui.focus_and_type(ui.find("storyDescriptionEdit"), "why it matters")
+    churn(ui)
+    assert ui.find("storyDescriptionEdit").property("text") == "why it matters"
+
+
+def settled_story(ui, title):
+    """A started story whose protagonist has finished its turn — so the only thing that moves next is the test."""
+    key = ui.store.stories.create(title, "")
+    chr_id = ui.store.stories.start(key, "", "protagonist")
+    ctx = ui.store.contexts.get(ui.store.stories.character(chr_id)["live_context"])
+    assert wait_until(lambda: ctx.status == "idle"), ctx.status
+    open_story(ui, key)
+    return key, chr_id
+
+
+# The two below cover the reported symptom but do not discriminate: neither trigger changed the thread
+# rows, so the old array-model Repeater left the delegate alone and they passed against the bug too.
+# The regression guards are the four that name a focus, a call, a turn or a fold.
+def test_a_half_typed_reply_survives_an_unrelated_context_change(ui):
+    key, chr_id = settled_story(ui, "Reply churn")
+    ui.focus_and_type(ui.find("replyInput"), "btw use sqlite")
+    churn(ui)
+    assert ui.find("replyInput").property("text") == "btw use sqlite"
+
+
+def test_a_half_typed_reply_survives_a_comment_arriving_from_the_cast(ui):
+    key, chr_id = settled_story(ui, "Reply comment")
+    ui.focus_and_type(ui.find("replyInput"), "half a thought")
+    ui.store.stories.cast_comment(chr_id, "meanwhile, from the agent")
+    QTest.qWait(80)
+    assert ui.find("replyInput").property("text") == "half a thought"
+
+
+def test_a_half_typed_reply_keeps_its_focus_when_the_turn_changes(ui):
+    """No thread appears — only the rows change — so the delegate holding the composer must not be rebuilt."""
+    key, chr_id = settled_story(ui, "Reply turn")
+    ui.focus_and_type(ui.find("replyInput"), "still typing")
+    ui.store.stories.comment(key, "a note from elsewhere")     # main thread's turn flips back to the cast
+    QTest.qWait(120)
+    assert ui.store.stories.get(key)["ball"] == "cast"          # the change really landed
+    assert ui.find("replyInput").property("text") == "still typing"
+    assert ui.find("replyInput").property("activeFocus")        # the caret is still where you left it
+
+
+def test_a_half_typed_reply_survives_the_protagonist_calling_a_friend(ui):
+    """A thread appears, so the rows the Repeater is given really change and it rebuilds its delegates."""
+    key, chr_id = settled_story(ui, "Reply call")
+    n = len(ui.store.stories.get(key)["threads"])
+    ui.focus_and_type(ui.find("replyInput"), "one more thing")
+    ui.store.stories.cast_call(chr_id, "claude-fast", "review the outline")
+    QTest.qWait(120)
+    assert len(ui.store.stories.get(key)["threads"]) == n + 1      # the change really landed
+    assert ui.find("replyInput").property("text") == "one more thing"
+
+
+def test_an_unfolded_check_stays_unfolded_when_a_comment_arrives(ui):
+    """The same bug one Repeater deeper: comment rows change on every comment, so the delegate
+    holding a check's fold must not be rebuilt either."""
+    from harness.environments import register_repo
+    register_repo(ui.store.stories.workspace, str(fresh_repo("ui-story-fold")), name="fold", checks="echo ok")
+    key = ui.store.stories.create("Fold", "")
+    chr_id = ui.store.stories.start(key, "", "protagonist")
+    ctx = ui.store.contexts.get(ui.store.stories.character(chr_id)["live_context"])
+    assert wait_until(lambda: ctx.status == "idle")
+    open_story(ui, key)
+    ui.store.stories.proceed(key)
+    ui.store.stories.cast_yield(chr_id, "handoff", "built it",
+                                checks=[{"repo": "fold", "cmd": "echo ok", "exit": 0, "output": "ok"}])
+    assert wait_until(lambda: ctx.status not in ("starting", "working"))
+    QTest.qWait(80)
+    c = ui.store.stories.comments(key)[-1]
+    ui.click(ui.find(f"checkRow_{c['id']}_0"))                    # you unfold a passing check to read it
+    assert ui.visible(ui.find(f"checkOutput_{c['id']}_0"))
+    ui.store.stories.comment(key, "a note from elsewhere")        # and a comment lands on the story
+    QTest.qWait(120)
+    assert ui.visible(ui.find(f"checkOutput_{c['id']}_0"))
