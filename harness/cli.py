@@ -103,16 +103,21 @@ def dirty_trees(envs: list[dict]) -> list[dict]:
 
 def behind_targets(envs: list[dict]) -> list[dict]:
     """Workspace spec §4.6, the ancestry gate: environments whose branch lacks commits of its target. A check on
-    branches, not trees — it runs in the repo, so a worktree deleted by hand is still gated."""
+    branches, not trees — it runs in the repo, so a worktree deleted by hand is still gated. Fails closed: a
+    `git rev-list` that errors (bad ref, corrupt repo) or prints something other than a bare count is reported
+    as an `error` row, not silently read as "not behind"."""
     out = []
     for e in envs:
         if not e.get("target") or not os.path.isdir(e.get("repo_path", "")):
             continue
         r = subprocess.run(["git", "rev-list", "--count", f"{e['branch']}..{e['target']}"], cwd=e["repo_path"],
                            capture_output=True, text=True)
-        n = int(r.stdout.strip() or 0) if r.returncode == 0 else 0
-        if n:
-            out.append({"repo": e["repo"], "branch": e["branch"], "target": e["target"], "behind": n})
+        count = r.stdout.strip()
+        if r.returncode != 0 or not count.isdigit():
+            out.append({"repo": e["repo"], "branch": e["branch"], "target": e["target"],
+                        "error": r.stderr.strip() or f"git rev-list exited {r.returncode}"})
+        elif int(count):
+            out.append({"repo": e["repo"], "branch": e["branch"], "target": e["target"], "behind": int(count)})
     return out
 
 
@@ -274,10 +279,15 @@ def main(argv=None):
                     print(f"[{d['repo']}] {d['path']}\n{d['status']}", file=sys.stderr)
                 sys.exit("handoff refused: uncommitted changes in " + ", ".join(d["repo"] for d in dirty) + " — commit them and retry")
             behind = behind_targets(plan["environments"]) if plan["run"] else []
+            errored = [b for b in behind if "error" in b]
+            if errored:   # fail closed: a git failure is refused, never silently read as "not behind"
+                sys.exit("handoff refused: " + "; ".join(
+                    f"cannot compare {b['branch']} with {b['target']} in {b['repo']}: {b['error']}" for b in errored))
             if behind:
+                targets = list(dict.fromkeys(b["target"] for b in behind))   # every distinct target, first-seen order
                 sys.exit("handoff refused: " + "; ".join(
                     f"{b['branch']} is {b['behind']} commit{'' if b['behind'] == 1 else 's'} behind {b['target']} in {b['repo']}"
-                    for b in behind) + f" — rebase onto {behind[0]['target']} (or merge it in) and retry")
+                    for b in behind) + f" — rebase onto {', '.join(targets)} (or merge it in) and retry")
             try:
                 checks = run_checks(plan["environments"], plan["limit"], plan["timeout"])
             except NoBash as e:

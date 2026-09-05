@@ -371,6 +371,18 @@ def test_behind_targets_counts_per_environment_and_skips_unknown_targets(tmp_pat
     assert cli.behind_targets([env])[0]["behind"] == 1
 
 
+def test_behind_targets_fails_closed_when_git_cannot_compare(tmp_path):
+    """A bad ref (or any other `git rev-list` failure) must not be read as "not behind": it comes back as an
+    `error` row so the caller refuses rather than waving the handoff through."""
+    repo, wt = _behind_setup(tmp_path)
+    env = {"repo": "api", "path": str(wt), "branch": "zharn/X-1", "target": "no-such-branch", "repo_path": str(repo)}
+    rows = cli.behind_targets([env])
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["repo"] == "api" and row["branch"] == "zharn/X-1" and row["target"] == "no-such-branch"
+    assert "behind" not in row and row["error"]
+
+
 def test_handoff_refuses_a_branch_behind_its_target_before_running_checks(fake_ipc, tmp_path, capsys):
     repo, wt = _behind_setup(tmp_path)
     st = fake_ipc({"run": True, "policy": "gate", "limit": 100, "timeout": 30,
@@ -380,6 +392,36 @@ def test_handoff_refuses_a_branch_behind_its_target_before_running_checks(fake_i
         cli.main(["story", "yield", "--handoff", "--body", "done", "--despite-checks"])
     assert str(e.value) == "handoff refused: zharn/X-1 is 1 commit behind main in api — rebase onto main (or merge it in) and retry"
     assert [r["cmd"] for r in st["received"]] == ["env.checks"]                   # no flag past it; the checks never ran
+
+
+def test_handoff_refuses_naming_every_distinct_target_when_several_environments_are_behind(fake_ipc, tmp_path):
+    repo1, wt1 = _behind_setup(tmp_path / "one")
+    repo2, wt2 = _behind_setup(tmp_path / "two")
+    subprocess.run(["git", "branch", "-m", "main", "release"], cwd=repo2, check=True)   # repo2's target is named differently
+    st = fake_ipc({"run": True, "policy": "gate", "limit": 100, "timeout": 30,
+                   "environments": [
+                       {"repo": "one", "checks": "false", "path": str(wt1), "branch": "zharn/X-1", "target": "main", "repo_path": str(repo1)},
+                       {"repo": "two", "checks": "false", "path": str(wt2), "branch": "zharn/X-1", "target": "release", "repo_path": str(repo2)},
+                   ]})
+    with pytest.raises(SystemExit) as e:
+        cli.main(["story", "yield", "--handoff", "--body", "done", "--despite-checks"])
+    assert str(e.value) == ("handoff refused: zharn/X-1 is 1 commit behind main in one; "
+                             "zharn/X-1 is 1 commit behind release in two"
+                             " — rebase onto main, release (or merge it in) and retry")
+    assert [r["cmd"] for r in st["received"]] == ["env.checks"]
+
+
+def test_handoff_refuses_when_git_cannot_compare_the_branch_and_names_the_error(fake_ipc, tmp_path):
+    repo, wt = _behind_setup(tmp_path)
+    st = fake_ipc({"run": True, "policy": "gate", "limit": 100, "timeout": 30,
+                   "environments": [{"repo": "api", "checks": "false", "path": str(wt), "branch": "zharn/X-1",
+                                     "target": "no-such-branch", "repo_path": str(repo)}]})
+    with pytest.raises(SystemExit) as e:
+        cli.main(["story", "yield", "--handoff", "--body", "done", "--despite-checks"])
+    msg = str(e.value)
+    assert msg.startswith("handoff refused: cannot compare zharn/X-1 with no-such-branch in api: ")
+    assert "unknown revision" in msg   # git's own stderr, not a made-up message
+    assert [r["cmd"] for r in st["received"]] == ["env.checks"]                   # nothing posted
 
 
 def test_env_list_prints_the_target(fake_ipc, capsys):
