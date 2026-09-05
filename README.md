@@ -87,7 +87,7 @@ different directory. Point `HARNESS_CLAUDE_CMD` at another CLI to substitute the
 
 ```sh
 pip install -e .[dev]
-QT_QPA_PLATFORM=offscreen python -m pytest      # ~615 tests, ~30 s, no display needed
+QT_QPA_PLATFORM=offscreen python -m pytest      # ~800 tests, ~50 s, no display needed
 ```
 
 Three layers, all offscreen:
