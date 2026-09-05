@@ -207,7 +207,8 @@ which wins over this section and over the code. In brief:
   managed worktree zharn creates on branch `zharn/<key>`. A story acquires environments lazily —
   the first `zharn env open <repo>` makes the worktree for `(story, repo)`, shared by the cast —
   so a story's repos are *derived* from where its cast worked: zero for docs, two for API+client.
-  Per-repo `checks` run in each environment at every implementing handoff.
+  Per-repo `checks` run in each environment at every implementing handoff, and Approve fast-forwards
+  each environment's branch into its target — the repo's `base`, or the parent story's branch (spec §4.8).
 * **Stories are workspace-rooted**, so cross-repo work needs no ceremony. **Move story to
   workspace** re-keys a story (old key kept as an alias) and re-homes its environments.
 * **Scratch** is an ordinary workspace zharn creates in appdata on first run — pinned, undeletable,

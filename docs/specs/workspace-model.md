@@ -164,7 +164,8 @@ environments of the story until `env open` revives them.
 
 `parent` is the `(story, repo)` of the parent environment, or null when the parent is the main
 checkout — the merge target, and where the branch was cut from. The story's `repos` list is the
-set of records that exist; it is derived, persisted in `story.json` for the board filter, and
+set of repos the story has a record in, swept records (§4.8) included: it keeps the name of a repo
+whose worktree is gone. It is derived, persisted in `story.json` for the board filter, and
 never edited by hand. An author may add a repo *hint* at creation for scoping; a hint is not an
 environment.
 
@@ -262,8 +263,9 @@ In order, in the harness process (bounded by `GIT_TIMEOUT_S`):
 
 A refusal partway (git refuses to overwrite dirty files in the target's tree; a timeout) is the
 Approve's refusal with git's message; the story stays `implementing`, repos already
-fast-forwarded stay so, and the next Approve finds them up to date and finishes. A story with no
-environments approves with no git at all.
+fast-forwarded stay so, and the next Approve finds them up to date and finishes — reporting the
+repos that already landed as `(no changes)`. A story with no environments approves with no git at
+all.
 
 **The two kinds of target.** A root story's target is `base`, usually checked out in the main
 checkout — the author's own tree and, for zharn in Scratch, the tree the harness runs from; the
@@ -273,9 +275,11 @@ actor is the parent character running `approve <key>`, and git's own rule applie
 fast-forward that would overwrite its uncommitted files is refused, one that touches other
 files goes through.
 
-**Cleanup.** At Approve, and at every turn end of a done story, once no character of the story
-has a live working context, each environment's worktree is removed (`git worktree remove
---force`); the record stays, stamped `removed`, and the branch stays — it is the story's history.
+**Cleanup.** At Approve, at every turn end of a done story, and when the store loads, once no
+character of the story has a live working context, each environment's worktree is removed (`git
+worktree remove --force`); the record stays, stamped `removed`, and the branch stays — it is the
+story's history. The cast's settled agent processes are dropped first: one still stands in the
+worktree it was spawned in, and it is the load's sweep that retries a removal that failed.
 Reopen changes nothing here: `env open` re-adds the worktree on the kept branch and runs `setup`
 again (§4.4); the branch is behind by whatever landed since, and the ancestry gate makes the cast
 rebase before its next handoff. Cancel leaves environments as they are.
