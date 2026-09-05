@@ -311,8 +311,9 @@ Known churn: every intent re-parses the whole tree and rebuilds all groups (fine
 6. **Workspaces, repos, environments** per [`specs/workspace-model.md`](specs/workspace-model.md): `workspace.toml` + `.zharn/`
    layout, start screen (Scratch, recents, open folder), repo registration (author + `zharn repo
    add`), lazy managed worktrees (`zharn env open`), per-repo checks at handoff, story move with
-   aliases; migrate `.harness/` → `.zharn/`. What Approve does to a story's environments
-   (merge/PR/cleanup) gets its own spec; git status + filesystem panels. **Harness side shipped 2026-09-03** (plan `docs/superpowers/plans/2026-09-03-environments.md`, spec §4 revised 2026-09-03):
+   aliases; migrate `.harness/` → `.zharn/`. Approve fast-forwards each environment into its
+   target and sweeps worktrees (spec §4.8, **shipped 2026-09-05**, plan
+   `docs/superpowers/plans/2026-09-05-approve-merge.md`); git status + filesystem panels. **Harness side shipped 2026-09-03** (plan `docs/superpowers/plans/2026-09-03-environments.md`, spec §4 revised 2026-09-03):
    repo registration (`zharn repo add`, paths or URL clones), environments — every story on its own branch
    and worktree, cut from its parent environment's branch; friends share a tree, stories get a branch — lazy
    managed worktrees, context placement at spawn, checks at implementing handoffs run by the CLI (`HANDOFF_CHECKS` gate/attach),
@@ -326,7 +327,8 @@ Known churn: every intent re-parses the whole tree and rebuilds all groups (fine
    the character's turn like checks is the follow-up.
 7. `pyte`-backed terminal panel.
 8. Self-hosting: open Scratch, start a story against the pre-registered zharn repo, and have the
-   cast edit the UI.
+   cast edit the UI. The loop is closed: a story's branch lands in the running checkout through
+   Approve (§3c, spec §4.8).
 
 ## Sources (selected)
 

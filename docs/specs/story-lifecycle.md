@@ -67,7 +67,7 @@ outputs; rejections raise with the reason the CLI prints. Every phase-changing c
 | Reply | some thread of the story has turn = author | Any author comment in such a thread **is** the reply to its one pending yield: append, deliver to the yield's author, turn → cast. On the main thread this moves the ball → `(same phase, cast)`. |
 | Resolve `[note] --thread t` | `t`'s turn = author; not the main thread. (A thread still waiting on its cast cannot be resolved — a request is not retractable, only its answer is resolvable.) | `system` comment carrying the note; the pending yield is closed; the lead is neither resumed nor notified, and if it was attending `t` its attention clears; turn → resolved. No transition. |
 | Proceed `[note]` | `(planning, author)` | System comment "outline approved" on main; resume protagonist. → `(implementing, cast)`. |
-| Approve `[note]` | `(implementing, author)` | System comment; every open thread of the story resolves, main included; every character retires at its next turn boundary (§2.3). → `(done)`. |
+| Approve `[note]` | `(implementing, author)`, and every environment of the story fast-forwards into its target ([workspace spec](workspace-model.md) §4.8) | Each environment's target is moved onto the story branch's tip; system comment carrying what landed (`structured.merged`); every open thread of the story resolves, main included; every character retires at its next turn boundary (§2.3); worktrees are removed as the cast retires. → `(done)`. |
 | Back to planning `[note]` | `(implementing, author)` | System comment; resume protagonist with note. → `(planning, cast)`. |
 | Cancel `[note]` | non-terminal | Stop every character's live context now (retired); cancel open sub-stories; every open thread resolves, main included. → `(canceled)`. |
 | Reopen `note` | terminal | Resume the protagonist with `note` on main (the UI may offer a recast instead). → `(implementing, cast)`. |
@@ -81,7 +81,7 @@ outputs; rejections raise with the reason the CLI prints. Every phase-changing c
 | Verb | Who | Precondition | Effect |
 |---|---|---|---|
 | `yield --question [--thread t]` — a JSON document on stdin: `{body?, questions: [{text, options?, default?}]}` | `t`'s lead (default `t` = attended thread) | thread has no pending yield; at least one question, each with non-empty `text`, `options` a list of strings (absent or empty: free text), `default` a string. Invalid JSON is refused by the CLI; a wrong shape by the store | `question` comment, `structured.questions` normalized (`options` always a list, `default` only when given); thread turn → author |
-| `yield --handoff --body … [--despite-checks] [--thread t]` | `t`'s lead | as above; main thread in `implementing`: no open sub-stories, every environment of the story has a clean tree (no flag past it), then each repo's `checks` run in its environment, attaching `[{repo, cmd, exit, output}]` ([workspace spec](workspace-model.md) §4.6) | `handoff` comment; thread turn → author |
+| `yield --handoff --body … [--despite-checks] [--thread t]` | `t`'s lead | as above; main thread in `implementing`: no open sub-stories, every environment of the story has a clean tree and a branch up to date with its target (no flag past either), then each repo's `checks` run in its environment, attaching `[{repo, cmd, exit, output}]` ([workspace spec](workspace-model.md) §4.6) | `handoff` comment; thread turn → author |
 | `resolve --thread t [--note …]` | `t`'s author | as §2.1 Resolve: turn = author, not the main thread | As §2.1 Resolve: system comment, yield closed, lead neither resumed nor notified, turn → resolved |
 | `proceed [--note …]` | protagonist (main's lead) | `(planning, cast)`; if the role has `outline_first`, an outline handoff must have been Proceed-ed since the most recent entry into planning | System comment on main → `(implementing, cast)`. **stdout is the `implementing-a-story` skill**; `phase_seen` := implementing. |
 | `recap --body … [--thread t]` | any | — | `recap` comment in `t` (default: attended thread, else main); recorded as the character's latest recap. No transition. |
@@ -407,12 +407,14 @@ New/edited skills: baseline failure first.
 * `tests/test_lifecycle.py`: every cell × every action of §2 as a table, per-thread turn flips,
   rejections, §2.4 invariants. Resolve: rejections (main thread, turn = cast, non-author,
   terminal story), reopen-on-comment and reopen-on-yield, the Approve/Cancel terminal sweep,
-  needs-you dropping resolved threads.
+  the Approve comment's merged lines and `structured.merged`, needs-you dropping resolved
+  threads.
 * `tests/test_cli.py`, `test_ipc.py`, `test_stories.py`: each verb, lead/author checks, `wait`
   as a guard, delivery by status (attended push vs inbox, one pop per turn, attention moves),
-  the quiet check at turn end (normal end, crash, Stop), retirement on Approve/Cancel,
-  `call --fork` and `/fork`, recap in the attended thread, recast ladder rungs 1–3 with the
-  situation line, cross-story sub-story delivery.
+  the quiet check at turn end (normal end, crash, Stop), retirement on Approve/Cancel, Approve
+  fast-forwards its environments (workspace spec §4.8), `call --fork` and `/fork`, recap in the
+  attended thread, recast ladder rungs 1–3 with the situation line, cross-story sub-story
+  delivery.
 * Asides: intent idempotency, the fork-source rule (`comment.context` or disabled: gone, never
   ran, or working), the read ceiling, verb rejection without `HARNESS_CHARACTER_ID`,
   survival across recast and Approve/Cancel, absence from the story record.
@@ -432,8 +434,8 @@ New/edited skills: baseline failure first.
 
 ## 8. Out of scope
 
-Approve's effect on the environment (merge/PR/worktree); workspaces, repos and environments
-themselves ([their own spec](workspace-model.md)); roles beyond `outline_first` and `instructions`; multi-machine
+Pull requests; workspaces, repos and environments themselves
+([their own spec](workspace-model.md)); roles beyond `outline_first` and `instructions`; multi-machine
 execution; harness-spawned minions (`minion`, `minion --fork` — Claude's native `Agent` tool
 serves for now); a mechanical cap on guest mention loops; escalating an aside into a thread (a
 thread led by a forked friend is the manual path).
