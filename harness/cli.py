@@ -74,7 +74,7 @@ def out(value, as_json: bool):
     elif isinstance(value, list):
         for row in value:
             if isinstance(row, dict):
-                print("  ".join(f"{k}={row[k]}" for k in ("id", "key", "name", "phase", "ball", "status", "title", "storyKey", "owner", "kind", "model", "repo", "path", "branch", "checks") if k in row))
+                print("  ".join(f"{k}={row[k]}" for k in ("id", "key", "name", "phase", "ball", "status", "title", "storyKey", "owner", "kind", "model", "repo", "path", "branch", "target", "checks") if k in row))
             else:
                 print(row)
     elif isinstance(value, dict):
@@ -98,6 +98,21 @@ def dirty_trees(envs: list[dict]) -> list[dict]:
         r = subprocess.run(["git", "status", "--porcelain"], cwd=e["path"], capture_output=True, text=True)
         if r.returncode == 0 and r.stdout.strip():
             out.append({"repo": e["repo"], "path": e["path"], "status": r.stdout.strip()})
+    return out
+
+
+def behind_targets(envs: list[dict]) -> list[dict]:
+    """Workspace spec §4.6, the ancestry gate: environments whose branch lacks commits of its target. A check on
+    branches, not trees — it runs in the repo, so a worktree deleted by hand is still gated."""
+    out = []
+    for e in envs:
+        if not e.get("target") or not os.path.isdir(e.get("repo_path", "")):
+            continue
+        r = subprocess.run(["git", "rev-list", "--count", f"{e['branch']}..{e['target']}"], cwd=e["repo_path"],
+                           capture_output=True, text=True)
+        n = int(r.stdout.strip() or 0) if r.returncode == 0 else 0
+        if n:
+            out.append({"repo": e["repo"], "branch": e["branch"], "target": e["target"], "behind": n})
     return out
 
 
@@ -251,13 +266,18 @@ def main(argv=None):
                 return
             if not a.body:
                 sys.exit("a handoff needs --body")
-            # §4.6: the gates run here, in your turn — the tree first, then each repo's checks — before the handoff posts
+            # §4.6: the gates run here, in your turn — the tree, then the target, then each repo's checks — before the handoff posts
             plan = request("env.checks", {"character": character(), "thread": a.thread})
             dirty = dirty_trees(plan["environments"]) if plan["run"] else []
             if dirty:
                 for d in dirty:
                     print(f"[{d['repo']}] {d['path']}\n{d['status']}", file=sys.stderr)
                 sys.exit("handoff refused: uncommitted changes in " + ", ".join(d["repo"] for d in dirty) + " — commit them and retry")
+            behind = behind_targets(plan["environments"]) if plan["run"] else []
+            if behind:
+                sys.exit("handoff refused: " + "; ".join(
+                    f"{b['branch']} is {b['behind']} commit{'' if b['behind'] == 1 else 's'} behind {b['target']} in {b['repo']}"
+                    for b in behind) + f" — rebase onto {behind[0]['target']} (or merge it in) and retry")
             try:
                 checks = run_checks(plan["environments"], plan["limit"], plan["timeout"])
             except NoBash as e:

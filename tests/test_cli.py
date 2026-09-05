@@ -351,6 +351,43 @@ def test_dirty_trees_reports_status_per_repo(tmp_path):
     assert cli.dirty_trees([{"repo": "c", "path": str(tmp_path / "missing")}]) == []
 
 
+def _behind_setup(tmp_path):
+    """A repo whose `zharn/X-1` worktree is one commit behind main; returns (repo, worktree)."""
+    repo = _git_repo(tmp_path / "api")
+    wt = tmp_path / "wt"
+    subprocess.run(["git", "worktree", "add", "-q", "-b", "zharn/X-1", str(wt), "main"], cwd=repo, check=True)
+    (repo / "m.txt").write_text("m")
+    subprocess.run(["git", "add", "m.txt"], cwd=repo, check=True)
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "m"], cwd=repo, check=True)
+    return repo, wt
+
+
+def test_behind_targets_counts_per_environment_and_skips_unknown_targets(tmp_path):
+    repo, wt = _behind_setup(tmp_path)
+    env = {"repo": "api", "path": str(wt), "branch": "zharn/X-1", "target": "main", "repo_path": str(repo)}
+    assert cli.behind_targets([env]) == [{"repo": "api", "branch": "zharn/X-1", "target": "main", "behind": 1}]
+    assert cli.behind_targets([{**env, "target": ""}]) == []                      # no registered target: nothing to gate
+    import shutil; shutil.rmtree(wt)                                              # a branch check: the worktree may be gone
+    assert cli.behind_targets([env])[0]["behind"] == 1
+
+
+def test_handoff_refuses_a_branch_behind_its_target_before_running_checks(fake_ipc, tmp_path, capsys):
+    repo, wt = _behind_setup(tmp_path)
+    st = fake_ipc({"run": True, "policy": "gate", "limit": 100, "timeout": 30,
+                   "environments": [{"repo": "api", "checks": "false", "path": str(wt), "branch": "zharn/X-1",
+                                     "target": "main", "repo_path": str(repo)}]})
+    with pytest.raises(SystemExit) as e:
+        cli.main(["story", "yield", "--handoff", "--body", "done", "--despite-checks"])
+    assert str(e.value) == "handoff refused: zharn/X-1 is 1 commit behind main in api — rebase onto main (or merge it in) and retry"
+    assert [r["cmd"] for r in st["received"]] == ["env.checks"]                   # no flag past it; the checks never ran
+
+
+def test_env_list_prints_the_target(fake_ipc, capsys):
+    fake_ipc([{"repo": "api", "path": "/wt/api", "branch": "zharn/X-1", "target": "main", "checks": ""}])
+    cli.main(["env", "list"])
+    assert "branch=zharn/X-1  target=main" in capsys.readouterr().out
+
+
 def test_story_yield_requires_exactly_one_kind_and_a_character(recorder, monkeypatch):
     monkeypatch.setenv("HARNESS_CHARACTER_ID", "chr1")
     with pytest.raises(SystemExit):
