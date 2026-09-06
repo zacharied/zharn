@@ -17,6 +17,14 @@ PHASE_SKILLS = {"planning": "planning-a-story", "implementing": "implementing-a-
 POSITION_SKILLS = {"friend": "being-a-friend"}
 # Not on a story at all: the phase skills are inert there, so it takes none (spec §5.1).
 NO_SKILL_POSITIONS = {"bare"}
+META_SKILL = "being-a-character"
+
+
+def always_on() -> set[str]:
+    """The skills the harness injects itself (spec §5.3). Every built tree carries them whatever a preset
+    names: `being-a-character` tells a character its skill is mandatory and to re-read it with the Skill
+    tool, and a skill missing from the plugin cannot be re-read."""
+    return {META_SKILL, *PHASE_SKILLS.values(), *POSITION_SKILLS.values()}
 
 
 def skills_dir() -> Path:
@@ -42,6 +50,8 @@ def plugin_dir(preset: str = "", names: list[str] | None = None, cache: Path | N
     src = skills_dir()
     if names is None or cache is None:
         return src
+    # Before the stamp, so the cache key covers them and editing one rebuilds the tree.
+    names = sorted(set(names) | always_on())
     out = Path(cache) / (preset or "preset")
     stamp, marker = _stamp(src, names), out / ".zharn-stamp.json"
     try:

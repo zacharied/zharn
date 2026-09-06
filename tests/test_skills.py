@@ -142,11 +142,11 @@ def test_injected_skills_avoid_the_fake_claudes_trigger_words(name):
 
 @pytest.fixture
 def tree(tmp_path, monkeypatch):
-    """A source tree of three skills, with the plugin manifest the real one has."""
+    """A source tree with the plugin manifest the real one has: every injected skill, plus two a preset picks."""
     src = tmp_path / "src"
     (src / ".claude-plugin").mkdir(parents=True)
     (src / ".claude-plugin" / "plugin.json").write_text(json.dumps({"name": "zharn", "version": "0.0.1"}))
-    for name in ("being-a-character", "delegating", "test-driven-development"):
+    for name in sorted(skills.always_on() | {"delegating", "test-driven-development"}):
         write_skill(src, name, f"body of {name}")
     monkeypatch.setenv("HARNESS_SKILLS_DIR", str(src))
     return src
@@ -165,28 +165,41 @@ def test_names_without_a_cache_fall_back_to_the_whole_tree(tree):
     assert skills.plugin_dir("builder", ["delegating"], None) == tree
 
 
+def test_the_always_on_set_is_the_injected_skills():
+    assert skills.always_on() == {"being-a-character", "being-a-friend",
+                                  "planning-a-story", "implementing-a-story"}
+
+
+def test_a_filtered_tree_carries_the_always_on_skills_the_preset_left_out(tree, tmp_path):
+    """Spec §5.1: being-a-character law 4 tells a character to re-read its skill, so it must be listable."""
+    d = skills.plugin_dir("builder", ["delegating"], tmp_path / "cache")
+    assert names_in(d) == {"delegating"} | skills.always_on()
+
+
 def test_a_preset_gets_a_filtered_copy_named_after_it(tree, tmp_path):
     cache = tmp_path / "cache"
     d = skills.plugin_dir("builder", ["delegating"], cache)
-    assert d == cache / "builder" and names_in(d) == {"delegating"}
+    assert d == cache / "builder" and "test-driven-development" not in names_in(d)
     assert (d / "skills" / "delegating" / "SKILL.md").read_text(encoding="utf-8").endswith("body of delegating\n")
     assert json.loads((d / ".claude-plugin" / "plugin.json").read_text())["name"] == "zharn"
 
 
-def test_an_empty_preset_gets_a_tree_with_no_skills(tree, tmp_path):
+def test_an_empty_preset_still_gets_the_injected_skills(tree, tmp_path):
+    """A preset decides what a character may re-read on top of the injected set, never whether it has one."""
     d = skills.plugin_dir("none", [], tmp_path / "cache")
-    assert names_in(d) == set() and (d / ".claude-plugin" / "plugin.json").exists()
+    assert names_in(d) == skills.always_on() and (d / ".claude-plugin" / "plugin.json").exists()
 
 
 def test_a_named_skill_that_does_not_exist_is_skipped(tree, tmp_path):
     d = skills.plugin_dir("odd", ["delegating", "no-such-skill"], tmp_path / "cache")
-    assert names_in(d) == {"delegating"}
+    assert names_in(d) == {"delegating"} | skills.always_on()
 
 
 def test_the_filtered_tree_is_rebuilt_when_the_preset_changes(tree, tmp_path):
     cache = tmp_path / "cache"
     skills.plugin_dir("p", ["delegating"], cache)
-    assert names_in(skills.plugin_dir("p", ["being-a-character"], cache)) == {"being-a-character"}
+    assert names_in(skills.plugin_dir("p", ["test-driven-development"], cache)) == (
+        {"test-driven-development"} | skills.always_on())
 
 
 def test_the_filtered_tree_is_rebuilt_when_the_source_skill_changes(tree, tmp_path):
@@ -245,4 +258,4 @@ def test_a_rebuild_survives_a_directory_that_could_not_be_removed(tree, tmp_path
     monkeypatch.setattr(skills.shutil, "rmtree", lambda *a, **k: None)     # nothing gets removed
     d = skills.plugin_dir("p", ["being-a-character"], cache)               # must not raise FileExistsError
     assert (d / "skills" / "being-a-character" / "SKILL.md").exists()
-    assert json.loads((d / ".zharn-stamp.json").read_text())["names"] == ["being-a-character"]
+    assert json.loads((d / ".zharn-stamp.json").read_text())["names"] == sorted(skills.always_on())

@@ -85,7 +85,10 @@ def test_a_spawn_carries_the_casts_model_effort_and_plugin_dir(store, tmp_path):
     assert argv[argv.index("--effort") + 1] == "xhigh"
     plugin = Path(argv[argv.index("--plugin-dir") + 1])
     assert plugin == store.skills_cache / "builder"
-    assert sorted(d.name for d in (plugin / "skills").iterdir()) == sorted(cfg.DEFAULT_PRESETS[1]["skills"])
+    # The preset's own skills, plus the injected set every tree carries whatever the preset names (spec §5.1).
+    from harness import skills
+    assert sorted(d.name for d in (plugin / "skills").iterdir()) == sorted(
+        set(cfg.DEFAULT_PRESETS[1]["skills"]) | skills.always_on())
 
 
 def test_a_whole_tree_preset_spawns_on_the_source_skills_tree(store, tmp_path):
