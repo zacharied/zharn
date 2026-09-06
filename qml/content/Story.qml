@@ -129,9 +129,21 @@ ContentBase {
     }
 
     Flickable {
+        // interactive: false is what makes the prose selectable — an interactive Flickable
+        // steals the drag off a TextEdit and pans the page like a touch screen (ZHAR-3).
+        // It also swallows the wheel, so the wheel is put back by hand.
+        id: scroller; objectName: "storyScroll"
         visible: view.found
         anchors.fill: parent; contentHeight: page.implicitHeight + 48; clip: true
+        interactive: false
         ScrollBar.vertical: ScrollBar {}
+        WheelHandler {
+            acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+            onWheel: (e) => scroller.scrollBy(e.pixelDelta.y !== 0 ? e.pixelDelta.y : e.angleDelta.y / 120 * 60)
+        }
+        function scrollBy(dy) {
+            contentY = Math.max(0, Math.min(Math.max(0, contentHeight - height), contentY - dy))
+        }
         ColumnLayout {
             id: page
             anchors { left: parent.left; right: parent.right; top: parent.top; margins: 20; leftMargin: 28; rightMargin: 28 }
@@ -206,8 +218,8 @@ ContentBase {
                 }
             }
             // ---- description
-            Text { objectName: "storyDescription"; visible: view.started && !!view.story.description; Layout.topMargin: 10; Layout.fillWidth: true
-                   text: view.story.description || ""; color: app.theme.textMuted; wrapMode: Text.Wrap; textFormat: Text.MarkdownText; lineHeight: 1.3 }
+            Prose { objectName: "storyDescription"; visible: view.started && !!view.story.description; Layout.topMargin: 10; Layout.fillWidth: true
+                    text: view.story.description || ""; color: app.theme.textMuted }
             TextBox {
                 id: descEdit; objectName: "storyDescriptionEdit"; visible: !view.started
                 Layout.fillWidth: true; Layout.preferredHeight: 96; Layout.topMargin: 12
@@ -389,10 +401,9 @@ ContentBase {
                                     Rectangle { Layout.fillWidth: true; height: 1; color: parent.c; opacity: 0.45 }
                                 }
                                 // the line itself
-                                Text { visible: !line.isSystem && !!line.modelData.body; Layout.fillWidth: true; Layout.topMargin: 4
-                                       text: line.modelData.body; textFormat: Text.MarkdownText; wrapMode: Text.Wrap; lineHeight: 1.35
-                                       color: app.theme.text; font.pixelSize: app.theme.fontSize
-                                       onLinkActivated: (link) => Qt.openUrlExternally(link) }
+                                Prose { objectName: "commentBody_" + line.modelData.id
+                                        visible: !line.isSystem && !!line.modelData.body; Layout.fillWidth: true; Layout.topMargin: 4
+                                        text: line.modelData.body }
                                 // the questions: one numbered row each, its options as buttons
                                 Repeater {
                                     model: line.questions
@@ -401,9 +412,9 @@ ContentBase {
                                         required property int index
                                         required property var modelData
                                         Layout.fillWidth: true; Layout.topMargin: 8; spacing: 4
-                                        Text { objectName: "questionRow_" + line.modelData.id + "_" + qrow.index; Layout.fillWidth: true; wrapMode: Text.Wrap
-                                               text: (qrow.index + 1) + ". " + qrow.modelData.text + (qrow.modelData["default"] ? "  ·  default " + qrow.modelData["default"] : "")
-                                               color: app.theme.text; font.pixelSize: app.theme.fontSize; lineHeight: 1.35 }
+                                        Prose { objectName: "questionRow_" + line.modelData.id + "_" + qrow.index; Layout.fillWidth: true
+                                                text: (qrow.index + 1) + ". " + qrow.modelData.text + (qrow.modelData["default"] ? "  ·  default " + qrow.modelData["default"] : "")
+                                                textFormat: TextEdit.PlainText }
                                         Flow {
                                             visible: qrow.modelData.options.length > 0; Layout.fillWidth: true; spacing: 6
                                             Repeater {

@@ -1,6 +1,6 @@
 """The context view: send, stop, errors — through the real controls."""
 import pytest
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtTest import QTest
 
 from ui import start, wait_until
@@ -84,3 +84,34 @@ def test_story_link_in_header_opens_the_story(ui):
     open_context(ui, "link me")
     ui.click(ui.find("contextStoryLink"))
     assert ui.has(f"tab_story_{ui.story_key}")
+
+
+# ---------------------------------------------------------------- selectable text
+# Same as the story page (ZHAR-3): the transcript selects on drag and scrolls on the wheel.
+
+def test_dragging_across_a_transcript_row_selects_text(ui):
+    c = open_context(ui, "a message long enough that a drag across it selects a run of words")
+    assert wait_until(lambda: c.status == "idle")
+    assert wait_until(lambda: ui.find("transcript").property("count") == c.transcript.count())
+    body = ui.find("transcriptBody_0")
+    ui.drag_across(body)
+    sel = body.property("selectedText")
+    assert sel, "dragging across a transcript row selected nothing"
+    assert sel in body.property("text")
+
+
+def test_dragging_the_transcript_does_not_scroll_it(ui):
+    c = open_context(ui)
+    assert wait_until(lambda: c.status == "idle")
+    for i in range(25):
+        ui.store.contexts.send(c.id, f"filler {i} " + "words " * 12)
+        assert wait_until(lambda: c.status == "idle")
+    QTest.qWait(150)
+    lst = ui.find("transcript")
+    assert lst.property("contentHeight") > lst.property("height"), "transcript is not scrollable; test proves nothing"
+    before = lst.property("contentY")
+    ui.drag(QPoint(int(lst.property("width")) - 40, int(lst.property("height")) - 60),
+            QPoint(int(lst.property("width")) - 40, 60))
+    assert lst.property("contentY") == before, "the transcript panned on a mouse drag"
+    ui.wheel(lst, notches=1)
+    assert lst.property("contentY") < before, "the wheel no longer scrolls the transcript"

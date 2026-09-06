@@ -16,8 +16,8 @@ import sys
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QCoreApplication, QEvent, QMetaObject, QPoint, Qt, Q_ARG
-from PySide6.QtGui import QKeyEvent
+from PySide6.QtCore import QCoreApplication, QEvent, QMetaObject, QPoint, QPointF, Qt, Q_ARG
+from PySide6.QtGui import QKeyEvent, QWheelEvent
 from PySide6.QtQml import QJSValue, QQmlComponent, QQmlEngine
 from PySide6.QtTest import QTest
 
@@ -164,6 +164,33 @@ class Harness:
         """Move the pointer over an item (HoverHandlers react to plain moves)."""
         QTest.mouseMove(self.win, item.center())
         QTest.qWait(40)
+
+    def drag(self, start: QPoint, end: QPoint, steps: int = 8):
+        """Press, move in steps, release — a real drag. One jump from press to release reads as
+        a click to text selection and to Flickable alike, so the moves have to be gradual."""
+        QTest.mousePress(self.win, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, start)
+        for i in range(1, steps + 1):
+            x = start.x() + (end.x() - start.x()) * i // steps
+            y = start.y() + (end.y() - start.y()) * i // steps
+            QTest.mouseMove(self.win, QPoint(x, y))
+            QTest.qWait(10)
+        QTest.mouseRelease(self.win, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, end)
+        QTest.qWait(50)
+
+    def drag_across(self, item: Ref, frac: float = 0.6):
+        """Sweep the pointer along an item's first line — how a user selects a run of text."""
+        i = item._info()
+        y = int(i["y"] + min(10, i["h"] / 2))
+        self.drag(QPoint(int(i["x"]) + 2, y), QPoint(int(i["x"] + i["w"] * frac), y))
+
+    def wheel(self, item: Ref, notches: int = -1):
+        """One mouse-wheel notch over an item. Negative scrolls down (away from the user)."""
+        pos = QPointF(item.center())
+        delta = QPoint(0, 120 * notches)
+        ev = QWheelEvent(pos, self.win.mapToGlobal(pos), delta, delta, Qt.MouseButton.NoButton,
+                         Qt.KeyboardModifier.NoModifier, Qt.ScrollPhase.NoScrollPhase, False)
+        QCoreApplication.sendEvent(self.win, ev)
+        QTest.qWait(60)
 
     def key(self, key: Qt.Key, modifier=Qt.KeyboardModifier.NoModifier):
         QTest.keyClick(self.win, key, modifier)

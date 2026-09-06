@@ -40,10 +40,21 @@ Item {
             model: cv.context ? cv.context.transcriptModel : null
             clip: true; spacing: 8
             topMargin: 10; bottomMargin: 10; leftMargin: 14; rightMargin: 14
+            // Not interactive, so a drag selects the prose instead of panning the list (ZHAR-3).
+            // The wheel goes with it, so it is put back here — and it, not onMovementEnded,
+            // is now what tells us the reader has scrolled away from the tail.
+            interactive: false
             ScrollBar.vertical: ScrollBar {}
             property bool stickToEnd: true
             onContentHeightChanged: if (stickToEnd) positionViewAtEnd()
-            onMovementEnded: stickToEnd = atYEnd
+            WheelHandler {
+                acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                onWheel: (e) => {
+                    var dy = e.pixelDelta.y !== 0 ? e.pixelDelta.y : e.angleDelta.y / 120 * 60
+                    list.contentY = Math.max(list.originY, Math.min(list.originY + Math.max(0, list.contentHeight - list.height), list.contentY - dy))
+                    list.stickToEnd = list.atYEnd
+                }
+            }
             delegate: Item {
                 id: row
                 required property int index
@@ -78,23 +89,35 @@ Item {
                     Rectangle {
                         Layout.fillWidth: true
                         visible: row.text.length > 0 || row.input.length > 0
-                        implicitHeight: body.implicitHeight + (row.isTool || row.isUser ? 12 : 0)
+                        implicitHeight: (row.isTool ? toolBody.implicitHeight : body.implicitHeight) + (row.isTool || row.isUser ? 12 : 0)
                         radius: app.theme.radius
                         color: row.isUser ? app.theme.accentSoft : row.isError ? app.theme.dangerSoft : row.isTool ? (row.kind === "tool_use" ? app.theme.panel : app.theme.bg) : "transparent"
                         border.color: row.isTool ? app.theme.border : "transparent"
-                        Text {
+                        // Two bodies, one visible: prose is a selectable Prose, but a tool block
+                        // folds to four elided lines and neither elide nor maximumLineCount exists
+                        // on a TextEdit — so tool output stays a Text (ZHAR-3).
+                        Prose {
                             id: body
-                            anchors { left: parent.left; right: parent.right; top: parent.top; margins: row.isTool || row.isUser ? 6 : 0; leftMargin: row.isTool || row.isUser ? 8 : 0 }
-                            text: row.kind === "tool_use" ? row.input : row.text  // `text` alone would be Text.text
-                            textFormat: (row.kind === "text" && !row.isUser) ? Text.MarkdownText : Text.PlainText
-                            wrapMode: Text.Wrap; lineHeight: row.isTool ? 1.3 : 1.35
-                            color: row.isThinking || row.kind === "note" ? app.theme.textMuted : (row.kind === "tool_result" ? app.theme.textMuted : app.theme.text)
-                            font.family: row.isTool ? app.theme.monoFamily : app.theme.fontFamily
-                            font.pixelSize: row.isTool ? app.theme.monoSize : app.theme.fontSize - 0.5
+                            visible: !row.isTool
+                            anchors { left: parent.left; right: parent.right; top: parent.top; margins: row.isUser ? 6 : 0; leftMargin: row.isUser ? 8 : 0 }
+                            objectName: "transcriptBody_" + row.index
+                            text: row.text
+                            textFormat: (row.kind === "text" && !row.isUser) ? TextEdit.MarkdownText : TextEdit.PlainText
+                            color: row.isThinking || row.kind === "note" ? app.theme.textMuted : app.theme.text
+                            font.pixelSize: app.theme.fontSize - 0.5
                             font.italic: row.isThinking
-                            maximumLineCount: row.isTool && !row.expanded ? 4 : 100000
-                            elide: row.isTool && !row.expanded ? Text.ElideRight : Text.ElideNone
-                            onLinkActivated: (link) => Qt.openUrlExternally(link)
+                        }
+                        Text {
+                            id: toolBody
+                            visible: row.isTool
+                            anchors { left: parent.left; right: parent.right; top: parent.top; margins: 6; leftMargin: 8 }
+                            text: row.kind === "tool_use" ? row.input : row.text  // `text` alone would be Text.text
+                            textFormat: Text.PlainText
+                            wrapMode: Text.Wrap; lineHeight: 1.3
+                            color: app.theme.textMuted
+                            font.family: app.theme.monoFamily; font.pixelSize: app.theme.monoSize
+                            maximumLineCount: row.expanded ? 100000 : 4
+                            elide: row.expanded ? Text.ElideNone : Text.ElideRight
                         }
                     }
                     Rectangle { visible: row.streaming; width: 8; height: 13; color: app.theme.accent; opacity: 0.7 }

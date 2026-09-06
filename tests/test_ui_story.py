@@ -1,6 +1,6 @@
 """Board + story page through the real controls: create, edit, Start, yields as option buttons, the author's action bar."""
 import pytest
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtTest import QTest
 
 from ui import OUT, start, wait_until
@@ -407,3 +407,60 @@ def test_an_unfolded_check_stays_unfolded_when_a_comment_arrives(ui):
     ui.store.stories.comment(key, "a note from elsewhere")        # and a comment lands on the story
     QTest.qWait(120)
     assert ui.visible(ui.find(f"checkOutput_{c['id']}_0"))
+
+
+# ---------------------------------------------------------------- selectable text
+# The page is a Flickable full of prose. A mouse drag used to pan it like a touch screen;
+# it now selects text, and only the wheel and the scrollbar scroll (ZHAR-3).
+
+LOREM = ("The quick brown fox jumps over the lazy dog while the harness watches, "
+         "and the sentence runs on long enough to select a piece of it.")
+
+
+def selectable_story(ui, comments=14):
+    key = ui.store.stories.create("Selectable", LOREM)
+    ui.store.stories.start(key, "", "protagonist")
+    for i in range(comments):
+        ui.store.stories.comment(key, f"{i}. {LOREM}")
+    open_story(ui, key)
+    QTest.qWait(120)
+    return key
+
+
+def test_dragging_across_the_description_selects_text(ui):
+    selectable_story(ui, comments=0)
+    desc = ui.find("storyDescription")
+    ui.drag_across(desc)
+    sel = desc.property("selectedText")
+    assert sel, "dragging across the description selected nothing"
+    assert sel in desc.property("text")
+
+
+def test_dragging_across_a_comment_body_selects_text(ui):
+    key = selectable_story(ui, comments=1)
+    cid = ui.store.stories.comments(key)[-1]["id"]
+    body = ui.find(f"commentBody_{cid}")
+    ui.drag_across(body)
+    sel = body.property("selectedText")
+    assert sel, "dragging across a comment body selected nothing"
+    assert sel in body.property("text")
+
+
+def test_dragging_the_page_does_not_scroll_it(ui):
+    selectable_story(ui)
+    flick = ui.find("storyScroll")
+    assert flick.property("contentHeight") > flick.property("height"), "story page is not scrollable; test proves nothing"
+    before = flick.property("contentY")
+    h = flick.property("height")
+    ui.drag(QPoint(int(flick.property("width")) - 40, int(h) - 60), QPoint(int(flick.property("width")) - 40, 60))
+    assert flick.property("contentY") == before, "the page panned on a mouse drag"
+
+
+def test_wheel_still_scrolls_the_page(ui):
+    selectable_story(ui)
+    flick = ui.find("storyScroll")
+    before = flick.property("contentY")
+    ui.wheel(flick, notches=-1)
+    assert flick.property("contentY") > before, "the wheel no longer scrolls the page"
+    ui.wheel(flick, notches=1)
+    assert flick.property("contentY") == before, "the wheel does not scroll back up"
