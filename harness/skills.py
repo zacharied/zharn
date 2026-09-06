@@ -13,6 +13,10 @@ from harness import config as cfg
 
 DEFAULT_DIR = Path(__file__).resolve().parent / "skills"
 PHASE_SKILLS = {"planning": "planning-a-story", "implementing": "implementing-a-story"}
+# A position that leads no story of its own takes one skill in every phase (spec §5.3).
+POSITION_SKILLS = {"friend": "being-a-friend"}
+# Not on a story at all: the phase skills are inert there, so it takes none (spec §5.1).
+NO_SKILL_POSITIONS = {"bare"}
 
 
 def skills_dir() -> Path:
@@ -78,4 +82,26 @@ def skill_body(name: str) -> str:
 
 def phase_skill(phase: str) -> str:
     name = PHASE_SKILLS.get(phase)
+    return skill_body(name) if name else ""
+
+
+def skill_name(position: str, phase: str) -> str:
+    """The skill directory a character in `position` wakes up with while the story is in `phase`; "" for a
+    position or a phase that carries none (spec §5.3).
+
+    Only the phases in PHASE_SKILLS carry a skill at all, positions included: a friend on a story that is
+    done or canceled is owed nothing, exactly as its protagonist is. The position tables are then
+    membership tests, not `.get(...) or ...` fallbacks — neither None nor "" would stop a bare context
+    falling through to the phase table and picking up the protagonist's skill."""
+    if phase not in PHASE_SKILLS:
+        return ""
+    if position in POSITION_SKILLS:
+        return POSITION_SKILLS[position]
+    if position in NO_SKILL_POSITIONS:
+        return ""
+    return PHASE_SKILLS[phase]
+
+
+def skill_for(position: str, phase: str) -> str:
+    name = skill_name(position, phase)
     return skill_body(name) if name else ""

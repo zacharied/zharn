@@ -49,6 +49,32 @@ def test_phase_skill_maps_phases_to_skills(tmp_path, monkeypatch):
     assert skills.phase_skill("done") == "" and skills.phase_skill("todo") == "" and skills.phase_skill("") == ""
 
 
+def test_skill_name_keys_on_position_then_phase():
+    assert skills.skill_name("protagonist", "planning") == "planning-a-story"
+    assert skills.skill_name("protagonist", "implementing") == "implementing-a-story"
+    assert skills.skill_name("friend", "planning") == "being-a-friend"
+    assert skills.skill_name("friend", "implementing") == "being-a-friend"
+
+
+def test_skill_name_is_empty_where_no_skill_belongs():
+    assert skills.skill_name("bare", "planning") == ""        # a bare context is on no story
+    assert skills.skill_name("bare", "implementing") == ""
+    assert skills.skill_name("protagonist", "done") == ""     # terminal and pre-start phases carry none
+    assert skills.skill_name("protagonist", "todo") == ""
+    assert skills.skill_name("protagonist", "") == ""
+    assert skills.skill_name("", "implementing") == "implementing-a-story"   # no position: the phase decides
+
+
+def test_skill_for_reads_the_body_of_whatever_skill_name_picked(tmp_path, monkeypatch):
+    monkeypatch.setenv("HARNESS_SKILLS_DIR", str(tmp_path))
+    write_skill(tmp_path, "implementing-a-story", "BUILD")
+    write_skill(tmp_path, "being-a-friend", "ONE PIECE")
+    assert skills.skill_for("protagonist", "implementing") == "BUILD"
+    assert skills.skill_for("friend", "implementing") == "ONE PIECE"
+    assert skills.skill_for("friend", "done") == ""
+    assert skills.skill_for("bare", "implementing") == ""
+
+
 def test_plugin_manifest_names_the_plugin_zharn():
     manifest = json.loads((ROOT / "harness" / "skills" / ".claude-plugin" / "plugin.json").read_text())
     assert manifest["name"] == "zharn"
