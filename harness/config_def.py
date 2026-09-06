@@ -137,8 +137,9 @@ MODELS = [
 EFFORTS = ["", "low", "medium", "high", "xhigh", "max"]
 
 # Presets. A preset controls one thing: which skills a character wakes up with. `skills` names directories
-# under SKILLS_DIR; ["*"] is the whole tree. The meta skill (being-a-character) and the phase skills are
-# delivered by the harness itself (§5.3), so no preset can switch them off.
+# under SKILLS_DIR; ["*"] is the whole tree. The injected skills (being-a-character, the phase skills and
+# being-a-friend) are delivered by the harness itself (§5.3), so no preset can switch them off, and every
+# filtered tree carries them so a character can still re-read the one it was sent.
 DEFAULT_PRESETS = [
     {"name": "full", "skills": ["*"]},
     {"name": "builder", "skills": ["delegating", "test-driven-development", "systematic-debugging",

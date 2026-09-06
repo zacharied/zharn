@@ -62,7 +62,7 @@ def needs_you_flavor(story: lc.Story, comments: list[dict]) -> str:
 
 def render_brief(story: lc.Story, comments: list[dict], characters: dict[str, dict], note: str, *,
                  substories: list[dict] = (), situation: str = "", skill: str = "") -> str:
-    """Lifecycle spec §3.1: the story record as markdown, the situation (recasts), the note, then the phase skill.
+    """Lifecycle spec §3.1: the story record as markdown, the situation (recasts), the note, then the skill due for its position.
     The position's instructions and the contract are in the system prompt (§5.3), not here."""
     out = [f"# {story.key}: {story.title}", "", story.description or "(no description)", "",
            f"Phase: {story.phase}" + (f" · ball: {story.ball}" if story.ball else ""), ""]

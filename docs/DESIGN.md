@@ -186,8 +186,8 @@ Defined in **[`docs/AGENT-MODEL.md`](AGENT-MODEL.md)** (design) and
   the story record *is* the compaction. Recast also swaps model, effort and preset mid-story.
 * The harness enforces mechanically what it can (no status verb, main handoff blocked while
   sub-stories are open, checks attached to handoffs, per-thread auto-yield on silence, inbox
-  bookkeeping, the recap/recast ladder) and injects phase skills (vendored from superpowers into
-  `harness/skills/`) for the rest.
+  bookkeeping, the recap/recast ladder) and injects a skill chosen by the character's position and the
+  story's phase (vendored from superpowers into `harness/skills/`) for the rest.
 
 Kept from bb: attachments, mentions (`@ABC-12`), a **New Context** button (bb's
 "new thread": a bare chat for questions, promotable into a story). Not kept: per-project prefixes
@@ -302,7 +302,7 @@ Known churn: every intent re-parses the whole tree and rebuilds all groups (fine
    `--plugin-dir` at every spawn) holding `being-a-character`, `planning-a-story`, `implementing-a-story`, `delegating`
    and five discipline skills vendored from superpowers 6.3.0 (`VENDORED.md`, `LICENSES/superpowers`); the character
    prompt is split by volatility — a stable system prompt built at every spawn and never stored, the situation line and
-   the phase skill in messages (`Character.phase_seen`; spec §5.3); `tests/skills/` runs three scenarios against real
+   the injected skill in messages, chosen by position and phase (`Character.skill_seen`; spec §5.3); `tests/skills/` runs scenarios against real
    `claude -p` behind `HARNESS_PAID_TESTS=1`, blanking the skill under test for the baseline; the paid run landed
    2026-09-04 on Sonnet 5 (`HARNESS_PAID_MODEL`), its `baseline.json`/`skilled.json` beside each scenario. What that run
    taught (proposal `2026-09-04-paid-run-frictions.md`, shipped the same day): a question yield is a JSON document on

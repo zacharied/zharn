@@ -81,8 +81,8 @@ property of its model, not a fourth pick.
 
 **Preset** — a named set of skills, and nothing else: which of the skills in your fork a character
 wakes up with. A preset says nothing about the model, the permission ceiling, or what the character
-is told to do, and the iron laws and the phase skill reach every character whatever its preset says
-(§8).
+is told to do, and the iron laws and the skill for the character's position reach it whatever its
+preset says (§8).
 
 **Sub-story** — a story created by a character, who becomes its author. Recursive.
 
@@ -253,7 +253,7 @@ For judgment, every character wakes up with a short set of iron laws and the ski
 it is in — how to plan, how to implement, how to yield, how to delegate — and can reach the
 discipline skills (test-driven development, systematic debugging, verification, code review)
 when it needs them. Which of those a character carries is its preset's business; the iron laws and
-the phase skill are the harness's, and arrive whatever the preset says. The skills are files in your fork, adapted from superpowers; the harness
+the skill for its position are the harness's, and arrive whatever the preset says. The skills are files in your fork, adapted from superpowers; the harness
 records what each character actually did, so a skill's effect is tested against facts rather
 than transcripts.
 

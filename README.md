@@ -72,10 +72,10 @@ Every character's system prompt is stable for the life of its context: identity,
 `harness/skills/skills/being-a-character/SKILL.md`, the CLI contract, its position's instructions. Everything that moves — phase, the
 attended thread, what it owes and awaits, where it stands — arrives as a `[situation]` line on top of every message,
 and the skill for the current phase rides the message whenever the phase changes. `harness/skills/` is a Claude Code
-plugin (`--plugin-dir` at every spawn; `HARNESS_SKILLS_DIR` overrides it): four zharn skills and five discipline
+plugin (`--plugin-dir` at every spawn; `HARNESS_SKILLS_DIR` overrides it): five zharn skills and five discipline
 skills vendored from superpowers (`harness/skills/VENDORED.md`). A preset that names a subset gets a filtered
-copy of the plugin under `.zharn/local/skills/`; `being-a-character` and the phase skills are delivered by the
-harness itself, so no preset can switch them off. Edit a skill and the next spawn has it. The full
+copy of the plugin under `.zharn/local/skills/`, always carrying the injected skills — `being-a-character`, the
+phase skills and `being-a-friend` — which the harness delivers itself, so no preset can switch them off. Edit a skill and the next spawn has it. The full
 mechanics are in the [lifecycle spec](docs/specs/story-lifecycle.md); harness-spawned minions are still Claude's native
 `Agent` tool.
 

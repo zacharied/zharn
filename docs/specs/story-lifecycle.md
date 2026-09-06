@@ -26,7 +26,7 @@ Character { id, story_key, position, name, live_context: <context_id>,
             recaps: [<comment_id>],
             context_warned: <int> | absent,                 # recaps it had when its context crossed CONTEXT_WARN (§2.3)
             context_maxed: true | absent,                   # its context crossed CONTEXT_MAX; a recast is pending (§3.4)
-            phase_seen: <phase> | null }                    # the phase whose skill it last received (§5.3)
+            skill_seen: <skill name> | null }               # the skill it last received (§5.3)
 Context   { id, owner: <character_id> | <minion of character_id> | "human",
             session_id, predecessor: <context_id> | null,   # recast lineage
             forked_from: <context_id> | null,               # forked friends, asides (and minions)
@@ -91,7 +91,7 @@ outputs; rejections raise with the reason the CLI prints. Every phase-changing c
 | `yield --question [--thread t]` — a JSON document on stdin: `{body?, questions: [{text, options?, default?}]}` | `t`'s lead (default `t` = attended thread) | thread has no pending yield; at least one question, each with non-empty `text`, `options` a list of strings (absent or empty: free text), `default` a string. Invalid JSON is refused by the CLI; a wrong shape by the store | `question` comment, `structured.questions` normalized (`options` always a list, `default` only when given); thread turn → author |
 | `yield --handoff --body … [--despite-checks] [--thread t]` | `t`'s lead | as above; main thread in `implementing`: no open sub-stories, every environment of the story has a clean tree and a branch up to date with its target (no flag past either), then each repo's `checks` run in its environment, attaching `[{repo, cmd, exit, output}]` ([workspace spec](workspace-model.md) §4.6) | `handoff` comment; thread turn → author |
 | `resolve --thread t [--note …]` | `t`'s author | as §2.1 Resolve: turn = author, not the main thread | As §2.1 Resolve: system comment, yield closed, lead neither resumed nor notified, turn → resolved |
-| `proceed [--note …]` | protagonist (main's lead) | `(planning, cast)`; if the position has `outline_first`, an outline handoff must have been Proceed-ed since the most recent entry into planning | System comment on main → `(implementing, cast)`. **stdout is the `implementing-a-story` skill**; `phase_seen` := implementing. |
+| `proceed [--note …]` | protagonist (main's lead) | `(planning, cast)`; if the position has `outline_first`, an outline handoff must have been Proceed-ed since the most recent entry into planning | System comment on main → `(implementing, cast)`. **stdout is the `implementing-a-story` skill**; `skill_seen` := implementing-a-story. |
 | `recap --body … [--thread t]` | any | — | `recap` comment in `t` (default: attended thread, else main); recorded as the character's latest recap. No transition. |
 | `comment --body … [--thread t] [--reply-to id] [--to @Name…] [--attach …]` | any | default `t` = attended thread | `text` comment, delivered per §3.2. No transition. |
 | `call [--as Name] [--model M] [--effort E] [--preset P] [--fork] --note …` | any | — | Cast a friend into the `friend` position, named `Name` (default: the position's label, §1): new thread authored by the caller, led by the friend, `note` as root. `--fork`: the friend's context is a clone of the caller's live context (`Character.forked_from` = caller). Prints id/name. A friend that should read another thread is told so in the note and comments there as a guest. |
@@ -176,11 +176,11 @@ Story key + title + description; the threads in order — resolved ones folded t
 closing note —
 rendered as markdown with author names and kinds; each character's latest recap; sub-stories
 with `(phase, ball)`; cast with positions; attachments; then the call-in note (or Start note), then
-the phase skill (§5.3). A recast context's brief carries its situation before the skill: "you are
+the skill due for its position (§5.3). A recast context's brief carries its situation before the skill: "you are
 a recast of <name>; your predecessor's recap is above; you were attending #t; n items wait in
-your inbox; you await …". A forked friend gets no brief — its context already holds everything,
-the phase skill included — only the call note and "you are a fork of <name>: you cannot change
-its plan; if the author's point must reach it, `@<name>` it." The contract and the position's
+your inbox; you await …". A forked friend gets no brief — its context already holds everything —
+only the call note, `being-a-friend` because its position changed (§5.3), and "you are a fork of
+<name>: you cannot change its plan; if the author's point must reach it, `@<name>` it." The contract and the position's
 instructions are in the system prompt (§5.3), not the brief.
 
 ### 3.2 Routing and attention
@@ -202,7 +202,7 @@ is plain conversation.
 ### 3.4 Recast ladder
 
 New context = a fresh system prompt (§5.3, which carries the position's instructions) + brief (§3.1,
-which includes recaps and ends with the phase skill). The recap
+which includes recaps and ends with the skill due for its position). The recap
 source, best first: **(1)** the character's latest `recap` comment if newer than
 `config.RECAP_STALE_TURNS`; **(2)** else resume the outgoing context for one final turn that may
 only `recap`; **(3)** else nothing — the brief alone (the old "unresumable" path, now the worst
@@ -275,8 +275,9 @@ harness/skills/                       # config.SKILLS_DIR: one Claude Code plugi
   VENDORED.md                         # upstream version; every edit to a vendored file, per file
   skills/
     being-a-character/                # meta: in the system prompt (< 150 words)
-    planning-a-story/                 # phase: classify, ask once, outline, proceed
-    implementing-a-story/             # phase: TDD, delegate, verify, hand off
+    being-a-friend/                   # position: one thread, one piece, no gate at the handoff
+    planning-a-story/                 # protagonist, planning: classify, ask once, outline, proceed
+    implementing-a-story/             # protagonist, implementing: TDD, delegate, verify, hand off
     delegating/                       # minion · friend · sub-story
     test-driven-development/ systematic-debugging/ verification-before-completion/
     receiving-code-review/ requesting-code-review/    # vendored from superpowers, MIT, LICENSES/superpowers
@@ -290,12 +291,14 @@ same name. A preset naming `["*"]` is handed the tree itself; any other is hande
 a name that matches nothing skipped — rebuilt whenever the preset or any file under a skill it names
 changes, and reused otherwise. `--plugin-dir` points at whichever tree the preset resolved to.
 
-Claude lists every skill as `zharn:<name>`; a character re-reads its phase skill that way when
-unsure. Every spawn gets a plugin — bare contexts and asides too; the phase skills are inert
-without a story. `being-a-character` and the phase skills reach every character whatever its preset
-says: the harness reads them out of the source tree and delivers them itself (§5.3), so no preset can
-switch them off, and a preset that leaves them out of the plugin only means the character cannot
-re-read them with the Skill tool.
+Claude lists every skill as `zharn:<name>`; a character re-reads the skill it was sent that way
+when unsure. Every spawn gets a plugin — bare contexts and asides too; the phase skills are inert
+without a story. The **injected** skills — `being-a-character`, `planning-a-story`,
+`implementing-a-story`, `being-a-friend` — reach every character whatever its preset says: the
+harness reads them out of the source tree and delivers them itself (§5.3). A preset cannot switch
+them off, and a filtered tree carries them regardless of what the preset names, because
+`being-a-character` tells a character to re-read its skill with the Skill tool and a skill absent
+from the plugin cannot be re-read.
 
 A vendored file differs from upstream only in prefix and vocabulary: `superpowers:` → `zharn:`;
 "your human partner" → the thread's author (who may be a character); subagent → minion; "dispatch
@@ -314,8 +317,8 @@ checklist, flowchart only at decision points; descriptions are triggers, never w
 
 `being-a-character` iron laws: (1) never stop while you owe a thread unless a friend or a
 sub-story is out — the harness will yield for you and say so; (2) status is not yours to set;
-(3) everything you say to anyone is a comment; (4) the phase skill in your conversation is
-mandatory — re-read it with the Skill tool when unsure; (5) when told your context is low,
+(3) everything you say to anyone is a comment; (4) the skill your messages carried is
+mandatory — re-read it with the Skill tool; (5) when told your context is low,
 `recap` before anything else; (6) one question yield carries every question as a record, options where choices exist;
 handoffs carry evidence — what changed, how verified, where to look first.
 `planning-a-story`: classify (spike / bounded / outline) → bounded: `proceed`; spike: minions
@@ -325,9 +328,16 @@ and to whom), then wait for Proceed. Gate: no file edits while planning. Its rat
 names the rule it overrides: "one question at a time" belongs to another harness — a yield ends
 the turn, so batch.
 `implementing-a-story`: REQUIRED test-driven-development, verification-before-completion,
-delegating; protect your context — minions read, friends build, you hold the plot; a friend
-reviews each delegated task; handoff body = what changed / how verified / where to look first (the
-checks ride along mechanically, §2.2).
+delegating; protect your context — minions read, friends build, you hold the plot; the friends you
+call are told `being-a-friend`, so what they must not decide alone belongs in the call note; a
+friend reviews each delegated task; handoff body = what changed / how verified / where to look
+first (the checks ride along mechanically, §2.2).
+`being-a-friend`: one thread, one piece; your author is whoever called you and your yields reach
+them, not the human; you hand off in the thread you lead, never `#main`, which only its lead may
+yield in; you share the lead's tree and it is not gated — commit only when the note says to, never
+rebase; no edits while the story is planning; `proceed` and `approve` are not yours; decide what
+the note leaves open and name the decision in the handoff. REQUIRED test-driven-development,
+verification-before-completion.
 `delegating`: the §6 table of AGENT-MODEL.md, plus: reviews are always friends; independent tasks
 go out at once, dependent ones in order; `wait` after casting.
 `requesting-code-review`: the reviewer is a friend — `call --as Reviewer --preset reviewer` with the
@@ -355,20 +365,27 @@ any other by its id, with ` of KEY` when the thread belongs to another story:
 `· recap due` appears while the character's context is past the warn line with no recap since the
 crossing (§2.3); the line never carries the reading itself.
 
-**Phase skill.** In messages only, never in the system prompt. Sent whenever the story's phase
-differs from `Character.phase_seen`, which is then updated — the comparison is against what the
+**The injected skill.** In messages only, never in the system prompt. Which one is due is a
+function of the character's position and the story's phase: a protagonist takes the phase's skill,
+a friend takes `being-a-friend` in every phase, a bare context takes none, and a phase that carries
+no skill — terminal or before Start — gives none to any position. It is sent whenever the skill due
+differs from `Character.skill_seen`, which is then updated — the comparison is against the skill the
 character was last told, not against the action that moved the phase, because an inbox item can be
 popped after the Proceed that preceded it.
 
 | Moment | The character receives |
 |---|---|
-| Fresh context, recast included | The brief ends with the current phase skill (§3.1). |
-| Forked friend | No skill; `phase_seen` copies from the source, whose conversation holds it. |
-| Any delivery with `phase ≠ phase_seen` | The new phase's skill appended after the comment. |
-| Cast `proceed` | `implementing-a-story` on stdout (§2.2). |
-| Respawn in the same phase | Nothing — the resumed conversation holds it. |
+| Fresh context, recast included | The brief ends with the skill due for its position (§3.1). |
+| Forked friend | `being-a-friend` after the fork note: the conversation it inherited holds its source's skill, which is the wrong one now. |
+| Any delivery where the skill due ≠ `skill_seen` | That skill, appended after the comment. |
+| Cast `proceed` | `implementing-a-story` on stdout (§2.2) — only main's lead may `proceed`. |
+| A friend across a phase change | Nothing: the skill due is unchanged. |
+| Respawn with the same skill due | Nothing — the resumed conversation holds it. |
 
-Friends get the phase skill like the protagonist: the story's phase binds everyone on it.
+A friend is not a small protagonist. The protagonist's skill tells it to split the outline, call
+reviewers, hand off on `#main` and commit before it does; a friend leads a side thread, cannot
+yield on `#main`, and hands off through a gate that does not run. Position, not phase, decides
+which of those a character is told.
 
 ### 5.4 Testing
 
@@ -376,10 +393,12 @@ Cheap layer, `tests/fake_claude.py` (it echoes its argv and its `--append-system
 init event): the system prompt carries identity, `being-a-character`, the contract and the position's
 instructions, and none of phase, attention, owes, awaits, environment; two spawns of one context
 across a Proceed get identical prompts; every delivery starts with the situation line; the first
-message of a fresh context ends with the phase skill and a fork's does not; Proceed, Back to
-planning, Reopen and an inbox pop across a Proceed each append the new skill once, a same-phase
-delivery does not; cast `proceed` prints it and the next delivery does not repeat it; a friend
-cast in implementing gets `implementing-a-story`.
+message of a fresh context ends with the skill due for its position, and a fork of the protagonist
+ends with `being-a-friend`; Proceed, Back to planning and Reopen each append the protagonist's new
+skill once, a same-skill delivery does not; cast `proceed` prints it and the next delivery does not
+repeat it; a friend cast or recast in either phase gets `being-a-friend` and never the lead's, and a
+phase change under a friend sends it nothing; every built plugin tree carries the injected skills
+whatever its preset names.
 
 Paid layer, `tests/skills/<scenario>/` = `prompt.md` + fixture repo builder + `expected.json`
 (verbs that must and must not occur). The runner spawns a character with and without the skill
@@ -388,7 +407,9 @@ under real `claude -p`, only under `HARNESS_PAID_TESTS=1`, on the CLI's default 
 read `verbs_log`, not transcripts; the last run's baseline and skilled logs are committed beside the
 scenario as evidence, each recording the model that ran. Scenarios: outline-before-proceed (an `outline_first` position: one question yield, one
 outline handoff, no edits), handoff-not-silence (implementing: a committed handoff with evidence, not a
-harness yield), batch-questions (planning with three unknowns: one yield whose document carries options).
+harness yield), batch-questions (planning with three unknowns: one yield whose document carries options),
+friend-stays-in-lane (a friend called in implementing under a note that forbids committing: a handoff
+in its own thread, and no commit, no `call`, no yield on main).
 New/edited skills: baseline failure first.
 
 ## 6. UI
@@ -451,7 +472,7 @@ New/edited skills: baseline failure first.
   past the warn line and back once a recap lands (cast row and Contexts pane alike), a
   predecessor row naming the reading it was recast at.
 * `tests/test_stories.py`, `test_agents.py`: §5.4 cheap layer — the stable system prompt, the situation
-  line, the phase skill on `phase_seen` changes.
+  line, the injected skill on `skill_seen` changes.
 * `tests/skills/`: §5.4 paid layer.
 * Context usage: the reading and window from hand-built events and through replay
   (`test_stream_interpreter.py`, `test_contexts_unit.py`); a fork's inherited reading; `DISABLE_AUTO_COMPACT`

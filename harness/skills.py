@@ -1,6 +1,6 @@
 """Skills: the files a character wakes up with (docs/specs/story-lifecycle.md §5). `harness/skills/` is one
-Claude Code plugin — `--plugin-dir` at every spawn — and the harness reads the meta and phase skills out of
-the same tree to inject them itself. HARNESS_SKILLS_DIR overrides the tree; the paid test runner points it
+Claude Code plugin — `--plugin-dir` at every spawn — and the harness reads the injected skills out of
+the same tree to deliver them itself. HARNESS_SKILLS_DIR overrides the tree; the paid test runner points it
 at a copy with one skill blanked."""
 from __future__ import annotations
 
