@@ -490,17 +490,30 @@ def test_author_name():
     assert author_name("chr_1", chars) == "Reviewer" and author_name("chr_9", chars) == "chr_9"
 
 
-def test_render_brief_folds_threads_and_lists_cast(store):
+def test_render_brief_indexes_threads_without_their_contents(store):
+    """Spec §3.1: the brief names the threads and says where to read them; it never carries their comments."""
     key, chr_id = started(store, "note")
     store.cast_yield(chr_id, "question", "Two things.", questions=[{"text": "a or b?", "options": ["a", "b"], "default": "a"}, {"text": "why?"}])
     store.answer(key, "", ["a", ""], "because")
     text = render_brief(store.story(key), store.comments(key), {chr_id: store.character(chr_id)}, "the call-in note")
     assert text.startswith(f"# {key}: Title\n\nDesc\n")
-    assert "## Threads" in text and "### #main — author you" in text and "**you** (text): note" in text
-    assert "**protagonist** (question): Two things.\n  1. a or b? (a, b; default a)\n  2. why?\n" in text
-    assert "**you** (text): 1. a\nbecause" in text
+    assert "## Threads" in text and "- #main — author you, lead protagonist, turn: cast" in text
+    assert "Run `$HARNESS_CLI story show` to read any of them." in text
+    index = text.split("## Threads", 1)[1].split("## Note", 1)[0]
+    for gone in ("Two things.", "a or b?", "because"):        # no comment body, no question line
+        assert gone not in index
     assert "## Cast" in text and "protagonist — protagonist" in text
     assert "## Instructions" not in text and text.rstrip().endswith("## Note\nthe call-in note")
+
+
+def test_render_brief_marks_the_threads_the_reader_leads(store):
+    key, chr_id = started(store)
+    friend = store.cast_call(chr_id, "claude-fast", "second opinion")
+    chars = {c["id"]: c for c in (store.character(chr_id), store.character(friend["character"]))}
+    mine = render_brief(store.story(key), store.comments(key), chars, "", me=friend["character"])
+    assert f"- #{friend['thread']} — author protagonist, lead claude-fast, turn: cast (yours)" in mine
+    assert "- #main — author you, lead protagonist, turn: cast\n" in mine        # not yours: unmarked
+    assert "(yours)" not in render_brief(store.story(key), store.comments(key), chars, "")
 
 
 def test_needs_you_flavor():

@@ -60,9 +60,11 @@ def needs_you_flavor(story: lc.Story, comments: list[dict]) -> str:
 
 
 def render_brief(story: lc.Story, comments: list[dict], characters: dict[str, dict], note: str, *,
-                 substories: list[dict] = (), situation: str = "", skill: str = "") -> str:
-    """Lifecycle spec §3.1: the story record as markdown, the situation (recasts), the note, then the phase skill.
-    The role's instructions and the contract are in the system prompt (§5.3), not here."""
+                 substories: list[dict] = (), situation: str = "", skill: str = "", me: str = "") -> str:
+    """Lifecycle spec §3.1: where the story stands as markdown, the situation (recasts), the note, then the phase
+    skill. The threads are an index — who leads them, whose turn — never their comments: a brief that hands over the
+    record teaches the reader nothing about reading it, and every character can. `me` marks the reader's own
+    threads. The role's instructions and the contract are in the system prompt (§5.3), not here."""
     out = [f"# {story.key}: {story.title}", "", story.description or "(no description)", "",
            f"Phase: {story.phase}" + (f" · ball: {story.ball}" if story.ball else ""), ""]
     if story.parent_story:
@@ -70,14 +72,9 @@ def render_brief(story: lc.Story, comments: list[dict], characters: dict[str, di
     if story.threads:
         out += ["## Threads", ""]
         for t in story.threads:
-            out.append(f"### #{lc.thread_label(story, t.id)} — author {author_name(t.author, characters)}, lead {author_name(t.lead, characters)}, turn: {t.turn}")
-            for c in comments:
-                if c["thread_id"] != t.id:
-                    continue
-                out.append(f"- **{author_name(c['author'], characters)}** ({c['kind']}): {c['body']}")
-                for line in lc.question_lines(c.get("structured", {}).get("questions") or []):
-                    out.append(f"  {line}")
-            out.append("")
+            out.append(f"- #{lc.thread_label(story, t.id)} — author {author_name(t.author, characters)}, "
+                       f"lead {author_name(t.lead, characters)}, turn: {t.turn}" + (" (yours)" if me and t.lead == me else ""))
+        out += ["", "Run `$HARNESS_CLI story show` to read any of them.", ""]
     latest = {}
     for c in comments:
         if c["kind"] == "recap":
@@ -591,7 +588,7 @@ class StoryStore(QObject):
             if fork_from is None:
                 cid = self._contexts.create(role_cfg["name"], story_key=key, owner=chr_id, title=title, env=env)
                 first = render_brief(s, self._comments[key], self._characters, note, substories=self._substories(key),
-                                     skill=self._phase_skill_due(ch))
+                                     skill=self._phase_skill_due(ch), me=chr_id)
             else:
                 src = self._characters[fork_from]
                 ch["phase_seen"] = src.get("phase_seen")   # its conversation already holds the skill (spec §5.3)
@@ -844,7 +841,8 @@ class StoryStore(QObject):
         self._apply(key, lc.Note(thread_id=s.main_thread,
                                  body=f"recast {ch['name']} as {role_cfg['name']} ({'context; ' if cause == 'context' else ''}{rung})"))
         self._contexts.get(cid).send(render_brief(s, self._comments[key], self._characters, "",
-                                                  substories=self._substories(key), situation=situation, skill=skill))
+                                                  substories=self._substories(key), situation=situation, skill=skill,
+                                                  me=ch["id"]))
         self._refresh()
         return cid
 

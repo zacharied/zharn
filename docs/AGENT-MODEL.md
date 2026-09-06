@@ -175,7 +175,8 @@ the story between phases or hands it back, and it alone Proceeds.
    author asks a **fork** of the protagonist instead and gets the answer now. The author
    replies, or resolves the thread if the answer settles it. If the
    protagonist's context runs low, the harness tells it to recap, and the author (or the
-   harness) recasts it: same character, fresh memory, the story record as its brief.
+   harness) recasts it: same character, fresh memory, its own recap and a brief that says where
+   the record is.
 6. The protagonist hands off on the main thread: what changed, how it was verified, where to
    look first, with the harness's check results attached. The ball moves to the author.
 7. The author validates and Approves, or replies with what is wrong.

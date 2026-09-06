@@ -164,11 +164,17 @@ with `options` is the only way to ask.
 
 ### 3.1 Brief
 
-Story key + title + description; the threads in order — resolved ones folded to root + yields +
-closing note —
-rendered as markdown with author names and kinds; each character's latest recap; sub-stories
-with `(phase, ball)`; cast with roles; attachments; then the call-in note (or Start note), then
-the phase skill (§5.3). A recast context's brief carries its situation before the skill: "you are
+Story key + title + description; an index of the threads in order — one line each, `author`,
+`lead`, `turn`, and `(yours)` on the ones the reader leads — closed with "Run `$HARNESS_CLI story
+show` to read any of them."; each character's latest recap; sub-stories with `(phase, ball)`; cast
+with roles; attachments; then the call-in note (or Start note), then the phase skill (§5.3).
+
+The brief never carries the threads' comments. A character arrives able to read the record and is
+told where it is; handing it the transcript instead spends the opening context on what it may not
+need and teaches it nothing about fetching the rest. The recaps stay — they are digested memory,
+not the record.
+
+A recast context's brief carries its situation before the skill: "you are
 a recast of <name>; your predecessor's recap is above; you were attending #t; n items wait in
 your inbox; you await …". A forked friend gets no brief — its context already holds everything,
 the phase skill included — only the call note and "you are a fork of <name>: you cannot change
@@ -213,7 +219,7 @@ One UI intent, `stories.aside(key, comment_id) → context_id`, idempotent: a se
 the comment's existing aside. Precondition: the comment's author is a character. The aside is a
 **bare context** (`owner = "human"`) with `about = {story_key, comment_id}`, forked from the
 memory that wrote the comment: `comment.context`, and nothing else — after a recast the live
-context is a different mind that knows the comment only from the brief, so it is never
+context is a different mind that never held the comment and could only go read it, so it is never
 substituted. The button is disabled when that context is gone or never ran, and while it is
 `working` (a mid-turn session file may hold a dangling tool call; a spike may relax this).
 
