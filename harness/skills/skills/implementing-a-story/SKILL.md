@@ -19,7 +19,7 @@ Stop with nothing yielded and nothing awaited, and the harness posts your last w
 
 ## Protect your context
 
-Minions read, friends build, you hold the plot. A file you read stays in your context for the life of it; a minion's report is a paragraph. A friend's build lives in its own context; only its handoff reaches yours. About to read a fourth large file, or write a second module yourself? Delegate instead.
+Minions read, friends build, you hold the plot. A friend wakes up with `zharn:being-a-friend`, not this: it hands off in its own thread, and its tree is not gated. What it must not decide for itself belongs in the note you call it with. A file you read stays in your context for the life of it; a minion's report is a paragraph. A friend's build lives in its own context; only its handoff reaches yours. About to read a fourth large file, or write a second module yourself? Delegate instead.
 
 ## Shape of the work
 
