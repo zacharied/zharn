@@ -80,11 +80,6 @@ def skill_body(name: str) -> str:
     return text.strip()
 
 
-def phase_skill(phase: str) -> str:
-    name = PHASE_SKILLS.get(phase)
-    return skill_body(name) if name else ""
-
-
 def skill_name(position: str, phase: str) -> str:
     """The skill directory a character in `position` wakes up with while the story is in `phase`; "" for a
     position or a phase that carries none (spec §5.3).

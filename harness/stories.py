@@ -425,23 +425,25 @@ class StoryStore(QObject):
             text += f"\n  {line}"
         return self.situation(ch) + "\n" + text
 
-    def _phase_skill_due(self, ch: dict) -> str:
-        """Spec §5.3: the phase skill rides a message whenever the story's phase differs from what this character was
-        last told — not from the action that moved the phase, since an inbox item can be popped after the Proceed
-        that preceded it. Terminal phases carry none. Updates phase_seen; the caller saves."""
+    def _skill_due(self, ch: dict) -> str:
+        """Spec §5.3: the injected skill rides a message whenever the one due for this character's position and the
+        story's phase differs from what it was last told — not from the action that moved the phase, since an inbox
+        item can be popped after the Proceed that preceded it. A position or a phase that carries none gets none.
+        Updates skill_seen; the caller saves."""
         phase = self._stories[ch["story_key"]].phase
-        if phase in lc.TERMINAL or ch.get("phase_seen") == phase:
+        name = skills.skill_name(ch.get("position", ""), phase)
+        if not name or ch.get("skill_seen") == name:
             return ""
-        ch["phase_seen"] = phase
-        body = skills.phase_skill(phase)
-        if phase in skills.PHASE_SKILLS and not body and self.notifier is not None:
-            self.notifier.error(f"no {skills.PHASE_SKILLS[phase]} skill under {skills.skills_dir()} — {ch['name']} runs without it")
+        ch["skill_seen"] = name                     # before the read: a missing file notifies once, not every delivery
+        body = skills.skill_body(name)
+        if not body and self.notifier is not None:
+            self.notifier.error(f"no {name} skill under {skills.skills_dir()} — {ch['name']} runs without it")
         return body
 
     def _push(self, ch: dict, ctx, comment: dict):
-        """One delivery to a live context: the situation line, the comment, and the phase skill when it is new."""
+        """One delivery to a live context: the situation line, the comment, and the skill for its position when new."""
         text = self._format(ch, comment)
-        skill = self._phase_skill_due(ch)
+        skill = self._skill_due(ch)
         ctx.send(text + (f"\n\n{skill}" if skill else ""))
         self._save_characters()
 
@@ -599,17 +601,21 @@ class StoryStore(QObject):
                 cid = self._contexts.create(cast["position"], model=cast["model"], effort=cast["effort"],
                                             preset=cast["preset"], story_key=key, owner=chr_id, title=title, env=env)
                 first = render_brief(s, self._comments[key], self._characters, note, substories=self._substories(key),
-                                     skill=self._phase_skill_due(ch))
+                                     skill=self._skill_due(ch))
             else:
                 src = self._characters[fork_from]
-                ch["phase_seen"] = src.get("phase_seen")   # its conversation already holds the skill (spec §5.3)
                 src_ctx = self._contexts.get(src["live_context"]) if src.get("live_context") else None
                 if src_ctx is None or src_ctx.status in WORKING or not getattr(src_ctx, "sessionId", ""):
                     raise lc.Rejected(f"{src['name']} is working or has never run; fork it when it stops")
                 cid = self._contexts.fork(src["live_context"], position=cast["position"], model=cast["model"],
                                           effort=cast["effort"], preset=cast["preset"], owner=chr_id, story_key=key,
                                           title=title, env=env)
+                # The conversation it inherits holds its source's skill, which is the wrong one the moment the
+                # fork changed position — a fork of the protagonist is a friend now (spec §5.3).
                 first = getattr(cfg, "FORK_NOTE", "").format(name=name, source=src["name"]) + note
+                skill = self._skill_due(ch)
+                if skill:
+                    first += f"\n\n{skill}"
         except Exception:
             del self._characters[chr_id]
             raise
@@ -844,8 +850,8 @@ class StoryStore(QObject):
                  and getattr(old, "turns", 0) - ch.get("recap_turns", 0) <= getattr(cfg, "RECAP_STALE_TURNS", 20))
         rung = "rung 1: fresh recap" if fresh else "rung 3: no fresh recap"
         ch["model"], ch["effort"], ch["preset"] = cast["model"], cast["effort"], cast["preset"]
-        ch["phase_seen"] = None                     # a fresh context: the brief ends with the current phase skill
-        skill = self._phase_skill_due(ch)
+        ch["skill_seen"] = None                     # a fresh context: the brief ends with the skill for its position
+        skill = self._skill_due(ch)
         situation = (f"you are a recast of {ch['name']}; your predecessor's recap is above. "
                      f"You were attending #{lc.thread_label(s, ch.get('attention') or s.main_thread)}; {len(ch.get('inbox', []))} items wait in your inbox; "
                      f"you await {self._awaits_line(ch)} and owe {self._owes_line(ch)}.")
@@ -1115,9 +1121,9 @@ class StoryStore(QObject):
             if not any(c.get("structured", {}).get("transition") == approved for c in comments[last_planning + 1:]):
                 raise lc.Rejected("your position requires an approved outline first: `yield --handoff` the outline and wait for Proceed")
         c = self._apply(key, lc.Proceed(by=character_id, note=note))
-        ch["phase_seen"] = "implementing"           # the skill goes out on stdout (§2.2); the next delivery must not repeat it
+        ch["skill_seen"] = "implementing-a-story"   # goes out on stdout (§2.2); the next delivery must not repeat it
         self._save_characters()
-        return {**c, "skill": skills.phase_skill("implementing")}
+        return {**c, "skill": skills.skill_body("implementing-a-story")}
 
     def cast_resolve(self, character_id, thread_id, note="") -> dict:
         key, ch = self._char(character_id)

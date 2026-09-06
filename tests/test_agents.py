@@ -212,5 +212,5 @@ def test_character_prompt_is_identical_across_a_respawn_and_the_skill_rides_the_
     assert len(prompts) == 2 and prompts[0] == prompts[1]
     assert skills.skill_body("being-a-character") in prompts[0] and "phase implementing" not in prompts[0]
     delivered = [r["text"] for r in records if r.get("type") == "harness.user"][-1]
-    assert delivered.startswith("[situation] phase implementing") and delivered.rstrip().endswith(skills.phase_skill("implementing"))
+    assert delivered.startswith("[situation] phase implementing") and delivered.rstrip().endswith(skills.skill_body("implementing-a-story"))
     assert all("--plugin-dir" in r["argv"] for r in records if r.get("subtype") == "init")

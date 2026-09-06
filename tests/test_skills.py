@@ -41,14 +41,6 @@ def test_skill_body_is_empty_for_a_missing_or_blank_skill(tmp_path, monkeypatch)
     assert skills.skill_body("blank") == ""
 
 
-def test_phase_skill_maps_phases_to_skills(tmp_path, monkeypatch):
-    monkeypatch.setenv("HARNESS_SKILLS_DIR", str(tmp_path))
-    write_skill(tmp_path, "planning-a-story", "PLAN")
-    write_skill(tmp_path, "implementing-a-story", "BUILD")
-    assert skills.phase_skill("planning") == "PLAN" and skills.phase_skill("implementing") == "BUILD"
-    assert skills.phase_skill("done") == "" and skills.phase_skill("todo") == "" and skills.phase_skill("") == ""
-
-
 def test_skill_name_keys_on_position_then_phase():
     assert skills.skill_name("protagonist", "planning") == "planning-a-story"
     assert skills.skill_name("protagonist", "implementing") == "implementing-a-story"
@@ -122,8 +114,9 @@ def test_being_a_character_is_short():
     assert body and len(body.split()) < 150
 
 
-def test_phase_skills_exist():
-    assert skills.phase_skill("planning") and skills.phase_skill("implementing")
+def test_every_injected_skill_exists_in_the_tree():
+    for name in ("being-a-character", "being-a-friend", "planning-a-story", "implementing-a-story"):
+        assert skills.skill_body(name)
 
 
 def test_vendored_md_lists_every_vendored_skill_and_the_license_is_present():

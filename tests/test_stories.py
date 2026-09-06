@@ -1401,69 +1401,77 @@ def test_character_approves_its_substory_into_its_own_worktree(store, contexts, 
     assert not _Path(ds["path"]).exists() and store.story(sub).phase == "done"
 
 
-# ---------------------------------------------------------------- the phase skill in messages (spec §5.3)
+# ---------------------------------------------------------------- the injected skill in messages (spec §5.3)
 
-def test_a_fresh_brief_ends_with_the_phase_skill_and_records_it(store, contexts):
+PLAN = "planning-a-story"
+BUILD = "implementing-a-story"
+FRIEND = "being-a-friend"
+
+
+def test_a_fresh_brief_ends_with_the_positions_skill_and_records_it(store, contexts):
     key, chr_id = started(store)
     first = contexts.get("ctx_1").sent[0]
-    assert first.rstrip().endswith(skills.phase_skill("planning")) and store.character(chr_id)["phase_seen"] == "planning"
+    assert first.rstrip().endswith(skills.skill_body(PLAN)) and store.character(chr_id)["skill_seen"] == PLAN
 
 
-def test_a_missing_phase_skill_notifies_once(store, contexts, monkeypatch, tmp_path):
+def test_a_missing_skill_notifies_once(store, contexts, monkeypatch, tmp_path):
     monkeypatch.setenv("HARNESS_SKILLS_DIR", str(tmp_path))               # an empty tree: no skills at all
     key, chr_id = started(store)
-    assert store.character(chr_id)["phase_seen"] == "planning"
-    assert len(store.notifier.errors) == 1 and "planning-a-story" in store.notifier.errors[0]
-    store.comment(key, "same phase")                                     # a second delivery in the same phase
+    assert store.character(chr_id)["skill_seen"] == PLAN
+    assert len(store.notifier.errors) == 1 and PLAN in store.notifier.errors[0]
+    store.comment(key, "same phase")                                     # a second delivery, same skill due
     assert len(store.notifier.errors) == 1
 
 
-def test_a_fork_gets_no_skill_and_copies_phase_seen(store, contexts):
+def test_a_fork_of_the_protagonist_becomes_a_friend_and_is_told_so(store, contexts):
+    """The fork's conversation holds the protagonist's skill, which is the wrong one now."""
     key, chr_id = started(store)
     contexts.get(store.character(chr_id)["live_context"]).status = "idle"
     r = store.cast_call(chr_id, "second opinion", fork=True)
     friend = store.character(r["character"])
-    assert friend["phase_seen"] == "planning"
-    assert skills.phase_skill("planning") not in contexts.get(friend["live_context"]).sent[0]
+    first = contexts.get(friend["live_context"]).sent[0]
+    assert friend["skill_seen"] == FRIEND
+    assert first.rstrip().endswith(skills.skill_body(FRIEND))
+    assert skills.skill_body(PLAN) not in first
 
 
-def test_proceed_delivers_the_implementing_skill_once(store, contexts):
+def test_proceed_delivers_the_implementing_skill_to_the_protagonist_once(store, contexts):
     key, chr_id = started(store)
     ctx = contexts.get("ctx_1")
     store.cast_yield(chr_id, "handoff", "outline")
     store.proceed(key, "go")
-    build = skills.phase_skill("implementing")
-    assert ctx.sent[-1].rstrip().endswith(build) and store.character(chr_id)["phase_seen"] == "implementing"
+    build = skills.skill_body(BUILD)
+    assert ctx.sent[-1].rstrip().endswith(build) and store.character(chr_id)["skill_seen"] == BUILD
     store.comment(key, "same phase")
     assert build not in ctx.sent[-1] and ctx.sent[-1].startswith("[situation] phase implementing")
 
 
-def test_back_to_planning_and_reopen_deliver_the_new_phase_skill(store, contexts):
+def test_back_to_planning_and_reopen_deliver_the_new_skill(store, contexts):
     key, chr_id = started(store)
     ctx = contexts.get("ctx_1")
     store.cast_yield(chr_id, "handoff", "outline"); store.proceed(key)
     store.cast_yield(chr_id, "handoff", "built")
     store.backToPlanning(key, "rethink")
-    assert ctx.sent[-1].rstrip().endswith(skills.phase_skill("planning")) and store.character(chr_id)["phase_seen"] == "planning"
+    assert ctx.sent[-1].rstrip().endswith(skills.skill_body(PLAN)) and store.character(chr_id)["skill_seen"] == PLAN
     store.cancel(key)
     store.reopen(key, "one more")
-    assert ctx.sent[-1].rstrip().endswith(skills.phase_skill("implementing")) and store.character(chr_id)["phase_seen"] == "implementing"
+    assert ctx.sent[-1].rstrip().endswith(skills.skill_body(BUILD)) and store.character(chr_id)["skill_seen"] == BUILD
 
 
-def test_an_inbox_item_popped_after_a_proceed_carries_the_new_skill(store, contexts):
-    """Proposal §7: a friend cast in planning learns of Proceed at its next delivery — here an inbox pop."""
+def test_a_friend_is_sent_nothing_new_when_the_phase_moves_under_it(store, contexts):
+    """The defect this replaces: a friend used to be handed implementing-a-story mid-thread."""
     key, chr_id = started(store)
     r = store.cast_call(chr_id, "read the docs")
     friend = store.character(r["character"])
     fctx = contexts.get(friend["live_context"])
-    assert friend["phase_seen"] == "planning"
+    assert friend["skill_seen"] == FRIEND
     store.openThread(key, "@Friend btw")                      # the friend is working → its inbox
     assert store.character(r["character"])["inbox"]
     store.cast_yield(chr_id, "handoff", "outline"); store.proceed(key)
-    settle(store, contexts, r["character"])                         # its turn ends: the item pops
+    settle(store, contexts, r["character"])                   # its turn ends: the item pops
     assert fctx.sent[-1].startswith("[situation] phase implementing")
-    assert fctx.sent[-1].rstrip().endswith(skills.phase_skill("implementing"))
-    assert store.character(r["character"])["phase_seen"] == "implementing"
+    assert skills.skill_body(BUILD) not in fctx.sent[-1]
+    assert store.character(r["character"])["skill_seen"] == FRIEND
 
 
 def test_cast_proceed_returns_the_skill_and_the_next_delivery_does_not_repeat_it(store, contexts, monkeypatch):
@@ -1472,19 +1480,22 @@ def test_cast_proceed_returns_the_skill_and_the_next_delivery_does_not_repeat_it
     monkeypatch.setitem(StubCasting.POSITIONS["protagonist"], "outline_first", False)
     ctx = contexts.get(store.character(chr_id)["live_context"])
     r = store.cast_proceed(chr_id, "bounded")
-    assert r["kind"] == "system" and r["skill"] == skills.phase_skill("implementing")
-    assert store.character(chr_id)["phase_seen"] == "implementing"
+    assert r["kind"] == "system" and r["skill"] == skills.skill_body(BUILD)
+    assert store.character(chr_id)["skill_seen"] == BUILD
     store.comment(key, "hi")
-    assert skills.phase_skill("implementing") not in ctx.sent[-1]
+    assert skills.skill_body(BUILD) not in ctx.sent[-1]
 
 
-def test_a_friend_cast_in_implementing_gets_the_implementing_skill(store, contexts):
+def test_a_friend_cast_in_implementing_gets_the_friend_skill_and_not_the_leads(store, contexts):
+    """The ZHAR-5 defect, as a test: Scribe was cast here and handed implementing-a-story."""
     key, chr_id = started(store)
     store.cast_yield(chr_id, "handoff", "outline"); store.proceed(key)
     r = store.cast_call(chr_id, "build it")
     friend = store.character(r["character"])
-    assert contexts.get(friend["live_context"]).sent[0].rstrip().endswith(skills.phase_skill("implementing"))
-    assert friend["phase_seen"] == "implementing"
+    first = contexts.get(friend["live_context"]).sent[0]
+    assert first.rstrip().endswith(skills.skill_body(FRIEND))
+    assert skills.skill_body(BUILD) not in first
+    assert friend["skill_seen"] == FRIEND
 
 
 def test_a_recast_brief_ends_with_the_current_skill(store, contexts):
@@ -1493,8 +1504,19 @@ def test_a_recast_brief_ends_with_the_current_skill(store, contexts):
     contexts.get(store.character(chr_id)["live_context"]).status = "idle"
     new = store.recast(key, chr_id)
     first = contexts.get(new).sent[0]
-    assert "## Situation" in first and first.rstrip().endswith(skills.phase_skill("implementing"))
-    assert store.character(chr_id)["phase_seen"] == "implementing"
+    assert "## Situation" in first and first.rstrip().endswith(skills.skill_body(BUILD))
+    assert store.character(chr_id)["skill_seen"] == BUILD
+
+
+def test_a_recast_friend_gets_the_friend_skill(store, contexts):
+    key, chr_id = started(store)
+    store.cast_yield(chr_id, "handoff", "outline"); store.proceed(key)
+    r = store.cast_call(chr_id, "build it")
+    fid = r["character"]
+    contexts.get(store.character(fid)["live_context"]).status = "idle"
+    new = store.recast(key, fid)
+    assert contexts.get(new).sent[0].rstrip().endswith(skills.skill_body(FRIEND))
+    assert store.character(fid)["skill_seen"] == FRIEND
 
 
 def test_env_checks_lists_every_environment(store, ws, repo, contexts, tmp_path):
