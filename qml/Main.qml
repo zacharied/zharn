@@ -73,7 +73,6 @@ ApplicationWindow {
                 TapHandler { onTapped: app.layout.openContent("workspace", "workspace", win.workspaceName) }
                 ToolTip.visible: wsHover.hovered; ToolTip.text: app.workspaceDir; ToolTip.delay: 600
             }
-            Item { Layout.fillWidth: true }
             Rectangle {  // the run widget slot: New story
                 objectName: "newStoryButton"
                 height: 28; radius: app.theme.radius; width: nsRow.implicitWidth + 18
@@ -86,6 +85,19 @@ ApplicationWindow {
                 HoverHandler { id: nsHover }
                 TapHandler { onTapped: { var k = app.stories.create("New story", ""); if (k) app.layout.openContent("story", k, k) } }
             }
+            Rectangle {  // its quiet twin: a bare context, no story attached
+                objectName: "toolbarNewContextButton"   // not "newContextButton" — the Contexts panel header owns that name, and both are on screen at once
+                height: 28; radius: app.theme.radius; width: ncRow.implicitWidth + 18
+                color: ncHover.hovered ? app.theme.hover : "transparent"
+                Row {
+                    id: ncRow; anchors.centerIn: parent; spacing: 6
+                    Icon { name: "context"; size: 14; color: app.theme.textMuted; anchors.verticalCenter: parent.verticalCenter }
+                    Text { text: "New context"; color: app.theme.text; font.weight: Font.Medium; anchors.verticalCenter: parent.verticalCenter }
+                }
+                HoverHandler { id: ncHover }
+                TapHandler { onTapped: { var id = app.contexts.newBare(""); if (id) app.layout.openContent("context", id, "New context") } }
+            }
+            Item { Layout.fillWidth: true }
         }
     }
 

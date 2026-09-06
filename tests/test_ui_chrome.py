@@ -137,6 +137,33 @@ def test_new_context_button_opens_a_bare_context(ui):
     assert ui.has(f"tab_context_{cid}")
 
 
+def test_toolbar_new_context_button_opens_a_bare_context(ui):
+    n = ui.store.contexts.model.count()
+    ui.click(ui.find("toolbarNewContextButton"))
+    assert ui.store.contexts.model.count() == n + 1
+    cid = ui.store.contexts.model.rows()[-1]["id"]
+    assert ui.store.contexts.get(cid).owner == "human"
+    assert ui.store.contexts.get(cid).roleName == "claude-default"
+    assert ui.has(f"tab_context_{cid}")
+
+
+def edges(ui, name):
+    """(left, right, vertical centre) of a toolbar item, in window coordinates."""
+    ref = ui.find(name)
+    c, w = ref.center(), ref.width()
+    return c.x() - w / 2, c.x() + w / 2, c.y()
+
+
+def test_toolbar_actions_cluster_at_the_left_beside_the_workspace_widget(ui):
+    ws_l, ws_r, ws_y = edges(ui, "workspaceWidget")
+    st_l, st_r, st_y = edges(ui, "newStoryButton")
+    cx_l, cx_r, cx_y = edges(ui, "toolbarNewContextButton")
+    assert ws_r <= st_l < st_r <= cx_l                     # workspace, then New story, then New context
+    assert st_y == ws_y and cx_y == ws_y                   # one row
+    assert st_l - ws_r < 40 and cx_l - st_r < 40           # a cluster, not split by the stretcher
+    assert cx_r < ui.win.width() / 2                       # at the top left, not the right end
+
+
 def test_welcome_reset_layout_restores_the_default(ui):
     ui.store.layout.openContent("document", "z.py", "z.py")
     ui.store.layout.openContent("welcome", "welcome", "Welcome")

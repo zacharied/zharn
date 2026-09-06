@@ -112,7 +112,7 @@ No sidebar. The window is:
   or out to float. Empty MCCs collapse.
 * Content types register in `harness/content.py` (`kind` → QML component + Python controller),
   so adding a new panel/document type is one Python dict entry + one QML file — fork-as-config.
-* **Look: JetBrains New UI (dark), by convention.** Main toolbar (workspace widget, New story);
+* **Look: JetBrains New UI (dark), by convention.** Main toolbar, left-aligned (workspace widget, New story, New context);
   40px icon strips — the left strip carries the left dock's panels at the top and the bottom
   dock's at the bottom, the right strip the right dock's; 36px tool-window headers and editor
   tabs; a 26px status bar. Default layout: left Stories · Files · Documents · Git, right Cast (follows the
