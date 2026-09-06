@@ -41,7 +41,7 @@ too.
 | 3 | Does the bare position get a skill? | No. A bare context is not on a story; the phase skills are already inert there (§5.1). |
 | 4 | What does the harness track to know a skill is due? | The skill's **name**, not the phase. `Character.phase_seen` becomes `Character.skill_seen`. Every case below falls out of that substitution with no special-casing. |
 | 5 | Does a forked friend get the skill? | Yes — a change from today. A protagonist forked into a friend carries `implementing-a-story` in its conversation and now holds one piece; a short corrective is exactly what it needs. |
-| 6 | Can a preset switch the friend skill off? | No. It joins `being-a-character` and the phase skills in the always-on set — and that set is force-included in every *built* tree, not only injected into the prompt (§4). |
+| 6 | Can a preset switch the friend skill off? | No. It joins `being-a-character` and the phase skills in the always-on set. That set should also be force-included in every *built* tree, reversing a call ZHAR-5 made (§4) — the one adjacent fix here, and separable from the rest. |
 | 7 | Does `implementing-a-story` shrink? | No. It is the protagonist's, and it is correct for the protagonist. It gains one line naming what its friends were told. |
 
 ## 1. The axis: position × phase
@@ -86,8 +86,11 @@ one precisely when the fork changed position.
 ## 3. `being-a-friend`
 
 A new skill in the tree, in the house shape (an iron law, the gates, a rationalization table, a
-checklist), against `implementing-a-story`'s ~900 words. Its description is a trigger, not a
-workflow, and begins "Use when" as every skill's must.
+checklist). Its description is a trigger, not a workflow, and begins "Use when" as every skill's
+must. It runs about 500 words against `implementing-a-story`'s 774 — shorter, but not as short as
+"a friend does one piece" suggests, because each law below is one a friend gets wrong by default
+and none of them compresses to a clause. It sits between `delegating` (369) and
+`planning-a-story` (670).
 
 Each law it carries is a rule the harness already enforces somewhere, restated where the friend
 will read it:
@@ -113,16 +116,29 @@ splitting into tasks", "I should call a reviewer for my own work" — so that a 
 
 ## 4. The always-on set lives in the tree, not only in the prompt
 
-A preset names the subset of the tree a character can invoke, and the harness injects
-`being-a-character` and the phase skill regardless. Those two facts do not currently meet:
-`DEFAULT_PRESETS`' `builder` and `reviewer` name neither the meta skill nor any phase skill, and
-`CastStore.preset_skills` returns the list as written, so `skills.plugin_dir` builds a tree
-without them. A friend on `builder` is therefore told, by law 4 of the injected
-`being-a-character`, to re-read a skill its Skill tool cannot list.
+*This section is separable. It fixes something next to the friend skill rather than part of it;
+cut it and §§1–3 still stand.*
 
-`being-a-friend` is the fourth member of that set and the one a friend has most reason to re-read,
-so this is where it gets fixed: `preset_skills` force-includes the always-on set in every built
-tree. The preset still decides everything else. A preset that names `["*"]` is unaffected.
+A preset names the subset of the tree a character can invoke, and the harness injects
+`being-a-character` and the phase skill regardless. §5.1 already sees where that leads and accepts
+it: "a preset that leaves them out of the plugin only means the character cannot re-read them with
+the Skill tool." `DEFAULT_PRESETS`' `builder` and `reviewer` leave them out, `preset_skills` returns
+the list as written, and `plugin_dir` copies exactly that — so the acceptance is real, not an
+oversight.
+
+The acceptance is still wrong, because law 4 of `being-a-character` is not advice. It tells the
+character the injected skill is mandatory and to re-read it with the Skill tool when unsure — and
+under `builder` there is nothing to re-read. A law a character cannot obey teaches it that the
+laws are approximate, which is the one thing the meta skill cannot afford.
+
+So `skills.plugin_dir` unions the always-on set into `names` before it stamps and builds. The
+preset still decides everything else; `["*"]` is unaffected; `preset_skills` keeps returning what
+the preset actually names. The alternative — drop "re-read it with the Skill tool" from law 4 —
+is cheaper and was considered: it is rejected because a long context re-reading its mandatory
+skill is exactly the recovery the law exists to offer.
+
+`being-a-friend` is why this lands here rather than later: it is the fourth member of that set,
+and the one a friend has most reason to re-read.
 
 ## 5. What else moves
 
@@ -132,9 +148,10 @@ tree. The preset still decides everything else. A preset that names `["*"]` is u
   under its 150-word ceiling.
 * `implementing-a-story` gains one line: the friends you call are told `being-a-friend`, which is
   why their handoffs land in their own threads and their trees are not gated.
-* `docs/specs/story-lifecycle.md`: §1 (the record field), §5.1 (the tree listing), §5.2 (the
-  contract paragraph), §5.3 (the delivery table, and the sentence that states the defect), §5.4
-  (the assertion list).
+* `docs/specs/story-lifecycle.md`: §1 (the record field), §5.1 (the tree listing, and the
+  paragraph that accepts a preset leaving the injected skills unlistable), §5.2 (the contract
+  paragraph), §5.3 (the delivery table, and the sentence that states the defect), §5.4 (the
+  assertion list).
 
 ## 6. Testing
 
