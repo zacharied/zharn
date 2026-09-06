@@ -1,6 +1,6 @@
 {
   "title": "JSON output for hello",
-  "role": "protagonist",
+  "preset": "full",
   "skill": "planning-a-story",
   "note": "Plan this; do not build it yet.",
   "checks": "",

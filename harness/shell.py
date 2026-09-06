@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parent.parent
 QML_DIR = ROOT / "qml"
 PKG_DIR = ROOT / "harness"
 RELOADABLE = ["harness.config_def", "harness.config", "harness.notify", "harness.icons", "harness.layout", "harness.content", "harness.qmodels",
-              "harness.fsutil", "harness.workspace", "harness.lifecycle", "harness.agents", "harness.roles", "harness.contexts",
+              "harness.fsutil", "harness.workspace", "harness.lifecycle", "harness.agents", "harness.skills", "harness.casting", "harness.contexts",
               "harness.stories", "harness.workspace_store", "harness.documents", "harness.ipc", "harness.store"]  # dependency order
 WATCH_EXT = {".py", ".qml", ".js", ".mjs"}
 

@@ -5,6 +5,7 @@ import ".."
 import "../ui"
 
 ContentBase {
+    NewContextDialog { id: welcomeNewContextDialog; onCreated: (id) => app.layout.openContent("context", id, "New context") }
     ColumnLayout {
         anchors { left: parent.left; top: parent.top; margins: 28 }
         width: Math.min(parent.width - 56, 640); spacing: 10
@@ -17,12 +18,18 @@ ContentBase {
             Btn { objectName: "welcomeOpenBoard"; icon_: "stories"; text: "Stories"; onClicked: app.layout.showPanel("board") }
             Btn { objectName: "welcomeContexts"; icon_: "contexts"; text: "Contexts"; onClicked: app.layout.showPanel("contexts") }
             Btn { objectName: "welcomeWorkspace"; icon_: "folder-open"; text: "Workspace"; onClicked: app.layout.openContent("workspace", "workspace", "Workspace") }
-            Btn { objectName: "welcomeNewContext"; icon_: "context"; text: "New context"
-                  onClicked: { var id = app.contexts.newBare(""); if (id) app.layout.openContent("context", id, "New context") } }
+            SplitBtn {
+                mainName: "welcomeNewContext"; menuName: "welcomeNewContextMenu"
+                primary: false; icon_: "context"; text: "New context"
+                items: [{ label: "New context with…", hint: "pick a model, an effort, a preset" }]
+                onTriggered: reveal(app.contexts.newBare(""))
+                onItemTriggered: welcomeNewContextDialog.open()
+                function reveal(id) { if (id) app.layout.openContent("context", id, "New context") }
+            }
             Btn { objectName: "welcomeReset"; quiet: true; text: "Reset layout"; onClicked: app.layout.resetLayout() }
         }
         Text { Layout.topMargin: 10; Layout.fillWidth: true; wrapMode: Text.Wrap
-               text: "Agents drive this app too:  $HARNESS_CLI context new --role claude-fast --prompt \"...\" --wait"
+               text: "Agents drive this app too:  $HARNESS_CLI context new --model claude-sonnet-5 --prompt \"...\" --wait"
                color: app.theme.textDim; font.family: app.theme.monoFamily; font.pixelSize: app.theme.fontSizeSmall }
     }
 }

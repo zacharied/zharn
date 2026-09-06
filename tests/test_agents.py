@@ -1,4 +1,4 @@
-"""Contexts, roles, stories, IPC/CLI and the context UI — against the fake claude CLI."""
+"""Contexts, casting, stories, IPC/CLI and the context UI — against the fake claude CLI."""
 import json
 import os
 import shutil
@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 from PySide6.QtTest import QTest
 
+from harness import config as cfg
 from harness.__main__ import ROOT, build
 
 OUT = ROOT / "tests" / "_out"
@@ -45,19 +46,18 @@ def rows(context):
     return context.transcript.rows()
 
 
-def test_roles_and_empty_board(harness):
+def test_casting_options_and_empty_board(harness):
     app, store, _ = harness
-    names = store.roles.names()
-    assert "claude-fast" in names and "codex-review" in names
-    assert store.roles.get("claude-deep")["model"] == "claude-opus-5"
+    assert "claude-opus-5" in store.casting.modelIds() and "" in store.casting.modelIds()
+    assert cfg.DEFAULT_PRESET in store.casting.presetNames() and "protagonist" in store.casting.positions
     assert store.stories.model.count() == 0
-    with pytest.raises(ValueError):
-        store.contexts.spawn("codex-review", "x", story_key="ABC-1")
+    with pytest.raises(ValueError):   # a codex model is refused at the spawn, as before
+        store.contexts.spawn("friend", "x", model="gpt-5.6-sol", story_key="ABC-1")
 
 
 def test_spawn_streams_and_settles(harness):
     app, store, _ = harness
-    cid = store.contexts.spawn("claude-fast", "hello agent", story_key="ABC-1")
+    cid = store.contexts.spawn("friend", "hello agent", story_key="ABC-1")
     c = store.contexts.get(cid)
     assert c.status in ("starting", "working")
     assert wait_until(lambda: c.status == "idle"), (c.status, c.lastError)
@@ -95,7 +95,7 @@ def test_follow_up_reuses_process_and_tools_render(harness):
 
 def test_failure_is_surfaced(harness):
     app, store, _ = harness
-    cid = store.contexts.spawn("claude-fast", "please fail", story_key="ABC-2")
+    cid = store.contexts.spawn("friend", "please fail", story_key="ABC-2")
     c = store.contexts.get(cid)
     assert wait_until(lambda: c.status == "failed")
     assert rows(c)[-1]["kind"] == "error" and "simulated failure" in rows(c)[-1]["text"]
@@ -115,8 +115,8 @@ def test_cli_over_ipc(harness):
     r = cli("ping")
     assert r.returncode == 0, r.stderr
     assert json.loads(r.stdout)["pid"] == os.getpid()
-    r = cli("role", "list")
-    assert "claude-fast" in [p["name"] for p in json.loads(r.stdout)]
+    r = cli("cast", "options")
+    assert "" in [m["id"] for m in json.loads(r.stdout)["models"]]
     r = cli("story", "create", "--title", "T")
     key = json.loads(r.stdout)["key"]
     r = cli("story", "show", key)
@@ -128,7 +128,7 @@ def test_cli_over_ipc(harness):
 def test_transcripts_persist_and_replay(harness):
     app, store, _ = harness
     from harness.contexts import ContextStore
-    fresh = ContextStore(ROOT, store.contexts.data_dir, store.roles, workspace_dir=store.contexts.workspace_dir)
+    fresh = ContextStore(ROOT, store.contexts.data_dir, store.casting, workspace_dir=store.contexts.workspace_dir)
     ids = {c.id for c in store.contexts.all()}
     assert {c.id for c in fresh.all()} == ids
     for c in fresh.all():
@@ -162,13 +162,13 @@ def test_context_tab_renders_and_screenshot(harness):
 def test_story_start_yield_over_cli_and_reply(harness):
     app, store, _ = harness
     key = store.stories.create("E2E", "end to end")
-    chr_id = store.stories.start(key, "yield-question", "protagonist")
+    chr_id = store.stories.start(key, "yield-question")
     ch = store.stories.character(chr_id)
     ctx = store.contexts.get(ch["live_context"])
     assert ctx.owner == chr_id and ctx.storyKey == key
     assert wait_until(lambda: store.stories.get(key)["ball"] == "author", timeout_ms=15000), store.stories.get(key)
     q = store.stories.comments(key)[-1]
-    assert q["kind"] == "question" and q["structured"]["questions"] == [{"text": "which one?", "options": ["a", "b"]}] and q["authorName"] == "protagonist"
+    assert q["kind"] == "question" and q["structured"]["questions"] == [{"text": "which one?", "options": ["a", "b"]}] and q["authorName"] == "Protagonist"
     assert store.stories.get(key)["flavor"] == "question" and store.notify.status == f"{key} needs you: question"
     assert store.stories.character(chr_id)["verbs_log"][-1]["verb"] == "yield"
     assert wait_until(lambda: ctx.status == "idle", timeout_ms=15000)
@@ -193,7 +193,7 @@ def test_cli_story_show_over_ipc(harness):
         assert p.returncode == 0, err
         out_file.seek(0)
         data = json.load(out_file)
-    assert data["key"] == key and data["comments"] and data["cast"][0]["name"] == "protagonist" and data["contexts"]
+    assert data["key"] == key and data["comments"] and data["cast"][0]["name"] == "Protagonist" and data["contexts"]
 
 
 def test_character_prompt_is_identical_across_a_respawn_and_the_skill_rides_the_message(harness):
@@ -201,7 +201,7 @@ def test_character_prompt_is_identical_across_a_respawn_and_the_skill_rides_the_
     from harness import skills
     app, store, _ = harness
     key = store.stories.create("Stable", "prompt")
-    chr_id = store.stories.start(key, "yield-handoff", "claude-fast")     # the fake hands off at once
+    chr_id = store.stories.start(key, "yield-handoff")                       # the fake hands off at once
     ctx = store.contexts.get(store.stories.character(chr_id)["live_context"])
     assert wait_until(lambda: store.stories.get(key)["ball"] == "author" and ctx.status == "idle", timeout_ms=15000), store.stories.get(key)
     ctx.recycle()                                                         # the next send spawns a fresh process

@@ -9,13 +9,15 @@ Item {
     id: sb
     property string text
     property bool primary: true
+    property bool small: false
+    property string icon_: ""
     property string mainName: ""
     property string menuName: "splitMenu"
     property var items: []
     signal triggered()
     signal itemTriggered(int index)
     implicitWidth: row.implicitWidth
-    implicitHeight: 28
+    implicitHeight: main.implicitHeight
 
     Row {
         id: row
@@ -23,14 +25,14 @@ Item {
         Btn {
             id: main
             objectName: sb.mainName
-            text: sb.text; primary: sb.primary
+            text: sb.text; primary: sb.primary; small: sb.small; icon_: sb.icon_
             onClicked: sb.triggered()
         }
         Rectangle { width: 1; height: main.height; color: sb.primary ? Qt.darker(app.theme.accent, 1.35) : app.theme.buttonBorder }
         Btn {
             id: caret
             objectName: sb.menuName + "Button"
-            primary: sb.primary; leftPadding: 5; rightPadding: 5
+            primary: sb.primary; small: sb.small; leftPadding: 5; rightPadding: 5
             contentItem: Icon { name: "down"; size: 14; color: sb.primary ? "white" : app.theme.text }
             onClicked: menu.open()
         }

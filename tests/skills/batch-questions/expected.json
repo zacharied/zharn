@@ -1,13 +1,29 @@
 {
   "title": "Configurable default name",
-  "role": "claude-default",
-  "skill": ["being-a-character", "planning-a-story"],
+  "preset": "full",
+  "skill": [
+    "being-a-character",
+    "planning-a-story"
+  ],
   "note": "",
   "checks": "",
   "replies": [],
-  "must": [{"verb": "yield", "args": {"kind": "question"}}],
-  "must_not": [{"verb": "proceed"}],
-  "max": {"yield": 1},
+  "must": [
+    {
+      "verb": "yield",
+      "args": {
+        "kind": "question"
+      }
+    }
+  ],
+  "must_not": [
+    {
+      "verb": "proceed"
+    }
+  ],
+  "max": {
+    "yield": 1
+  },
   "question_has_options": true,
   "clean_tree": true
 }

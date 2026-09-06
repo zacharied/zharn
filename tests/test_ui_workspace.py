@@ -55,7 +55,7 @@ def test_worktrees_list_the_stories_in_the_repo_and_open_them(ui):
     repo = fresh_repo("ui-ws-repo-b")
     ui.store.workspace.register(str(repo), "b", "", "", "")
     key = ui.store.stories.create("In b", "")
-    chr_id = ui.store.stories.start(key, "", "protagonist")
+    chr_id = ui.store.stories.start(key, "")
     ctx = ui.store.contexts.get(ui.store.stories.character(chr_id)["live_context"])
     assert wait_until(lambda: ctx.status == "idle")
     assert not ui.visible(ui.find("repoWorktrees_b"))

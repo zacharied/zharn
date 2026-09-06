@@ -29,7 +29,7 @@ ContentBase {
                 Label { objectName: "contextStatus"; text: view.context ? view.context.status : ""; color: app.theme.textMuted; font.pixelSize: app.theme.fontSizeSmall }
                 Chip { objectName: "contextStoryLink"; visible: !!(view.context && view.context.storyKey); text: view.context ? view.context.storyKey : ""; fg: "#7da7ff"; mono: true
                        TapHandler { onTapped: app.layout.openContent("story", view.context.storyKey, view.context.storyKey) } }
-                Label { text: view.context ? [view.context.roleName, view.context.model].filter(function (x) { return x }).join(" · ") : ""; color: app.theme.textMuted; font.pixelSize: app.theme.fontSizeSmall }
+                Label { text: view.context ? [view.context.position, view.context.model].filter(function (x) { return x }).join(" · ") : ""; color: app.theme.textMuted; font.pixelSize: app.theme.fontSizeSmall }
                 Label { text: view.context ? view.context.turns + (view.context.turns === 1 ? " turn" : " turns") + " · $" + view.context.costUsd.toFixed(3) : ""; color: app.theme.textMuted; font.pixelSize: app.theme.fontSizeSmall }
                 Btn { objectName: "stopButton"; visible: view.busy; small: true; quiet: true; icon_: "stop"; text: "Stop"; onClicked: view.context.stop() }
             }

@@ -22,7 +22,7 @@ from harness.notify import intent
 from harness.procs import claude_shell_env
 from harness.qmodels import DictListModel
 
-CONTEXT_ROLES = ["id", "title", "storyKey", "owner", "status", "roleName", "costUsd", "turns", "createdAt",
+CONTEXT_ROLES = ["id", "title", "storyKey", "owner", "status", "position", "costUsd", "turns", "createdAt",
                  "contextTokens", "contextWindow", "contextWarn", "contextMax"]
 SETTLED = ("idle", "failed", "stopped")
 
@@ -82,7 +82,7 @@ class Context(QObject):
     def owner(self): return self.meta.get("owner", "human")
 
     @Property(str, constant=True)
-    def roleName(self): return self.meta.get("role", "")
+    def position(self): return self.meta.get("position", "")   # what it was cast as; nobody picks it (spec §1)
 
     @Property(str, notify=changed)
     def status(self): return self._status
@@ -91,7 +91,7 @@ class Context(QObject):
     def sessionId(self): return self._interp.session_id
 
     @Property(str, notify=changed)
-    def model(self): return self._interp.model_name or self.meta.get("roleConfig", {}).get("model", "")
+    def model(self): return self._interp.model_name or self.meta.get("cast", {}).get("model", "")
 
     @Property(float, notify=changed)
     def costUsd(self): return self._interp.cost_usd
@@ -135,7 +135,7 @@ class Context(QObject):
 
     def summary(self) -> dict:
         return {"id": self.id, "title": self.title, "storyKey": self.storyKey, "owner": self.owner, "status": self._status,
-                "roleName": self.roleName, "costUsd": round(self._interp.cost_usd, 4), "turns": self._interp.turns,
+                "position": self.position, "costUsd": round(self._interp.cost_usd, 4), "turns": self._interp.turns,
                 "contextTokens": self._interp.context_tokens, "contextWindow": self._interp.context_window,
                 "contextWarn": self.contextWarn, "contextMax": self.contextMax,
                 "createdAt": self.meta.get("createdAt", 0), "sessionId": self._interp.session_id, "model": self.model,
@@ -175,19 +175,21 @@ class Context(QObject):
         composed = self._store.system_prompt(self)   # a character's stable prompt, built at every spawn; None for bare contexts and asides
         if composed is not None:
             return composed
-        role = self.meta.get("roleConfig", {})
+        cast = self.meta.get("cast", {})
         base = self.meta.get("systemPrompt") or getattr(cfg, "BARE_CONTEXT_SYSTEM_PROMPT", "").format(context_id=self.id)
-        return "\n\n".join(p for p in (base, role.get("instructions", "")) if p)
+        return "\n\n".join(p for p in (base, cast.get("instructions", "")) if p)
 
     def _spawn(self, resume: str = ""):
-        role = self.meta.get("roleConfig", {})
-        extra = list(getattr(cfg, "EFFORT_FLAGS", {}).get(role.get("reasoning", ""), [])) + skills.plugin_args()   # spec §5.1: every spawn
+        cast = self.meta.get("cast", {})
+        preset = cast.get("preset", "")
+        extra = (list(getattr(cfg, "EFFORT_FLAGS", {}).get(cast.get("effort", ""), []))                  # spec §5.1: every spawn
+                 + skills.plugin_args(preset, self._store.casting.preset_skills(preset), self._store.skills_cache))
         if not resume and self.meta.get("forkSession"):
             resume, extra = self.meta["forkSession"], extra + ["--fork-session"]  # first turn of a fork only
         cwd, place_env = self._store.placement(self)   # decided at every spawn, not at creation (workspace spec §4.5)
         self._proc_cwd = cwd
         self._proc = ClaudeCodeProcess(cwd=cwd, env=self._env(place_env),
-                                       model=role.get("model", ""), permission=role.get("permission", "auto"),
+                                       model=cast.get("model", ""), permission=cast.get("permission", "auto"),
                                        resume=resume, system_prompt=self._system_prompt(), extra_args=extra)
         self._proc.event.connect(self._on_event)
         self._proc.stderrText.connect(self._on_stderr)
@@ -303,13 +305,14 @@ class ContextStore(QObject):
     revealChanged = Signal()   # the Contexts panel should select revealTarget (e.g. a fresh aside)
     notifier = None
 
-    def __init__(self, root: Path, data_dir: Path, roles, workspace_dir: Path | None = None, parent=None):
+    def __init__(self, root: Path, data_dir: Path, casting, workspace_dir: Path | None = None, parent=None):
         super().__init__(parent)
         self._reveal = ""
         self.root = root
         self.data_dir = Path(data_dir)
         self.workspace_dir = Path(workspace_dir) if workspace_dir else root
-        self.roles = roles
+        self.casting = casting
+        self.skills_cache = self.data_dir.parent / "skills"   # a filtered plugin tree per preset (spec §5.1)
         self.extra_env = lambda: {}
         self.placement = lambda c: (c.meta.get("cwd") or str(self.workspace_dir), {})   # StoryStore overrides (spec §4.5)
         self.system_prompt = lambda c: None   # StoryStore overrides: a character's stable prompt (lifecycle spec §5.3); None = use the stored one
@@ -341,16 +344,15 @@ class ContextStore(QObject):
     def contexts_for(self, story_key: str) -> list[Context]:
         return [c for c in self.all() if c.storyKey == story_key]
 
-    def create(self, role_name: str, *, story_key: str = "", owner: str = "human", title: str = "", system_prompt: str = "",
+    def create(self, position: str, *, model: str | None = None, effort: str | None = None, preset: str | None = None,
+               story_key: str = "", owner: str = "human", title: str = "", system_prompt: str = "",
                env: dict | None = None, cwd: str = "", predecessor: str | None = None, forked_from: str | None = None,
                about: dict | None = None, fork_session: str = "", seed_usage: dict | None = None) -> str:
-        role = self.roles.get(role_name)
-        if not role:
-            raise ValueError(f"unknown role {role_name!r}")
-        if role.get("provider", "claude-code") != "claude-code":
-            raise ValueError(f"provider {role['provider']!r} not implemented yet")
-        meta = {"id": new_context_id(), "title": title or role["name"], "storyKey": story_key, "owner": owner,
-                "role": role["name"], "roleConfig": role, "predecessor": predecessor, "forkedFrom": forked_from,
+        cast = self.casting.resolve(position, model=model, effort=effort, preset=preset)
+        if cast.get("provider", "claude-code") != "claude-code":
+            raise ValueError(f"provider {cast['provider']!r} not implemented yet")
+        meta = {"id": new_context_id(), "title": title or cast["label"], "storyKey": story_key, "owner": owner,
+                "position": position, "cast": cast, "predecessor": predecessor, "forkedFrom": forked_from,
                 "forkSession": fork_session, "seedUsage": dict(seed_usage or {}), "about": dict(about) if about else None,
                 "cwd": cwd or str(self.workspace_dir), "env": dict(env or {}), "systemPrompt": system_prompt,
                 "createdAt": time.time(), "status": "idle"}
@@ -362,15 +364,17 @@ class ContextStore(QObject):
         self.contextsChanged.emit()
         return c.id
 
-    def spawn(self, role_name: str, prompt: str, **create_kwargs) -> str:
+    def spawn(self, position: str, prompt: str, **create_kwargs) -> str:
         if not create_kwargs.get("title"):
-            create_kwargs["title"] = prompt.strip().splitlines()[0][:60] if prompt.strip() else role_name
-        cid = self.create(role_name, **create_kwargs)
+            create_kwargs["title"] = prompt.strip().splitlines()[0][:60] if prompt.strip() else position
+        cid = self.create(position, **create_kwargs)
         self._contexts[cid].send(prompt)
         return cid
 
-    def fork(self, source_id: str, *, role_name: str, owner: str = "human", story_key: str = "", title: str = "",
-             system_prompt: str = "", env: dict | None = None, about: dict | None = None) -> str:
+    def fork(self, source_id: str, *, position: str, model: str | None = None, effort: str | None = None,
+             preset: str | None = None,
+             owner: str = "human", story_key: str = "", title: str = "", system_prompt: str = "",
+             env: dict | None = None, about: dict | None = None) -> str:
         """A context that starts knowing everything `source_id` knows (lifecycle spec §3.5): its first turn
         resumes the source's session with --fork-session, later turns resume its own. Shared by asides and
         `call --fork`. The source keeps running on its own session, untouched."""
@@ -381,15 +385,19 @@ class ContextStore(QObject):
             raise ValueError(f"{source_id} has never run; nothing to fork")
         if src.status in ("starting", "working"):
             raise ValueError(f"{source_id} is working; fork it when it stops")
-        return self.create(role_name, story_key=story_key, owner=owner, title=title or f"fork of {src.title}",
+        return self.create(position, model=model, effort=effort, preset=preset,
+                           story_key=story_key, owner=owner, title=title or f"fork of {src.title}",
                            system_prompt=system_prompt, env=env, cwd=src.meta.get("cwd", ""),
                            forked_from=source_id, fork_session=src.sessionId, about=about,
                            seed_usage={"tokens": src.contextTokens, "window": src.contextWindow})
 
     @Slot(str, result=str)
+    @Slot(str, str, str, str, result=str)
     @intent
-    def newBare(self, role_name: str) -> str:
-        return self.create(role_name or getattr(cfg, "DEFAULT_BARE_ROLE", "claude-default"), title="New context")
+    def newBare(self, position: str = "", model: str | None = None, effort: str | None = None,
+                preset: str | None = None) -> str:
+        return self.create(position or getattr(cfg, "DEFAULT_BARE_POSITION", "bare"),
+                           model=model, effort=effort, preset=preset, title="New context")
 
     @Slot(str, result=QObject)
     def get(self, cid: str):

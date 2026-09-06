@@ -180,11 +180,11 @@ def test_ping_requests_ping(recorder, capsys):
     assert capsys.readouterr().out == "pid: 5\n"
 
 
-def test_role_list_requests_role_list(recorder, capsys):
-    recorder.replies["role.list"] = [{"name": "claude-fast", "model": "m"}]
-    cli.main(["role", "list"])
-    assert recorder.calls == [("role.list", {})]
-    assert capsys.readouterr().out == "name=claude-fast  model=m\n"
+def test_cast_options_requests_the_selector_lists(recorder, capsys):
+    recorder.replies["cast.options"] = {"models": [], "efforts": [], "presets": [], "positions": []}
+    cli.main(["cast", "options"])
+    assert recorder.calls == [("cast.options", {})]
+    assert capsys.readouterr().out.splitlines() == ["models: []", "efforts: []", "presets: []", "positions: []"]
 
 
 def test_json_flag_switches_output_to_json(recorder, capsys):
@@ -193,28 +193,29 @@ def test_json_flag_switches_output_to_json(recorder, capsys):
     assert json.loads(capsys.readouterr().out) == {"pid": 5}
 
 
-def test_context_new_forwards_role_prompt_and_title(recorder, capsys):
+def test_context_new_forwards_the_picks_prompt_and_title(recorder, capsys):
     recorder.replies["context.new"] = {"id": "t9", "status": "working"}
-    cli.main(["context", "new", "--role", "p", "--prompt", "x"])
-    assert recorder.calls == [("context.new", {"role": "p", "prompt": "x", "title": "", "open": False})]
+    cli.main(["context", "new", "--model", "claude-opus-5", "--effort", "high", "--preset", "builder", "--prompt", "x"])
+    assert recorder.calls == [("context.new", {"model": "claude-opus-5", "effort": "high", "preset": "builder",
+                                               "prompt": "x", "title": "", "open": False})]
     assert capsys.readouterr().out == "t9\n"
 
 
 def test_context_new_without_prompt_sends_empty_prompt(recorder):
     recorder.replies["context.new"] = {"id": "t9", "status": "idle"}
-    cli.main(["context", "new", "--role", "p"])
-    assert recorder.calls == [("context.new", {"role": "p", "prompt": "", "title": "", "open": False})]
+    cli.main(["context", "new"])
+    assert recorder.calls == [("context.new", {"model": None, "effort": None, "preset": None, "prompt": "", "title": "", "open": False})]
 
 
 def test_context_new_title_flag_is_forwarded(recorder):
     recorder.replies["context.new"] = {"id": "t9", "status": "working"}
-    cli.main(["context", "new", "--role", "p", "--prompt", "x", "--title", "T"])
+    cli.main(["context", "new", "--prompt", "x", "--title", "T"])
     assert recorder.calls[0][1]["title"] == "T"
 
 
 def test_context_new_open_flag_is_forwarded(recorder):
     recorder.replies["context.new"] = {"id": "t9", "status": "working"}
-    cli.main(["context", "new", "--role", "p", "--prompt", "x", "--open"])
+    cli.main(["context", "new", "--prompt", "x", "--open"])
     assert recorder.calls[0][1]["open"] is True
 
 
@@ -222,8 +223,8 @@ def test_context_new_wait_polls_show_until_settled_and_prints_last_text(recorder
     recorder.replies["context.new"] = {"id": "t9", "status": "working"}
     recorder.replies["context.show"] = deque([{"id": "t9", "status": "working"},
                                               {"id": "t9", "status": "idle", "lastText": "all done"}])
-    cli.main(["context", "new", "--role", "p", "--prompt", "x", "--wait"])
-    assert recorder.calls == [("context.new", {"role": "p", "prompt": "x", "title": "", "open": False}),
+    cli.main(["context", "new", "--prompt", "x", "--wait"])
+    assert recorder.calls == [("context.new", {"model": None, "effort": None, "preset": None, "prompt": "x", "title": "", "open": False}),
                               ("context.show", {"id": "t9"}), ("context.show", {"id": "t9"})]
     assert capsys.readouterr().out == "all done\n"
 
@@ -231,7 +232,7 @@ def test_context_new_wait_polls_show_until_settled_and_prints_last_text(recorder
 def test_context_new_wait_json_prints_full_summary(recorder, fake_clock, capsys):
     recorder.replies["context.new"] = {"id": "t9", "status": "working"}
     recorder.replies["context.show"] = deque([{"id": "t9", "status": "idle", "lastText": "done"}])
-    cli.main(["--json", "context", "new", "--role", "p", "--prompt", "x", "--wait"])
+    cli.main(["--json", "context", "new", "--prompt", "x", "--wait"])
     assert json.loads(capsys.readouterr().out) == {"id": "t9", "status": "idle", "lastText": "done"}
 
 
@@ -301,10 +302,11 @@ def test_story_list_show_create_start(recorder, monkeypatch):
     cli.main(["story", "list"]); cli.main(["story", "show", "ABC-1"])
     monkeypatch.setenv("HARNESS_STORY_KEY", "ABC-7"); cli.main(["story", "show"])
     cli.main(["story", "create", "--title", "T", "--description", "D"])
-    cli.main(["story", "start", "ABC-1", "--note", "go", "--role", "protagonist"])
+    cli.main(["story", "start", "ABC-1", "--note", "go", "--model", "claude-opus-5", "--effort", "max"])
     assert recorder.calls == [("story.list", {}), ("story.show", {"key": "ABC-1"}), ("story.show", {"key": "ABC-7"}),
                               ("story.create", {"title": "T", "description": "D"}),
-                              ("story.start", {"key": "ABC-1", "note": "go", "role": "protagonist"})]
+                              ("story.start", {"key": "ABC-1", "note": "go", "model": "claude-opus-5",
+                                               "effort": "max", "preset": None})]
 
 
 def _git_repo(path):
@@ -487,14 +489,15 @@ def test_story_call_wait_inbox_cast_recap_comment_args(recorder, monkeypatch):
     monkeypatch.setenv("HARNESS_CHARACTER_ID", "chr1")
     recorder.replies["story.call"] = {"thread": "thr_x", "character": "chr2", "name": "Impl"}
     recorder.replies["story.wait"] = {"awaits": [], "message": "end your turn"}
-    cli.main(["story", "call", "--role", "claude-fast", "--as", "Impl", "--fork", "--note", "build it"])
+    cli.main(["story", "call", "--as", "Impl", "--fork", "--preset", "builder", "--note", "build it"])
     cli.main(["story", "wait"])
     cli.main(["story", "inbox"])
     cli.main(["story", "cast"])
     cli.main(["story", "recap", "--body", "r", "--thread", "thr_x"])
     cli.main(["story", "comment", "--body", "b", "--to", "@Impl", "--to", "@Rev"])
     assert recorder.calls == [
-        ("story.call", {"character": "chr1", "role": "claude-fast", "note": "build it", "as": "Impl", "fork": True}),
+        ("story.call", {"character": "chr1", "note": "build it", "as": "Impl", "fork": True,
+                        "model": None, "effort": None, "preset": "builder"}),
         ("story.wait", {"character": "chr1"}),
         ("story.inbox", {"character": "chr1"}),
         ("story.cast", {"key": "", "character": "chr1"}),
@@ -506,11 +509,12 @@ def test_story_call_wait_inbox_cast_recap_comment_args(recorder, monkeypatch):
 def test_story_create_and_author_verbs_inside_a_character(recorder, monkeypatch):
     monkeypatch.setenv("HARNESS_CHARACTER_ID", "chr1")
     recorder.replies["story.create"] = "SUB-1"
-    cli.main(["story", "create", "--title", "t", "--start", "--role", "claude-fast"])
+    cli.main(["story", "create", "--title", "t", "--start", "--model", "claude-sonnet-5"])
     cli.main(["story", "approve", "SUB-1", "--note", "ok"])
     cli.main(["story", "reply", "SUB-1", "--thread", "t", "--body", "b"])
     assert recorder.calls == [
-        ("story.create", {"character": "chr1", "title": "t", "description": "", "start": True, "role": "claude-fast"}),
+        ("story.create", {"character": "chr1", "title": "t", "description": "", "start": True,
+                          "model": "claude-sonnet-5", "effort": None, "preset": None}),
         ("story.approve", {"character": "chr1", "key": "SUB-1", "note": "ok"}),
         ("story.reply", {"character": "chr1", "key": "SUB-1", "thread": "t", "body": "b"}),
     ]
@@ -707,3 +711,22 @@ def test_cli_stdio_is_utf8_whatever_the_console_says(tmp_path):
                        capture_output=True, env=env, timeout=30)
     assert r.returncode == 0, r.stderr
     assert r.stdout.decode("utf-8").splitlines()[:2] == ["utf-8 utf-8 utf-8", "\u2713"]
+
+
+def test_a_flag_nobody_passed_is_none_and_an_empty_one_is_a_pick(recorder, capsys):
+    """--model "" is the cli default and --effort "" is the provider's own: both are choices config
+    offers. Leaving the flag off is not a choice, and must not arrive looking like one."""
+    recorder.replies["story.start"] = {"key": "ABC-1", "character": "chr1"}
+    cli.main(["story", "start", "ABC-1"])
+    assert recorder.calls[-1] == ("story.start", {"key": "ABC-1", "note": "", "model": None,
+                                                  "effort": None, "preset": None})
+    cli.main(["story", "start", "ABC-1", "--model", "", "--effort", ""])
+    assert recorder.calls[-1] == ("story.start", {"key": "ABC-1", "note": "", "model": "",
+                                                  "effort": "", "preset": None})
+
+
+def test_story_recast_forwards_the_three_picks(recorder, capsys):
+    recorder.replies["story.recast"] = {"context": "ctx_9"}
+    cli.main(["story", "recast", "ABC-1", "chr1", "--model", "claude-opus-5", "--effort", "max", "--preset", "builder"])
+    assert recorder.calls == [("story.recast", {"key": "ABC-1", "target": "chr1", "model": "claude-opus-5",
+                                                "effort": "max", "preset": "builder"})]

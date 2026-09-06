@@ -1,6 +1,8 @@
 """harness/skills.py: locating the plugin tree and reading skill bodies; the plugin tree's hygiene (Task 2)."""
 import json
+import os
 import re
+import shutil
 from pathlib import Path
 
 import pytest
@@ -115,3 +117,113 @@ def test_injected_skills_avoid_the_fake_claudes_trigger_words(name):
     """tests/fake_claude.py fails a turn on "fail" and sleeps on "slow"; these bodies ride every brief and delivery."""
     body = skills.skill_body(name).lower()
     assert "fail" not in body and "slow" not in body
+
+
+# ---------------------------------------------------------------- preset-filtered plugin trees (§5.1)
+
+@pytest.fixture
+def tree(tmp_path, monkeypatch):
+    """A source tree of three skills, with the plugin manifest the real one has."""
+    src = tmp_path / "src"
+    (src / ".claude-plugin").mkdir(parents=True)
+    (src / ".claude-plugin" / "plugin.json").write_text(json.dumps({"name": "zharn", "version": "0.0.1"}))
+    for name in ("being-a-character", "delegating", "test-driven-development"):
+        write_skill(src, name, f"body of {name}")
+    monkeypatch.setenv("HARNESS_SKILLS_DIR", str(src))
+    return src
+
+
+def names_in(d: Path) -> set[str]:
+    return {p.name for p in (d / "skills").iterdir() if p.is_dir()}
+
+
+def test_no_names_hands_over_the_whole_source_tree(tree, tmp_path):
+    assert skills.plugin_dir(names=None, cache=tmp_path / "cache") == tree
+    assert skills.plugin_args(names=None, cache=tmp_path / "cache") == ["--plugin-dir", str(tree)]
+
+
+def test_names_without_a_cache_fall_back_to_the_whole_tree(tree):
+    assert skills.plugin_dir("builder", ["delegating"], None) == tree
+
+
+def test_a_preset_gets_a_filtered_copy_named_after_it(tree, tmp_path):
+    cache = tmp_path / "cache"
+    d = skills.plugin_dir("builder", ["delegating"], cache)
+    assert d == cache / "builder" and names_in(d) == {"delegating"}
+    assert (d / "skills" / "delegating" / "SKILL.md").read_text(encoding="utf-8").endswith("body of delegating\n")
+    assert json.loads((d / ".claude-plugin" / "plugin.json").read_text())["name"] == "zharn"
+
+
+def test_an_empty_preset_gets_a_tree_with_no_skills(tree, tmp_path):
+    d = skills.plugin_dir("none", [], tmp_path / "cache")
+    assert names_in(d) == set() and (d / ".claude-plugin" / "plugin.json").exists()
+
+
+def test_a_named_skill_that_does_not_exist_is_skipped(tree, tmp_path):
+    d = skills.plugin_dir("odd", ["delegating", "no-such-skill"], tmp_path / "cache")
+    assert names_in(d) == {"delegating"}
+
+
+def test_the_filtered_tree_is_rebuilt_when_the_preset_changes(tree, tmp_path):
+    cache = tmp_path / "cache"
+    skills.plugin_dir("p", ["delegating"], cache)
+    assert names_in(skills.plugin_dir("p", ["being-a-character"], cache)) == {"being-a-character"}
+
+
+def test_the_filtered_tree_is_rebuilt_when_the_source_skill_changes(tree, tmp_path):
+    cache = tmp_path / "cache"
+    d = skills.plugin_dir("p", ["delegating"], cache)
+    (tree / "skills" / "delegating" / "SKILL.md").write_text(
+        "---\nname: delegating\ndescription: Use when testing\n---\n\nrewritten\n", encoding="utf-8")
+    d = skills.plugin_dir("p", ["delegating"], cache)
+    assert "rewritten" in (d / "skills" / "delegating" / "SKILL.md").read_text(encoding="utf-8")
+
+
+def test_an_unchanged_tree_is_reused_rather_than_rebuilt(tree, tmp_path):
+    cache = tmp_path / "cache"
+    d = skills.plugin_dir("p", ["delegating"], cache)
+    marker = d / "skills" / "delegating" / "untouched.txt"
+    marker.write_text("still here")
+    skills.plugin_dir("p", ["delegating"], cache)
+    assert marker.exists()
+
+
+def test_plugin_args_points_at_the_filtered_tree(tree, tmp_path):
+    cache = tmp_path / "cache"
+    assert skills.plugin_args("builder", ["delegating"], cache) == ["--plugin-dir", str(cache / "builder")]
+
+
+def test_a_different_source_tree_is_not_served_from_another_ones_cache(tree, tmp_path, monkeypatch):
+    """A3: the stamp records mtime+size, which a copy preserves — the source path has to be in it too."""
+    cache = tmp_path / "cache"
+    skills.plugin_dir("p", ["delegating"], cache)
+    other = tmp_path / "other"
+    shutil.copytree(tree, other)
+    src_file = tree / "skills" / "delegating" / "SKILL.md"
+    copy = other / "skills" / "delegating" / "SKILL.md"
+    body = src_file.read_text(encoding="utf-8")
+    copy.write_text(body[:-11] + "OTHERTREE!\n", encoding="utf-8")   # same length, other bytes
+    assert copy.stat().st_size == src_file.stat().st_size
+    st = src_file.stat()
+    os.utime(copy, ns=(st.st_atime_ns, st.st_mtime_ns))                            # and the same mtime
+    monkeypatch.setenv("HARNESS_SKILLS_DIR", str(other))
+    d = skills.plugin_dir("p", ["delegating"], cache)
+    assert "OTHERTREE!" in (d / "skills" / "delegating" / "SKILL.md").read_text(encoding="utf-8")
+
+
+def test_editing_the_plugin_manifest_rebuilds_the_filtered_tree(tree, tmp_path):
+    cache = tmp_path / "cache"
+    skills.plugin_dir("p", ["delegating"], cache)
+    (tree / ".claude-plugin" / "plugin.json").write_text(json.dumps({"name": "zharn", "version": "9.9.9"}))
+    d = skills.plugin_dir("p", ["delegating"], cache)
+    assert json.loads((d / ".claude-plugin" / "plugin.json").read_text())["version"] == "9.9.9"
+
+
+def test_a_rebuild_survives_a_directory_that_could_not_be_removed(tree, tmp_path, monkeypatch):
+    """A2: rmtree is best-effort on Windows, where a live child can hold a SKILL.md open."""
+    cache = tmp_path / "cache"
+    skills.plugin_dir("p", ["delegating"], cache)
+    monkeypatch.setattr(skills.shutil, "rmtree", lambda *a, **k: None)     # nothing gets removed
+    d = skills.plugin_dir("p", ["being-a-character"], cache)               # must not raise FileExistsError
+    assert (d / "skills" / "being-a-character" / "SKILL.md").exists()
+    assert json.loads((d / ".zharn-stamp.json").read_text())["names"] == ["being-a-character"]

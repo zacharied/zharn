@@ -29,7 +29,7 @@ collapse into the same thing, the model is wrong.
 **resolved**: topic closed, nothing pending. The lead is the only character that yields in a
 thread; anyone else taking part is a **guest**.
 
-**Character** — *who*: a role instantiated on a story. A named participant with an inbox and an
+**Character** — *who*: a position filled on a story. A named participant with an inbox and an
 attention, who posts comments *as itself* (e.g. "Reviewer · opus"), leads many threads over its
 life, and holds exactly one **live context** at a time — recast replaces the context; the
 character, its name, its threads, and its pending obligations all survive. A character **owes**
@@ -57,9 +57,9 @@ sub-stories). The only party who can approve it.
 the work, decides who else to bring in, and is the only character that can yield on the main
 thread — and therefore the only one that can move the story between phases or hand it back.
 
-**Friend** — any other character, cast by a character or by the author opening a thread with a
-role. Peers of the protagonist in every respect except the main thread. A friend may be a
-**fork**: cast from another character's role with a copy of that character's memory at the
+**Friend** — any other character, cast by a character or by the author opening a thread to a new
+name. Peers of the protagonist in every respect except the main thread. A friend may be a
+**fork**: cast into its source's position with a copy of that character's memory at the
 moment of casting — a second opinion, or an answer to a side question, from someone who already
 knows everything the original knows, without touching the original's attention. A fork cannot
 change the original's plan; it can only tell it.
@@ -71,8 +71,18 @@ mentioned or simply commented. Guests owe nothing there.
 returns to whoever dispatched it, and it may be *forked* from its dispatcher's context so it
 starts knowing everything the dispatcher knows.
 
-**Role** — the definition a character is cast from: provider, model, permission ceiling,
-instructions, skills.
+**Position** — where a character was cast, and the one thing about it nobody picks: Start casts a
+**protagonist**, calling in a friend casts a **friend**, New Context opens a **bare** context. The
+three picks belong to the cast site — a **model**, an **effort** (how hard it thinks), and a
+**preset** — and the position carries everything they do not: the instructions the character wakes
+up with, whether it must get an outline approved before it builds, its permission ceiling, and the
+model, effort and preset it starts on when none were named. The provider that runs a character is a
+property of its model, not a fourth pick.
+
+**Preset** — a named set of skills, and nothing else: which of the skills in your fork a character
+wakes up with. A preset says nothing about the model, the permission ceiling, or what the character
+is told to do, and the iron laws and the phase skill reach every character whatever its preset says
+(§8).
 
 **Sub-story** — a story created by a character, who becomes its author. Recursive.
 
@@ -100,7 +110,8 @@ next — posted in the thread it is attending before its context is replaced.
 
 **Recast** — replacing a character's live context with a fresh one built from the story record
 and the latest recap. How a story survives a full context, a wedged session, or a mid-story
-change of role or model. The character persists; only its memory is rebuilt.
+change of model, effort or preset — never of position, which is where the character was cast and
+does not move. The character persists; only its memory is rebuilt.
 
 **Aside** — a private chat pinned to one comment: a bare context forked from the memory that
 wrote it, for the author's clarifying questions about that one message. True to its name, nobody
@@ -140,11 +151,13 @@ ball. Three rules make the matrix honest:
 
 ## 4. Actions
 
-**The author** can: Start (an optional opening note and a choice of role for the protagonist) ·
+**The author** can: Start (an optional opening note, and the model, effort and preset for the
+protagonist) ·
 Reply to a yield · Resolve a side thread waiting on them · Proceed · Approve · Back to planning ·
 Cancel · Reopen · open a new thread
-(to the protagonist by default, to `@Name`, or to a fresh friend via a role) · reply in any
-thread · **Recast** any character (optionally onto a new role or model) · start a bare context ·
+(to the protagonist by default, to `@Name`, or to a fresh friend by naming one) · reply in any
+thread · **Recast** any character (optionally onto a new model, effort or preset) · start a bare
+context ·
 promote a bare context into a story.
 
 **Any character** can: yield in a thread it leads · comment · open a thread · resolve a
@@ -202,7 +215,7 @@ rarely needed.
 
 * Everything anyone says on a story is a comment in a thread, shown with its author.
 * A root comment that addresses nobody opens a thread to the protagonist; `@Name` opens one to
-  that character; opening with a role casts a fresh friend to lead it; opening with a fork of
+  that character; opening with a new name casts a fresh friend to lead it; opening with a fork of
   `@Name` casts a forked friend to lead it. A reply with no mention goes to the thread's lead; a
   reply to a yield goes to whoever yielded (to the lead, when the harness yielded for it).
   `@Name` anywhere brings Name in as a guest.
@@ -240,7 +253,8 @@ Approve lets each finish the turn it is in.
 For judgment, every character wakes up with a short set of iron laws and the skill for the phase
 it is in — how to plan, how to implement, how to yield, how to delegate — and can reach the
 discipline skills (test-driven development, systematic debugging, verification, code review)
-when it needs them. The skills are files in your fork, adapted from superpowers; the harness
+when it needs them. Which of those a character carries is its preset's business; the iron laws and
+the phase skill are the harness's, and arrive whatever the preset says. The skills are files in your fork, adapted from superpowers; the harness
 records what each character actually did, so a skill's effect is tested against facts rather
 than transcripts.
 
@@ -275,5 +289,5 @@ This document does not decide what Approve does to the code (merge, pull request
 cleanup); that belongs with environments. Workspaces, repos, and environments — where a story
 lives on disk and where a character stands when it works — are defined in
 [`docs/specs/workspace-model.md`](specs/workspace-model.md). It does not decide execution on
-other machines. It does not define roles beyond the handful shipped as examples, nor context
-forking beyond minions.
+other machines. It does not define positions or presets beyond the handful shipped as examples, nor
+context forking beyond minions.

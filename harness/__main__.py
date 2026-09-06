@@ -22,7 +22,7 @@ def ensure_user_config():
             "from harness.config_def import *  # noqa: F401,F403\n\n"
             "# Examples:\n"
             '# THEME = {**THEME, "accent": "#c678dd"}\n'
-            '# DEFAULT_ROLES = DEFAULT_ROLES + [{"name": "mine", "provider": "claude-code", "model": "claude-opus-5", "reasoning": "high", "permission": "full"}]\n')
+            '# DEFAULT_PRESETS = DEFAULT_PRESETS + [{"name": "mine", "skills": ["delegating", "test-driven-development"]}]\n')
 
 
 def load_theme() -> dict:
@@ -43,7 +43,7 @@ def build(argv=None, force_poll=False):
     from harness.icons import app_icon
     from harness.ipc import IpcServer, make_handler
     from harness.notify import Notifier
-    from harness.roles import RoleStore
+    from harness.casting import CastStore
     from harness.shell import QML_DIR, Reloader
     from harness.store import AppStore, LayoutStore, Session
     from harness.contexts import ContextStore
@@ -69,17 +69,17 @@ def build(argv=None, force_poll=False):
     session = Session(Path(os.environ.get("HARNESS_SESSION") or data_dir / "session.json"))
     content = ContentRegistry(QML_DIR)
     layout_store = LayoutStore(session, content.panelKinds())
-    roles = RoleStore(data_dir)
-    contexts = ContextStore(ROOT, data_dir / "contexts", roles, workspace_dir=workspace.dir)
-    stories = StoryStore(workspace, contexts, roles)
+    casting = CastStore(data_dir)
+    contexts = ContextStore(ROOT, data_dir / "contexts", casting, workspace_dir=workspace.dir)
+    stories = StoryStore(workspace, contexts, casting)
     workspace_store = WorkspaceStore(workspace, stories)
     from harness.documents import DocumentsStore
     documents = DocumentsStore(workspace, layout_store)
     workspace_store.workspaceChanged.connect(documents.rescan)   # a repo registered or unregistered: rescan now
     notifier = Notifier()
-    for s in (layout_store, roles, contexts, stories, workspace_store, documents):
+    for s in (layout_store, casting, contexts, stories, workspace_store, documents):
         s.notifier = notifier  # @intent slots report here; the status bar shows it
-    store = AppStore(session, layout_store, content, cfg.THEME, contexts=contexts, roles=roles,
+    store = AppStore(session, layout_store, content, cfg.THEME, contexts=contexts, casting=casting,
                      stories=stories, workspace=workspace, workspace_store=workspace_store, notifier=notifier,
                      documents=documents)
     # Unique per app instance, not just per process: tests build several apps in one process, and a torn-down
@@ -101,7 +101,7 @@ def main():
     if smoke_prompt:
         from PySide6.QtCore import QTimer
         key = store.stories.create("smoke", "smoke test")
-        chr_id = store.stories.start(key, smoke_prompt, os.environ.get("HARNESS_SMOKE_ROLE", "protagonist"))
+        chr_id = store.stories.start(key, smoke_prompt, os.environ.get("HARNESS_SMOKE_MODEL", ""))
         cid = store.stories.character(chr_id)["live_context"]
         store.layout.openContent("context", cid, key)
         context = store.contexts.get(cid)

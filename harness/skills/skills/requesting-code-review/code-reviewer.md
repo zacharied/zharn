@@ -1,6 +1,6 @@
 # Code Reviewer Prompt Template
 
-Use this template as the call note when calling a reviewer friend (`story call --role … --as Reviewer --note "…"`).
+Use this template as the call note when calling a reviewer friend (`story call --as Reviewer --preset reviewer --note "…"`).
 
 **Purpose:** Review completed work against requirements and code quality standards before it cascades into more work.
 

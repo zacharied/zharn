@@ -54,13 +54,13 @@ class StubContexts(QObject):
         self.created = []
         self.forked = []
 
-    def create(self, role_name, **kw):
-        if role_name == "codex-review":
+    def create(self, position, **kw):
+        if (kw.get("model") or "").startswith("gpt"):
             # Mirrors the real ContextStore.create's guard for unimplemented providers.
             raise ValueError("provider 'codex' not implemented yet")
         cid = f"ctx_{len(self.by_id) + 1}"
-        self.by_id[cid] = StubContext(cid, {"role": role_name, **kw})
-        self.created.append((role_name, kw))
+        self.by_id[cid] = StubContext(cid, {"position": position, **kw})
+        self.created.append((position, kw))
         return cid
 
     def get(self, cid):
@@ -83,12 +83,41 @@ class StubContexts(QObject):
         return cid
 
 
-class StubRoles:
-    def get(self, name):
-        return {"protagonist": {"name": "protagonist", "instructions": "Lead.", "outline_first": True},
-                "claude-fast": {"name": "claude-fast", "instructions": "", "outline_first": False},
-                "codex-review": {"name": "codex-review", "instructions": "", "outline_first": False, "provider": "codex"},
-                }.get(name, {})
+class StubCasting:
+    """CastStore's surface: positions carry the instructions and the outline rule, the provider is
+    read off the model, and a preset is a name the story layer only ever passes through."""
+    POSITIONS = {"protagonist": {"label": "Protagonist", "instructions": "Lead.", "outline_first": True,
+                                 "model": "", "effort": "high", "preset": "full"},
+                 "friend": {"label": "Friend", "instructions": "", "outline_first": False,
+                            "model": "", "effort": "high", "preset": "builder"},
+                 "bare": {"label": "Context", "instructions": "", "outline_first": False,
+                          "model": "", "effort": "medium", "preset": "none"}}
+    EFFORTS = ("", "low", "medium", "high", "xhigh", "max")
+    PRESETS = ("full", "builder", "reviewer", "none")
+
+    def resolve(self, position, model=None, effort=None, preset=None):
+        pos = self.POSITIONS.get(position or "")
+        if not pos:
+            raise ValueError(f"unknown position {position!r}")
+        effort = pos["effort"] if effort is None else effort
+        if effort not in self.EFFORTS:
+            raise ValueError(f"unknown effort {effort!r}")
+        if preset and preset not in self.PRESETS:
+            raise ValueError(f"unknown preset {preset!r}")
+        model = pos["model"] if model is None else model
+        return {"position": position, "label": pos["label"], "instructions": pos["instructions"],
+                "outline_first": pos["outline_first"], "permission": "auto",
+                "provider": "codex" if model.startswith("gpt") else "claude-code",
+                "model": model, "effort": effort, "preset": preset or pos["preset"]}
+
+    def rebuild(self, position, model=None, effort=None, preset=None):
+        if position not in self.POSITIONS:
+            return {}
+        if effort and effort not in self.EFFORTS:
+            effort = None
+        if preset and preset not in self.PRESETS:
+            preset = None
+        return self.resolve(position, model, effort, preset)
 
 
 class Notes:
@@ -112,14 +141,14 @@ def contexts():
 
 @pytest.fixture
 def store(ws, contexts):
-    s = StoryStore(ws, contexts, StubRoles())
+    s = StoryStore(ws, contexts, StubCasting())
     s.notifier = Notes()
     return s
 
 
 def started(store, note="go"):
     key = store.create("Title", "Desc")
-    chr_id = store.start(key, note, "protagonist")
+    chr_id = store.start(key, note)
     return key, chr_id
 
 
@@ -136,21 +165,21 @@ def test_create_assigns_workspace_keys_and_persists(store, ws):
 
 
 def test_fresh_store_reloads_stories_comments_and_characters(ws, contexts):
-    a = StoryStore(ws, contexts, StubRoles())
+    a = StoryStore(ws, contexts, StubCasting())
     key, chr_id = started(a)
     a.cast_yield(chr_id, "question", "which db?", questions=[{"text": "which db?", "options": ["pg", "sqlite"]}])
-    b = StoryStore(ws, contexts, StubRoles())
+    b = StoryStore(ws, contexts, StubCasting())
     row = b.get(key)
     assert row["phase"] == "planning" and row["ball"] == "author" and row["needsYou"] is True and row["flavor"] == "question"
     assert [c["kind"] for c in b.comments(key)] == ["text", "question"]
-    assert b.character(chr_id)["name"] == "protagonist" and b.character(chr_id)["live_context"] == "ctx_1"
+    assert b.character(chr_id)["name"] == "Protagonist" and b.character(chr_id)["live_context"] == "ctx_1"
 
 
 def test_corrupt_story_json_is_skipped_and_reported_once_a_notifier_is_attached(ws, contexts):
-    a = StoryStore(ws, contexts, StubRoles())
+    a = StoryStore(ws, contexts, StubCasting())
     key = a.create("A")
     (ws.story_dir(key) / "story.json").write_text("{not json", encoding="utf-8")
-    b = StoryStore(ws, contexts, StubRoles())
+    b = StoryStore(ws, contexts, StubCasting())
     assert key not in [row["key"] for row in b.list()]
     assert b.load_errors and any(key in e for e in b.load_errors)
     notes = Notes()
@@ -164,7 +193,7 @@ def test_update_edits_unstarted_story_only(store):
     key = store.create("A")
     store.update(key, "A2", "d2")
     assert store.get(key)["title"] == "A2" and store.get(key)["description"] == "d2"
-    store.start(key, "", "protagonist")
+    store.start(key)
     with pytest.raises(Rejected, match="started"):
         store.update(key, "A3", "")
 
@@ -187,54 +216,64 @@ def test_model_exposes_repos_and_environments_to_qml(store):
 def test_start_casts_protagonist_with_context_brief_and_env(store, contexts, ws):
     key, chr_id = started(store, "please build it")
     ch = store.character(chr_id)
-    assert ch["name"] == "protagonist" and ch["role"] == "protagonist" and ch["story_key"] == key
+    assert ch["name"] == "Protagonist" and ch["position"] == "protagonist" and ch["story_key"] == key
     assert ch["attention"] == store.story(key).main_thread and ch["inbox"] == [] and ch["live_context"] == "ctx_1"
-    role_name, kw = contexts.created[0]
-    assert role_name == "protagonist" and kw["story_key"] == key and kw["owner"] == chr_id
-    assert kw["env"] == {"HARNESS_CHARACTER_ID": chr_id} and kw["title"] == f"{key} · protagonist"
+    position, kw = contexts.created[0]
+    assert position == "protagonist" and kw["story_key"] == key and kw["owner"] == chr_id
+    assert kw["env"] == {"HARNESS_CHARACTER_ID": chr_id} and kw["title"] == f"{key} · Protagonist"
     assert kw.get("system_prompt", "") == ""      # never stored (spec §5.3)
     prompt = store.system_prompt(contexts.get("ctx_1"))
-    assert "protagonist" in prompt and key in prompt and "story yield" in prompt and "outline" in prompt.lower() and "Lead." in prompt
+    assert "Protagonist" in prompt and key in prompt and "story yield" in prompt and "outline" in prompt.lower() and "Lead." in prompt
     brief = contexts.get("ctx_1").sent[0]
     assert brief.startswith(f"# {key}: Title") and "Desc" in brief and "please build it" in brief and "## Instructions" not in brief
     row = store.get(key)
     assert row["phase"] == "planning" and row["ball"] == "cast" and row["castCount"] == 1 and row["workingCount"] == 1
     assert store.comments(key)[0] == {**store.comments(key)[0], "kind": "text", "body": "please build it", "authorName": "you"}
-    assert json.loads((ws.local_dir / "characters.json").read_text())[chr_id]["name"] == "protagonist"
+    assert json.loads((ws.local_dir / "characters.json").read_text())[chr_id]["name"] == "Protagonist"
     records = [json.loads(l) for l in (ws.stories_dir / key / "threads.jsonl").read_text().splitlines()]
     assert [r["type"] for r in records] == ["thread", "comment"]
 
 
-def test_start_defaults_role_and_rejects_unknown(store, monkeypatch):
-    monkeypatch.setattr(cfg, "DEFAULT_ROLE", "protagonist", raising=False)
+def test_start_casts_the_protagonist_position_and_rejects_an_unknown_pick(store, monkeypatch):
+    monkeypatch.setattr(cfg, "DEFAULT_POSITION", "protagonist", raising=False)
     key = store.create("A")
     store.start(key)
-    assert store.character(store.story(key).protagonist)["role"] == "protagonist"
+    ch = store.character(store.story(key).protagonist)
+    assert (ch["position"], ch["model"], ch["effort"], ch["preset"]) == ("protagonist", "", "high", "full")
     key2 = store.create("B")
-    with pytest.raises(ValueError, match="unknown role"):
-        store.start(key2, "", "nope")
+    with pytest.raises(ValueError, match="unknown preset"):
+        store.start(key2, "", "", "", "nope")
     assert store.get(key2)["phase"] == "todo"
+
+
+def test_start_carries_the_three_picks_into_the_character_and_its_context(store, contexts):
+    key = store.create("A")
+    store.start(key, "go", "claude-opus-5", "max", "builder")
+    ch = store.character(store.story(key).protagonist)
+    assert (ch["model"], ch["effort"], ch["preset"]) == ("claude-opus-5", "max", "builder")
+    position, kw = contexts.created[0]
+    assert (position, kw["model"], kw["effort"], kw["preset"]) == ("protagonist", "claude-opus-5", "max", "builder")
 
 
 def test_start_rejects_unimplemented_provider_without_wedging_the_story(store, ws):
     key = store.create("A")
     with pytest.raises(ValueError, match="codex"):
-        store.start(key, "", "codex-review")
+        store.start(key, "", "gpt-5.6-sol")
     row = store.get(key)
     assert row["phase"] == "todo" and row["protagonist"] == ""
     assert store.cast(key) == []
-    fresh = StoryStore(ws, StubContexts(), StubRoles())
+    fresh = StoryStore(ws, StubContexts(), StubCasting())
     assert fresh.get(key)["phase"] == "todo"
     # Start still works afterwards — the story was never wedged.
-    chr_id = store.start(key, "", "protagonist")
+    chr_id = store.start(key)
     assert store.get(key)["phase"] == "planning" and store.character(chr_id) is not None
 
 
-def test_second_character_with_same_role_gets_suffixed_name(store):
+def test_second_character_with_the_same_position_gets_suffixed_name(store):
     k1, c1 = started(store)
     k2, c2 = started(store)
-    assert store.character(c1)["name"] == "protagonist"
-    assert store.character(c2)["name"] == "protagonist"  # per story: no collision across stories
+    assert store.character(c1)["name"] == "Protagonist"
+    assert store.character(c2)["name"] == "Protagonist"  # per story: no collision across stories
 
 
 # ---------------------------------------------------------------- cast verbs
@@ -257,7 +296,7 @@ def test_cast_yield_rejections_surface(store):
         store.cast_yield("chr_nobody", "question", "x", questions=Q)
 
 
-def test_cast_proceed_requires_approved_outline_for_outline_first_role(store):
+def test_cast_proceed_requires_approved_outline_for_an_outline_first_position(store):
     key, chr_id = started(store)
     with pytest.raises(Rejected, match="outline"):
         store.cast_proceed(chr_id)
@@ -266,9 +305,10 @@ def test_cast_proceed_requires_approved_outline_for_outline_first_role(store):
     assert store.get(key)["phase"] == "implementing"
 
 
-def test_cast_proceed_allowed_for_plain_role(store):
+def test_cast_proceed_allowed_when_the_position_is_not_outline_first(store, monkeypatch):
     key = store.create("A")
-    chr_id = store.start(key, "", "claude-fast")
+    chr_id = store.start(key)
+    monkeypatch.setitem(StubCasting.POSITIONS["protagonist"], "outline_first", False)
     c = store.cast_proceed(chr_id, "bounded change")
     assert store.get(key)["phase"] == "implementing" and c["kind"] == "system"
 
@@ -349,7 +389,7 @@ def test_system_prompt_is_stable_across_a_proceed_and_carries_no_situation(store
     after = store.system_prompt(ctx)
     assert before == after
     meta = skills.skill_body("being-a-character")
-    assert meta and meta in after and "story yield" in after and "Role: protagonist. Lead." in after and cfg.OUTLINE_RULE_REQUIRED in after
+    assert meta and meta in after and "story yield" in after and "Position: Protagonist. Lead." in after and cfg.OUTLINE_RULE_REQUIRED in after
     main = store.story(key).main_thread
     assert "phase planning" not in after and "phase implementing" not in after and main not in after and "you owe #" not in after
     assert str(store.workspace.dir) not in after
@@ -357,7 +397,7 @@ def test_system_prompt_is_stable_across_a_proceed_and_carries_no_situation(store
 
 
 def test_system_prompt_is_none_for_contexts_no_character_owns(store, contexts):
-    cid = contexts.create("claude-fast", owner="human", title="bare")
+    cid = contexts.create("friend", owner="human", title="bare")
     assert store.system_prompt(contexts.get(cid)) is None
 
 
@@ -371,7 +411,7 @@ def test_every_delivery_opens_with_the_situation_line(store, contexts):
     assert lines[0] == ("[situation] phase planning · attending #main · you owe #main · you await nothing · "
                         f"in the workspace dir {store.workspace.dir}; run `env open <repo>` before touching a repo")
     assert lines[1] == "[you] reply in #main: that one"
-    r = store.cast_call(chr_id, "claude-fast", "build it")
+    r = store.cast_call(chr_id, "build it")
     store.cast_yield(chr_id, "question", "and?", questions=Q)
     store.comment(key, "so")
     assert f"you await #{r['thread']}" in ctx.sent[-1].splitlines()[0]
@@ -497,22 +537,22 @@ def test_render_brief_indexes_threads_without_their_contents(store):
     store.answer(key, "", ["a", ""], "because")
     text = render_brief(store.story(key), store.comments(key), {chr_id: store.character(chr_id)}, "the call-in note")
     assert text.startswith(f"# {key}: Title\n\nDesc\n")
-    assert "## Threads" in text and "- #main — author you, lead protagonist, turn: cast" in text
+    assert "## Threads" in text and "- #main — author you, lead Protagonist, turn: cast" in text
     assert "Run `$HARNESS_CLI story show` to read any of them." in text
-    index = text.split("## Threads", 1)[1].split("## Note", 1)[0]
+    index = text.split("## Threads", 1)[1].split("## Cast", 1)[0]
     for gone in ("Two things.", "a or b?", "because"):        # no comment body, no question line
         assert gone not in index
-    assert "## Cast" in text and "protagonist — protagonist" in text
+    assert "## Cast" in text and "Protagonist — protagonist" in text
     assert "## Instructions" not in text and text.rstrip().endswith("## Note\nthe call-in note")
 
 
 def test_render_brief_marks_the_threads_the_reader_leads(store):
     key, chr_id = started(store)
-    friend = store.cast_call(chr_id, "claude-fast", "second opinion")
+    friend = store.cast_call(chr_id, "second opinion", "Second")
     chars = {c["id"]: c for c in (store.character(chr_id), store.character(friend["character"]))}
     mine = render_brief(store.story(key), store.comments(key), chars, "", me=friend["character"])
-    assert f"- #{friend['thread']} — author protagonist, lead claude-fast, turn: cast (yours)" in mine
-    assert "- #main — author you, lead protagonist, turn: cast\n" in mine        # not yours: unmarked
+    assert f"- #{friend['thread']} — author Protagonist, lead Second, turn: cast (yours)" in mine
+    assert "- #main — author you, lead Protagonist, turn: cast\n" in mine        # not yours: unmarked
     assert "(yours)" not in render_brief(store.story(key), store.comments(key), chars, "")
 
 
@@ -528,7 +568,7 @@ def test_needs_you_flavor():
 def test_row_lists_threads_with_turns(store):
     key = store.create("Threads", "")
     assert store.get(key)["threads"] == [] and store.get(key)["mainThread"] == ""
-    chr_id = store.start(key, "", "protagonist")
+    chr_id = store.start(key)
     (t,) = store.get(key)["threads"]
     assert t == {"id": store.get(key)["mainThread"], "n": 1, "isMain": True, "author": "human", "lead": chr_id, "turn": "cast", "pendingYield": ""}
     c = store.cast_yield(chr_id, "question", "a or b?", questions=[{"text": "a or b?", "options": ["a", "b"]}])
@@ -538,7 +578,7 @@ def test_row_lists_threads_with_turns(store):
 
 def test_handoff_carries_checks(store):
     key = store.create("Checks", "")
-    chr_id = store.start(key, "", "protagonist")
+    chr_id = store.start(key)
     c = store.cast_yield(chr_id, "handoff", "built", checks=[{"repo": "zharn", "cmd": "pytest -q", "exit": 0, "output": "ok"}])
     assert c["structured"]["checks"] == [{"repo": "zharn", "cmd": "pytest -q", "exit": 0, "output": "ok"}]
     assert store.comments(key)[-1]["structured"]["checks"][0]["repo"] == "zharn"
@@ -553,7 +593,7 @@ def test_cast_comments_record_the_context_that_wrote_them(store, contexts, ws):
     assert store.comments(key)[0]["context"] is None  # the Start comment is the author's
     rows = [json.loads(l) for l in (ws.stories_dir / key / "threads.jsonl").read_text().splitlines()]
     assert [r.get("context") for r in rows if r["type"] == "comment"] == [None, live, None]
-    assert StoryStore(ws, contexts, StubRoles()).comments(key)[1]["context"] == live
+    assert StoryStore(ws, contexts, StubCasting()).comments(key)[1]["context"] == live
 
 
 # ---------------------------------------------------------------- asides (spec §3.5)
@@ -571,17 +611,17 @@ def test_comment_rows_say_whether_an_aside_can_be_opened(store, contexts):
 
 
 def test_aside_forks_the_writing_context_as_a_pinned_bare_context(store, contexts, monkeypatch):
-    monkeypatch.setattr(cfg, "DEFAULT_BARE_ROLE", "claude-fast", raising=False)
+    monkeypatch.setattr(cfg, "DEFAULT_BARE_POSITION", "bare", raising=False)
     key, chr_id = started(store)
     c = store.cast_comment(chr_id, "Line one\nline two")
     contexts.get(c["context"]).status = "idle"
     aside = store.aside(key, c["id"])
     (source, kw), = contexts.forked
-    assert source == c["context"] and kw["role_name"] == "claude-fast" and kw["owner"] == "human"
-    assert kw["about"] == {"story_key": key, "comment_id": c["id"]} and kw["title"] == "aside on #1 · protagonist"
+    assert source == c["context"] and kw["position"] == "bare" and kw["owner"] == "human"
+    assert kw["about"] == {"story_key": key, "comment_id": c["id"]} and kw["title"] == "aside on #1 · Protagonist"
     assert "story_key" not in kw and "env" not in kw  # a bare context: no HARNESS_STORY_KEY / HARNESS_CHARACTER_ID
     prompt = kw["system_prompt"]
-    assert "protagonist" in prompt and "#1" in prompt and "> Line one\n> line two" in prompt and key in prompt
+    assert "Protagonist" in prompt and "#1" in prompt and "> Line one\n> line two" in prompt and key in prompt
     assert store.aside(key, c["id"]) == aside and len(contexts.forked) == 1  # idempotent: reopen
     row = store.comments(key)[1]
     assert (row["asideId"], row["asideEnabled"]) == (aside, True)
@@ -605,7 +645,7 @@ def test_aside_forks_only_the_context_that_wrote_the_comment(store, contexts):
     key, chr_id = started(store)
     c = store.cast_comment(chr_id, "before recast")
     contexts.get(c["context"]).status = "idle"
-    live = contexts.create("claude-fast", owner=chr_id)          # a recast successor: a different mind
+    live = contexts.create("friend", owner=chr_id)          # a recast successor: a different mind
     contexts.get(live).status = "idle"
     store._characters[chr_id]["live_context"] = live
     assert store.aside_source(key, c) == c["context"]            # the memory that wrote it
@@ -636,9 +676,9 @@ def test_cast_rows_carry_derived_state(store, contexts):
     assert store.cast(key)[0]["status"] == "retired"
 
 
-def test_start_comment_names_the_role(store):
+def test_start_comment_names_the_position(store):
     key, chr_id = started(store)
-    assert store.comments(key)[0]["structured"]["role"] == "protagonist"
+    assert store.comments(key)[0]["structured"]["position"] == "protagonist"
 
 
 def test_needs_you_includes_human_side_threads(store):
@@ -679,20 +719,20 @@ def test_open_thread_addresses_the_protagonist_by_default(store, contexts):
 
 def test_open_thread_to_a_named_character(store, contexts):
     key, chr_id = started(store)
-    friend = store._cast(key, StubRoles().get("claude-fast"), thread_id="thr_f", author=chr_id, note="build it")
+    friend = store._cast(key, StubCasting().resolve("friend"), thread_id="thr_f", author=chr_id, note="build it")
     store._apply(key, OpenThread(thread_id="thr_f", author=chr_id, lead=friend["id"], body="build it"))
     contexts.get(friend["live_context"]).status = "idle"
-    tid = store.openThread(key, "@claude-fast how far along?")
+    tid = store.openThread(key, "@Friend how far along?")
     assert store.story(key).thread(tid).lead == friend["id"]
     assert contexts.get(friend["live_context"]).sent[-1].endswith("how far along?")
 
 
 def test_open_thread_with_call_casts_a_fresh_friend_with_a_brief(store, contexts):
     key, chr_id = started(store)
-    tid = store.openThread(key, "/call claude-fast review the outline")
+    tid = store.openThread(key, "/call Friend review the outline")
     t = store.story(key).thread(tid)
     friend = store.character(t.lead)
-    assert friend["role"] == "claude-fast" and friend["forked_from"] is None and t.author == "human"
+    assert friend["position"] == "friend" and friend["name"] == "Friend" and friend["forked_from"] is None and t.author == "human"
     ctx = contexts.get(friend["live_context"])
     assert ctx.meta["owner"] == friend["id"] and ctx.meta["env"]["HARNESS_CHARACTER_ID"] == friend["id"]
     assert ctx.sent[0].startswith(f"# {key}:") and "review the outline" in ctx.sent[0]      # the brief, note last
@@ -702,37 +742,35 @@ def test_open_thread_with_call_casts_a_fresh_friend_with_a_brief(store, contexts
 def test_open_thread_with_fork_casts_a_forked_friend_without_a_brief(store, contexts):
     key, chr_id = started(store)
     contexts.get(store.character(chr_id)["live_context"]).status = "idle"
-    tid = store.openThread(key, "/fork @protagonist what did you mean by X?")
+    tid = store.openThread(key, "/fork @Protagonist what did you mean by X?")
     friend = store.character(store.story(key).thread(tid).lead)
-    assert friend["forked_from"] == chr_id and friend["name"] == "protagonist-2" and friend["role"] == "protagonist"
+    assert friend["forked_from"] == chr_id and friend["name"] == "Protagonist-2" and friend["position"] == "protagonist"
     (source, kw), = contexts.forked
     assert source == store.character(chr_id)["live_context"] and kw["owner"] == friend["id"] and kw["story_key"] == key
     assert kw["env"]["HARNESS_CHARACTER_ID"] == friend["id"]
     first = contexts.get(friend["live_context"]).sent[0]
-    assert "a fork of protagonist" in first and "what did you mean by X?" in first and not first.startswith("#")
+    assert "a fork of Protagonist" in first and "what did you mean by X?" in first and not first.startswith("#")
 
 
 def test_open_thread_rejections(store, contexts):
     key, chr_id = started(store)
     with pytest.raises(Rejected, match="no character named"):
         store.openThread(key, "@nobody hi")
-    with pytest.raises(ValueError, match="unknown role"):
-        store.openThread(key, "/call wizard do magic")
     with pytest.raises(Rejected, match="working"):
-        store.openThread(key, "/fork @protagonist now")      # its context is still working on the brief
+        store.openThread(key, "/fork @Protagonist now")      # its context is still working on the brief
     assert len(store.cast(key)) == 1 and len(store.story(key).threads) == 1
 
 
 def test_addressees_follow_the_routing_rules(store, contexts):
     key, chr_id = started(store)
-    friend = store._cast(key, StubRoles().get("claude-fast"), thread_id="thr_f", author=chr_id, note="build")
+    friend = store._cast(key, StubCasting().resolve("friend"), thread_id="thr_f", author=chr_id, note="build")
     c_root = store._apply(key, OpenThread(thread_id="thr_f", author=chr_id, lead=friend["id"], body="build"))
     assert store.addressees(key, c_root) == [friend["id"]]                       # root → lead
-    c_yield = store._apply(key, Yield(thread_id="thr_f", by=friend["id"], kind="question", body="which db? @protagonist", questions=Q))
+    c_yield = store._apply(key, Yield(thread_id="thr_f", by=friend["id"], kind="question", body="which db? @Protagonist", questions=Q))
     assert store.addressees(key, c_yield) == [chr_id]                             # yield → author (mention == author: once)
     c_reply = store._apply(key, Comment(thread_id="thr_f", by=chr_id, body="postgres"))
     assert c_reply["reply_to"] == c_yield["id"] and store.addressees(key, c_reply) == [friend["id"]]   # reply to a yield → yielder
-    c_guest = store._apply(key, Comment(thread_id="thr_f", by="human", body="fyi @protagonist"))
+    c_guest = store._apply(key, Comment(thread_id="thr_f", by="human", body="fyi @Protagonist"))
     assert store.addressees(key, c_guest) == [friend["id"], chr_id]               # reply → lead, plus mentions
     c_auto = store._apply(key, Yield(thread_id="thr_f", by="system", kind="handoff", body="quiet", auto_for=friend["id"]))
     assert store.addressees(key, c_auto) == [chr_id]
@@ -775,7 +813,7 @@ def test_quiet_check_yields_every_owed_thread_when_nothing_is_awaited(store, con
     assert s.ball == "author"
     last = store.comments(key)[-1]
     assert (last["author"], last["kind"], last["structured"]["auto_for"]) == ("system", "handoff", chr_id)
-    assert last["body"].startswith("protagonist went quiet: half done")
+    assert last["body"].startswith("Protagonist went quiet: half done")
     assert store.get(key)["needsYou"] is True and store.character(chr_id)["attention"] is None
     settle(store, contexts, chr_id)                                # nothing owed now: nothing happens
     assert len(store.comments(key)) == 2
@@ -783,7 +821,7 @@ def test_quiet_check_yields_every_owed_thread_when_nothing_is_awaited(store, con
 
 def test_a_waiting_character_is_not_quiet(store, contexts):
     key, chr_id = started(store)
-    friend = store._cast(key, StubRoles().get("claude-fast"), thread_id="thr_f", author=chr_id, note="build")
+    friend = store._cast(key, StubCasting().resolve("friend"), thread_id="thr_f", author=chr_id, note="build")
     store._apply(key, OpenThread(thread_id="thr_f", author=chr_id, lead=friend["id"], body="build"))
     settle(store, contexts, chr_id)
     assert store.story(key).ball == "cast" and store.cast(key)[0]["status"] == "waiting"
@@ -796,7 +834,7 @@ def test_a_crash_or_stop_yields_with_the_reason(store, contexts):
     key, chr_id = started(store)
     contexts.get(store.character(chr_id)["live_context"]).last_error = "exit 1"
     settle(store, contexts, chr_id, status="failed")
-    assert store.comments(key)[-1]["body"].startswith("protagonist crashed: exit 1")
+    assert store.comments(key)[-1]["body"].startswith("Protagonist crashed: exit 1")
 
 
 def test_turn_end_pops_one_inbox_item_and_moves_attention(store, contexts):
@@ -826,7 +864,7 @@ def test_retired_characters_get_no_turn_end_processing(store, contexts):
 
 def test_cast_call_opens_a_thread_led_by_a_fresh_friend(store, contexts):
     key, chr_id = started(store)
-    r = store.cast_call(chr_id, "claude-fast", "build the screen model", as_name="Implementor")
+    r = store.cast_call(chr_id, "build the screen model", as_name="Implementor")
     t = store.story(key).thread(r["thread"])
     assert (t.author, t.lead, r["name"]) == (chr_id, r["character"], "Implementor")
     friend = store.character(r["character"])
@@ -837,9 +875,9 @@ def test_cast_call_opens_a_thread_led_by_a_fresh_friend(store, contexts):
 def test_cast_call_fork_clones_the_caller(store, contexts):
     key, chr_id = started(store)
     contexts.get(store.character(chr_id)["live_context"]).status = "idle"
-    r = store.cast_call(chr_id, "claude-fast", "review my work so far", fork=True)
+    r = store.cast_call(chr_id, "review my work so far", fork=True)
     assert store.character(r["character"])["forked_from"] == chr_id and contexts.forked[0][0] == store.character(chr_id)["live_context"]
-    assert "a fork of protagonist" in contexts.get(store.character(r["character"])["live_context"]).sent[0]
+    assert "a fork of Protagonist" in contexts.get(store.character(r["character"])["live_context"]).sent[0]
 
 
 def test_cast_wait_is_a_guard(store, contexts):
@@ -850,9 +888,9 @@ def test_cast_wait_is_a_guard(store, contexts):
     w = store.cast_wait(chr_id)          # owes nothing now: stopping is right, so the guard passes
     assert w["awaits"] == [] and "end your turn" in w["message"] and "a reply will wake you" in w["message"]
     store.comment(key, "a")
-    r = store.cast_call(chr_id, "claude-fast", "build")
+    r = store.cast_call(chr_id, "build")
     w = store.cast_wait(chr_id)
-    assert w["awaits"] == [{"thread": r["thread"], "lead": "claude-fast"}] and "end your turn" in w["message"]
+    assert w["awaits"] == [{"thread": r["thread"], "lead": "Friend"}] and "end your turn" in w["message"]
 
 
 def test_answer_composes_the_reply_and_stores_answers(store, contexts):
@@ -876,10 +914,10 @@ def test_delivery_prints_question_lines_and_main(store, contexts):
     lines = ctx.sent[-1].splitlines()
     assert lines[0].startswith("[situation] phase planning · attending #main · you owe #main · you await nothing · ")
     assert lines[1] == "[you] reply in #main: 1. b"
-    r = store.cast_call(chr_id, "claude-fast", "build it")
+    r = store.cast_call(chr_id, "build it")
     ctx.status = "idle"
     store.cast_yield(r["character"], "question", "Pick.", questions=[{"text": "x?", "options": ["x", "y"], "default": "x"}], thread_id=r["thread"])
-    assert f"[claude-fast] question in #{r['thread']}: Pick.\n  1. x? (x, y; default x)" in ctx.sent[-1]
+    assert f"[Friend] question in #{r['thread']}: Pick.\n  1. x? (x, y; default x)" in ctx.sent[-1]
     assert f"attending #{r['thread']} · you owe #main" in ctx.sent[-1].splitlines()[0]
 
 
@@ -906,11 +944,11 @@ def test_cast_recap_defaults_to_the_attended_thread(store, contexts):
 
 def test_cast_comment_to_opens_a_root_thread_when_no_thread_is_given(store, contexts):
     key, chr_id = started(store)
-    r = store.cast_call(chr_id, "claude-fast", "build")
-    c = store.cast_comment(chr_id, "one more thing", to=["@claude-fast"])
+    r = store.cast_call(chr_id, "build")
+    c = store.cast_comment(chr_id, "one more thing", to=["@Friend"])
     t = store.story(key).thread(c["thread_id"])
     assert (t.author, t.lead) == (chr_id, r["character"]) and c["thread_id"] != r["thread"]
-    c2 = store.cast_comment(chr_id, "fyi", thread_id=r["thread"], to=["@claude-fast"])
+    c2 = store.cast_comment(chr_id, "fyi", thread_id=r["thread"], to=["@Friend"])
     assert c2["thread_id"] == r["thread"] and store.addressees(key, c2) == [r["character"]]
 
 
@@ -934,9 +972,9 @@ def test_speak_posts_into_the_attended_thread_or_opens_one(store, contexts):
 def test_cast_yield_reaches_the_threads_author(store, contexts):
     key, chr_id = started(store)
     live = contexts.get(store.character(chr_id)["live_context"]); live.status = "idle"
-    r = store.cast_call(chr_id, "claude-fast", "build")
+    r = store.cast_call(chr_id, "build")
     store.cast_yield(r["character"], "handoff", "built it")
-    assert f"\n[claude-fast] handoff in #{r['thread']}: built it" in live.sent[-1]
+    assert f"\n[Friend] handoff in #{r['thread']}: built it" in live.sent[-1]
 
 
 # ---------------------------------------------------------------- retirement (characters plan, Task 7)
@@ -944,7 +982,7 @@ def test_cast_yield_reaches_the_threads_author(store, contexts):
 def test_approve_lets_a_working_friend_finish_and_delivers_nothing_after(store, contexts):
     key, chr_id = started(store)
     store.cast_yield(chr_id, "handoff", "outline"); store.proceed(key)
-    r = store.cast_call(chr_id, "claude-fast", "build")
+    r = store.cast_call(chr_id, "build")
     friend_ctx = contexts.get(store.character(r["character"])["live_context"])
     store._apply(key, Yield(thread_id=r["thread"], by=r["character"], kind="handoff", body="built"))
     store.cast_yield(chr_id, "handoff", "done")
@@ -961,7 +999,7 @@ def test_approve_lets_a_working_friend_finish_and_delivers_nothing_after(store, 
 
 def test_cancel_stops_every_character(store, contexts):
     key, chr_id = started(store)
-    r = store.cast_call(chr_id, "claude-fast", "build")
+    r = store.cast_call(chr_id, "build")
     store.cancel(key)
     assert all(contexts.get(store.character(c)["live_context"]).stopped for c in (chr_id, r["character"]))
 
@@ -970,7 +1008,7 @@ def test_cancel_stops_every_character(store, contexts):
 
 def test_character_creates_and_starts_a_sub_story_it_authors(store, contexts):
     key, chr_id = started(store)
-    sub = store.cast_create(chr_id, "screen model", "pyte-backed", start=True, role="claude-fast")
+    sub = store.cast_create(chr_id, "screen model", "pyte-backed", start=True)
     s = store.story(sub)
     assert (s.author, s.parent_story, s.phase, s.ball) == (chr_id, key, "planning", "cast")
     assert store.get(key)["openSubstories"] == 1 and store.get(sub)["parentStory"] == key
@@ -982,7 +1020,7 @@ def test_character_creates_and_starts_a_sub_story_it_authors(store, contexts):
 def test_a_sub_story_await_is_the_bare_key_in_the_situation_line(store, contexts):
     key, chr_id = started(store)
     contexts.get(store.character(chr_id)["live_context"]).status = "idle"
-    sub = store.cast_create(chr_id, "Sub", start=True, role="claude-fast")
+    sub = store.cast_create(chr_id, "Sub", start=True)
     store.comment(key, "status?")
     ctx = contexts.get(store.character(chr_id)["live_context"])
     assert f"you await {sub}" in ctx.sent[-1].splitlines()[0]
@@ -992,10 +1030,10 @@ def test_a_sub_story_await_is_the_bare_key_in_the_situation_line(store, contexts
 def test_sub_story_yield_reaches_the_author_character_cross_story(store, contexts):
     key, chr_id = started(store)
     live = contexts.get(store.character(chr_id)["live_context"]); live.status = "idle"
-    sub = store.cast_create(chr_id, "screen model", start=True, role="claude-fast")
+    sub = store.cast_create(chr_id, "screen model", start=True)
     lead = store.story(sub).protagonist
     store.cast_yield(lead, "question", "rows or cells?", questions=Q)
-    assert f"attending #main of {sub} · " in live.sent[-1] and f"\n[claude-fast] question in #main of {sub}: rows or cells?" in live.sent[-1]
+    assert f"attending #main of {sub} · " in live.sent[-1] and f"\n[Protagonist] question in #main of {sub}: rows or cells?" in live.sent[-1]
     assert store.character(chr_id)["attention"] == store.get(sub)["mainThread"]
     c = store.cast_author(chr_id, "reply", sub, body="rows", thread_id=store.get(sub)["mainThread"])
     assert store.story(sub).ball == "cast" and c["reply_to"]
@@ -1006,7 +1044,7 @@ def test_sub_story_yield_reaches_the_author_character_cross_story(store, context
 def test_main_handoff_is_blocked_while_a_sub_story_is_open(store, contexts):
     key, chr_id = started(store)
     store.cast_yield(chr_id, "handoff", "outline"); store.proceed(key)
-    sub = store.cast_create(chr_id, "part", start=True, role="claude-fast")
+    sub = store.cast_create(chr_id, "part", start=True)
     with pytest.raises(Rejected, match="still open"):
         store.cast_yield(chr_id, "handoff", "done")
     lead = store.story(sub).protagonist
@@ -1018,17 +1056,17 @@ def test_main_handoff_is_blocked_while_a_sub_story_is_open(store, contexts):
 def test_human_acting_on_a_character_owned_sub_story_notifies_the_owner(store, contexts):
     key, chr_id = started(store)
     live = contexts.get(store.character(chr_id)["live_context"]); live.status = "idle"
-    sub = store.cast_create(chr_id, "part", start=True, role="claude-fast")
+    sub = store.cast_create(chr_id, "part", start=True)
     lead = store.story(sub).protagonist
     store.cast_yield(lead, "handoff", "outline")
     store.proceed(sub)                                              # the human, on behalf of the owner
     assert store.story(sub).phase == "implementing"
-    assert f"\n[protagonist] system in #main of {sub}: outline approved" in live.sent[-1]
+    assert f"\n[Protagonist] system in #main of {sub}: outline approved" in live.sent[-1]
 
 
 def test_cancel_cascades_to_open_sub_stories(store, contexts):
     key, chr_id = started(store)
-    sub = store.cast_create(chr_id, "part", start=True, role="claude-fast")
+    sub = store.cast_create(chr_id, "part", start=True)
     store.cancel(key)
     assert store.story(sub).phase == "canceled" and store.cast(sub)[0]["status"] == "retired"
 
@@ -1040,19 +1078,73 @@ def test_recast_replaces_the_live_context_and_hands_it_the_situation(store, cont
     old = store.character(chr_id)["live_context"]
     contexts.get(old).status = "idle"; contexts.get(old).turns = 3
     side = store.openThread(key, "btw")                          # pushed: the stub goes "working" again
-    call = store.cast_call(chr_id, "claude-fast", "second opinion")   # a thread this character awaits
+    call = store.cast_call(chr_id, "second opinion")   # a thread this character awaits
     store.cast_recap(chr_id, "done: outline; next: build")
     contexts.get(old).status = "idle"                             # ...and its turn ends
-    new = store.recast(key, chr_id, role="claude-fast")
+    new = store.recast(key, chr_id, model="claude-sonnet-5", effort="low", preset="builder")
     ch = store.character(chr_id)
-    assert ch["live_context"] == new and ch["role"] == "claude-fast" and contexts.get(old).stopped
+    assert ch["live_context"] == new and contexts.get(old).stopped
+    assert (ch["position"], ch["model"], ch["effort"], ch["preset"]) == ("protagonist", "claude-sonnet-5", "low", "builder")
     assert contexts.get(new).meta["predecessor"] == old and contexts.get(new).meta["owner"] == chr_id
     first = contexts.get(new).sent[0]
-    assert "you are a recast of protagonist" in first and "done: outline; next: build" in first and f"attending #{side}" in first
+    assert "you are a recast of Protagonist" in first and "done: outline; next: build" in first and f"attending #{side}" in first
     assert f"you await #{call['thread']}" in first
     note = store.comments(key)[-1]
-    assert note["author"] == "system" and note["body"] == "recast protagonist as claude-fast (rung 1: fresh recap)"
+    assert note["author"] == "system" and note["body"] == "recast Protagonist as Protagonist on claude-sonnet-5 (rung 1: fresh recap)"
     assert store.cast(key)[0]["status"] == "working"
+
+
+def test_a_recast_onto_the_cli_default_clears_the_model_and_the_effort(store, contexts):
+    """The empty model is "cli default" and the empty effort is "the provider's own" — both are picks,
+    and neither may be swallowed by what the character already carries."""
+    key, chr_id = started(store)
+    contexts.get(store.character(chr_id)["live_context"]).status = "idle"
+    store.recast(key, chr_id, model="claude-opus-5", effort="max")
+    ch = store.character(chr_id)
+    assert (ch["model"], ch["effort"]) == ("claude-opus-5", "max")
+    contexts.get(ch["live_context"]).status = "idle"
+    new = store.recast(key, chr_id, model="", effort="")
+    ch = store.character(chr_id)
+    assert (ch["model"], ch["effort"]) == ("", "")                       # on the character
+    assert contexts.get(new).meta["model"] == "" and contexts.get(new).meta["effort"] == ""   # and on its context
+
+
+def test_a_recast_that_picks_nothing_keeps_the_picks_the_character_carries(store, contexts):
+    key, chr_id = started(store)
+    contexts.get(store.character(chr_id)["live_context"]).status = "idle"
+    store.recast(key, chr_id, model="claude-opus-5", effort="max", preset="builder")
+    ch = store.character(chr_id)
+    contexts.get(ch["live_context"]).status = "idle"
+    store.recast(key, chr_id)
+    ch = store.character(chr_id)
+    assert (ch["model"], ch["effort"], ch["preset"]) == ("claude-opus-5", "max", "builder")
+
+
+def test_a_recast_onto_the_cli_default_survives_the_turn_boundary(store, contexts):
+    key, chr_id = started(store)
+    contexts.get(store.character(chr_id)["live_context"]).status = "idle"
+    store.recast(key, chr_id, model="claude-opus-5", effort="max")
+    live = store.character(chr_id)["live_context"]
+    assert store.recast(key, chr_id, model="", effort="") == ""          # mid-turn: it waits
+    assert store.character(chr_id)["recast_pending"] == {"model": "", "effort": "", "preset": None}
+    settle(store, contexts, chr_id)
+    ch = store.character(chr_id)
+    assert (ch["model"], ch["effort"]) == ("", "") and ch["live_context"] != live
+
+
+def test_a_recast_the_context_limit_queued_keeps_the_characters_own_picks(store, contexts):
+    """The harness picked nothing. What it queues must read as "no pick", not as "the cli default"."""
+    key, chr_id = started(store)
+    store.recast(key, chr_id, model="claude-opus-5", effort="max")       # working: waits for the boundary
+    settle(store, contexts, chr_id)
+    assert (store.character(chr_id)["model"], store.character(chr_id)["effort"]) == ("claude-opus-5", "max")
+    settle(store, contexts, chr_id, status="working")                    # a new turn, and it runs away
+    reading(store, contexts, chr_id, 500_000)
+    assert store.character(chr_id)["recast_pending"] == {"model": None, "effort": None, "preset": None,
+                                                        "cause": "context"}
+    settle(store, contexts, chr_id)
+    ch = store.character(chr_id)
+    assert (ch["model"], ch["effort"]) == ("claude-opus-5", "max")
 
 
 def test_recast_without_a_fresh_recap_is_rung_3(store, contexts, monkeypatch):
@@ -1069,14 +1161,16 @@ def test_recast_without_a_fresh_recap_is_rung_3(store, contexts, monkeypatch):
 def test_recast_of_a_working_character_waits_for_the_turn_boundary(store, contexts):
     key, chr_id = started(store)
     old = store.character(chr_id)["live_context"]
-    assert store.recast(key, chr_id, model="claude-opus-5") == "" and store.character(chr_id)["recast_pending"] == {"role": "", "model": "claude-opus-5"}
+    assert store.recast(key, chr_id, model="claude-opus-5") == ""
+    assert store.character(chr_id)["recast_pending"] == {"model": "claude-opus-5", "effort": None, "preset": None}
     settle(store, contexts, chr_id)
     ch = store.character(chr_id)
     assert ch["live_context"] != old and "recast_pending" not in ch
-    assert contexts.get(ch["live_context"]).meta["role"] == "protagonist" and contexts.get(ch["live_context"]).meta["roleConfig"]["model"] == "claude-opus-5"
+    meta = contexts.get(ch["live_context"]).meta
+    assert meta["position"] == "protagonist" and meta["model"] == "claude-opus-5"
 
 
-def test_reopen_with_a_role_recasts_instead_of_resuming(store, contexts):
+def test_reopen_with_a_pick_recasts_instead_of_resuming(store, contexts):
     key, chr_id = started(store)
     old = store.character(chr_id)["live_context"]
     contexts.get(old).status = "idle"
@@ -1087,12 +1181,12 @@ def test_reopen_with_a_role_recasts_instead_of_resuming(store, contexts):
     store.approve(key)
     contexts.get(old).status = "idle"
     before_old_sent = list(contexts.get(old).sent)
-    store.reopen(key, "try again, differently", "claude-fast")
+    store.reopen(key, "try again, differently", "claude-sonnet-5")
     ch = store.character(chr_id)
     new = ch["live_context"]
-    assert new != old and ch["role"] == "claude-fast"
+    assert new != old and ch["model"] == "claude-sonnet-5"
     assert store.get(key)["phase"] == "implementing"
-    assert "you are a recast of protagonist" in contexts.get(new).sent[0]
+    assert "you are a recast of Protagonist" in contexts.get(new).sent[0]
     assert any("try again, differently" in t for t in contexts.get(new).sent[1:])  # the note reaches the fresh memory
     assert contexts.get(old).sent == before_old_sent                               # the old one was never resumed
 
@@ -1150,7 +1244,7 @@ def test_env_open_errors_are_the_repos_message(store, repo):
 def test_substory_opens_its_own_worktree_cut_from_the_parents_branch(store, repo):
     key, chr_id = started(store)
     parent_env = store.cast_env_open(chr_id, "client")
-    sub = store.cast_create(chr_id, "Contained", start=True, role="claude-fast")
+    sub = store.cast_create(chr_id, "Contained", start=True)
     d = store.cast_env_open(store.get(sub)["protagonist"], "client")
     assert d["branch"] == f"zharn/{sub}" and d["parent"] == f"{key}:client" and d["path"] != parent_env["path"]
     assert store.get(sub)["environments"][0]["parent"] == f"{key}:client"
@@ -1161,15 +1255,15 @@ def test_friends_inherit_the_callers_environment_and_the_protagonist_starts_with
     key, chr_id = started(store)
     assert store.character(chr_id)["environment"] is None
     store.cast_env_open(chr_id, "client")
-    fresh = store.cast_call(chr_id, "claude-fast", "review")["character"]
+    fresh = store.cast_call(chr_id, "review")["character"]
     assert store.character(fresh)["environment"] == "client"
     contexts.get(store.character(chr_id)["live_context"]).status = "idle"
-    forked = store.cast_call(chr_id, "claude-fast", "second opinion", fork=True)["character"]
+    forked = store.cast_call(chr_id, "second opinion", fork=True)["character"]
     assert store.character(forked)["environment"] == "client"
-    tid = store.openThread(key, "/fork @protagonist quick question")
+    tid = store.openThread(key, "/fork @Protagonist quick question")
     guest = store.story(key).thread(tid).lead
     assert store.character(guest)["environment"] == "client"
-    tid2 = store.openThread(key, "/call claude-fast from the human")
+    tid2 = store.openThread(key, "/call Friend from the human")
     assert store.character(store.story(key).thread(tid2).lead)["environment"] is None
 
 
@@ -1204,7 +1298,7 @@ def test_env_checks_only_for_an_implementing_handoff_on_the_main_thread(store, r
     plan = store.env_checks(chr_id)
     assert plan["run"] is True and [e["repo"] for e in plan["environments"]] == ["client"] and plan["environments"][0]["checks"] == "echo ok"
     assert plan["limit"] > 0 and plan["timeout"] > 0
-    side = store.cast_call(chr_id, "claude-fast", "review")["thread"]
+    side = store.cast_call(chr_id, "review")["thread"]
     assert store.env_checks(chr_id, side)["run"] is False
 
 
@@ -1296,7 +1390,7 @@ def test_worktree_is_swept_when_the_last_working_character_settles(store, contex
     key, chr_id = started(store)
     d = store.cast_env_open(chr_id, "client")
     store.cast_yield(chr_id, "handoff", "outline"); store.proceed(key)
-    r = store.cast_call(chr_id, "claude-fast", "build")        # the friend's context is working
+    r = store.cast_call(chr_id, "build")        # the friend's context is working
     store._apply(key, Yield(thread_id=r["thread"], by=r["character"], kind="handoff", body="built"))
     commit_file(_Path(d["path"]), "work.txt")
     store.cast_yield(chr_id, "handoff", "done")
@@ -1335,7 +1429,7 @@ def test_a_failed_remove_keeps_the_record_and_the_next_load_sweeps_it(store, con
     assert store.story(key).phase == "done" and _Path(d["path"]).is_dir()          # the tree is still there
     assert store.get(key)["environments"] and [r["repo"] for r in store.environments.records(key)] == ["client"]
     assert any("locked" in e for e in store.notifier.errors)
-    fresh = StoryStore(ws, contexts, StubRoles())                                   # a later run retries the sweep
+    fresh = StoryStore(ws, contexts, StubCasting())                                   # a later run retries the sweep
     assert not _Path(d["path"]).exists() and fresh.get(key)["environments"] == []
 
 
@@ -1364,7 +1458,7 @@ def test_character_approves_its_substory_into_its_own_worktree(store, contexts, 
     d = store.cast_env_open(chr_id, "client")
     store.cast_yield(chr_id, "handoff", "outline"); store.proceed(key)
     live = contexts.get(store.character(chr_id)["live_context"]); live.status = "idle"
-    sub = store.cast_create(chr_id, "part", start=True, role="claude-fast")
+    sub = store.cast_create(chr_id, "part", start=True)
     lead = store.story(sub).protagonist
     ds = store.cast_env_open(lead, "client")
     assert branch_of(_Path(ds["path"])) == f"zharn/{sub}" and store.get(sub)["environments"][0]["into"] == f"zharn/{key}"
@@ -1398,7 +1492,7 @@ def test_a_missing_phase_skill_notifies_once(store, contexts, monkeypatch, tmp_p
 def test_a_fork_gets_no_skill_and_copies_phase_seen(store, contexts):
     key, chr_id = started(store)
     contexts.get(store.character(chr_id)["live_context"]).status = "idle"
-    r = store.cast_call(chr_id, "claude-fast", "second opinion", fork=True)
+    r = store.cast_call(chr_id, "second opinion", fork=True)
     friend = store.character(r["character"])
     assert friend["phase_seen"] == "planning"
     assert skills.phase_skill("planning") not in contexts.get(friend["live_context"]).sent[0]
@@ -1430,11 +1524,11 @@ def test_back_to_planning_and_reopen_deliver_the_new_phase_skill(store, contexts
 def test_an_inbox_item_popped_after_a_proceed_carries_the_new_skill(store, contexts):
     """Proposal §7: a friend cast in planning learns of Proceed at its next delivery — here an inbox pop."""
     key, chr_id = started(store)
-    r = store.cast_call(chr_id, "claude-fast", "read the docs")
+    r = store.cast_call(chr_id, "read the docs")
     friend = store.character(r["character"])
     fctx = contexts.get(friend["live_context"])
     assert friend["phase_seen"] == "planning"
-    store.openThread(key, "@claude-fast btw")                      # the friend is working → its inbox
+    store.openThread(key, "@Friend btw")                      # the friend is working → its inbox
     assert store.character(r["character"])["inbox"]
     store.cast_yield(chr_id, "handoff", "outline"); store.proceed(key)
     settle(store, contexts, r["character"])                         # its turn ends: the item pops
@@ -1443,9 +1537,10 @@ def test_an_inbox_item_popped_after_a_proceed_carries_the_new_skill(store, conte
     assert store.character(r["character"])["phase_seen"] == "implementing"
 
 
-def test_cast_proceed_returns_the_skill_and_the_next_delivery_does_not_repeat_it(store, contexts):
+def test_cast_proceed_returns_the_skill_and_the_next_delivery_does_not_repeat_it(store, contexts, monkeypatch):
     key = store.create("Plain", "no outline rule")
-    chr_id = store.start(key, "go", "claude-fast")
+    chr_id = store.start(key, "go")
+    monkeypatch.setitem(StubCasting.POSITIONS["protagonist"], "outline_first", False)
     ctx = contexts.get(store.character(chr_id)["live_context"])
     r = store.cast_proceed(chr_id, "bounded")
     assert r["kind"] == "system" and r["skill"] == skills.phase_skill("implementing")
@@ -1457,7 +1552,7 @@ def test_cast_proceed_returns_the_skill_and_the_next_delivery_does_not_repeat_it
 def test_a_friend_cast_in_implementing_gets_the_implementing_skill(store, contexts):
     key, chr_id = started(store)
     store.cast_yield(chr_id, "handoff", "outline"); store.proceed(key)
-    r = store.cast_call(chr_id, "claude-fast", "build it")
+    r = store.cast_call(chr_id, "build it")
     friend = store.character(r["character"])
     assert contexts.get(friend["live_context"]).sent[0].rstrip().endswith(skills.phase_skill("implementing"))
     assert friend["phase_seen"] == "implementing"
@@ -1526,24 +1621,24 @@ def test_max_line_pushes_then_recasts_at_the_turn_boundary_naming_the_cause(stor
     assert "[harness] context past the warn line" in ctx.sent[1]
     assert ctx.sent[2].splitlines()[1] == ("[harness] context at the limit: finish the step in hand and post a `recap` in #main now. "
                                            "You are recast when this turn ends.")
-    assert store.character(chr_id)["recast_pending"] == {"role": "", "model": "", "cause": "context"}
+    assert store.character(chr_id)["recast_pending"] == {"model": None, "effort": None, "preset": None, "cause": "context"}
     assert store.character(chr_id)["context_maxed"] is True
     store.cast_recap(chr_id, "done: half the plan")
     settle(store, contexts, chr_id)
     ch = store.character(chr_id)
     assert ch["live_context"] != old and "recast_pending" not in ch
     assert "context_warned" not in ch and "context_maxed" not in ch
-    assert store.comments(key)[-1]["body"] == "recast protagonist as protagonist (context; rung 1: fresh recap)"
+    assert store.comments(key)[-1]["body"] == "recast Protagonist as Protagonist on the cli default (context; rung 1: fresh recap)"
     assert not store.situation(ch).endswith("recap due")
 
 
-def test_a_manual_recast_already_pending_keeps_its_role_when_the_max_line_hits(store, contexts):
+def test_a_manual_recast_already_pending_keeps_its_picks_when_the_max_line_hits(store, contexts):
     key, chr_id = started(store)
-    store.recast(key, chr_id, role="claude-fast")        # working: waits for the boundary
+    store.recast(key, chr_id, model="claude-sonnet-5")  # working: waits for the boundary
     reading(store, contexts, chr_id, 500_000)
-    assert store.character(chr_id)["recast_pending"] == {"role": "claude-fast", "model": ""}
+    assert store.character(chr_id)["recast_pending"] == {"model": "claude-sonnet-5", "effort": None, "preset": None}
     settle(store, contexts, chr_id)
-    assert store.comments(key)[-1]["body"] == "recast protagonist as claude-fast (rung 3: no fresh recap)"
+    assert store.comments(key)[-1]["body"] == "recast Protagonist as Protagonist on claude-sonnet-5 (rung 3: no fresh recap)"
 
 
 def test_thresholds_scale_to_a_small_window(store, contexts):
@@ -1581,6 +1676,26 @@ def test_a_fork_inherits_no_crossings(store, contexts):
     key, chr_id = started(store)
     reading(store, contexts, chr_id, 300_000)
     settle(store, contexts, chr_id)
-    forked = store.cast_call(chr_id, "claude-fast", "second opinion", fork=True)["character"]
+    forked = store.cast_call(chr_id, "second opinion", fork=True)["character"]
     assert "context_warned" not in store.character(forked) and store.character(chr_id)["context_warned"] == 0
     assert not store.situation(store.character(forked)).endswith("recap due")
+
+
+
+def test_a_deleted_preset_cannot_take_the_outline_gate_with_it(store, contexts):
+    """W1: a preset governs skills. A character holding one the author has since deleted keeps its
+    position's instructions and its outline rule, and is still refused Proceed without an outline."""
+    key = store.create("T", "")
+    chr_id = store.start(key, "", "", "", "builder")
+    store._characters[chr_id]["preset"] = "deleted-since"         # the author removed it mid-story
+    cast = store._cast_of(store._characters[chr_id])
+    assert cast["outline_first"] is True and cast["instructions"] == "Lead."
+    with pytest.raises(Rejected, match="outline"):
+        store.cast_proceed(chr_id, "bounded")
+
+
+def test_a_deleted_preset_falls_back_to_the_positions_own_skills(store):
+    key = store.create("T", "")
+    chr_id = store.start(key, "", "", "", "builder")
+    store._characters[chr_id]["preset"] = "deleted-since"
+    assert store._cast_of(store._characters[chr_id])["preset"] == "full"

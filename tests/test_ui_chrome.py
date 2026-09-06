@@ -114,7 +114,7 @@ def test_welcome_contexts_opens_the_bottom_panel(ui):
 
 
 def test_contexts_row_opens_the_context(ui):
-    cid = ui.store.contexts.spawn("claude-fast", "from the log", story_key="ABC-2")
+    cid = ui.store.contexts.spawn("friend", "from the log", story_key="ABC-2")
     ui.store.layout.showPanel("contexts")
     QTest.qWait(150)
     ui.click(ui.find(f"contextRow_{cid}"))            # selects: the pane shows it
@@ -133,7 +133,7 @@ def test_new_context_button_opens_a_bare_context(ui):
     assert ui.store.contexts.model.count() == n + 1
     cid = ui.store.contexts.model.rows()[-1]["id"]
     assert ui.store.contexts.get(cid).owner == "human"
-    assert ui.store.contexts.get(cid).roleName == "claude-default"
+    assert ui.store.contexts.get(cid).position == "bare"
     assert ui.has(f"tab_context_{cid}")
 
 
@@ -143,7 +143,7 @@ def test_toolbar_new_context_button_opens_a_bare_context(ui):
     assert ui.store.contexts.model.count() == n + 1
     cid = ui.store.contexts.model.rows()[-1]["id"]
     assert ui.store.contexts.get(cid).owner == "human"
-    assert ui.store.contexts.get(cid).roleName == "claude-default"
+    assert ui.store.contexts.get(cid).position == "bare"
     assert ui.has(f"tab_context_{cid}")
 
 
@@ -183,6 +183,21 @@ def test_the_run_widget_stays_the_brighter_chip_of_the_pair(ui):
     ui.hover(ui.find("newStoryButton"))
     assert chip(ui, "newStoryButton").value() > ctx_hovered.value()
     ui.hover(ui.find("workspaceWidget"))
+
+
+def test_new_context_menu_opens_a_bare_context_on_the_chosen_picks(ui):
+    ui.store.layout.showPanel("contexts")
+    QTest.qWait(150)
+    n = ui.store.contexts.model.count()
+    ui.click(ui.find("newContextMenuButton"))
+    ui.click(ui.find("newContextMenuItem_0"))       # New context with…
+    ui.choose(ui.find("bareModel"), "Sonnet 5")
+    ui.choose(ui.find("bareEffort"), "low")
+    ui.click(ui.find("newContextConfirm"))
+    assert ui.store.contexts.model.count() == n + 1
+    ctx = ui.store.contexts.get(ui.store.contexts.model.rows()[-1]["id"])
+    assert ctx.position == "bare"                  # the cast site implies it; the dialog never offers it
+    assert (ctx.meta["cast"]["model"], ctx.meta["cast"]["effort"]) == ("claude-sonnet-5", "low")
 
 
 def test_welcome_reset_layout_restores_the_default(ui):

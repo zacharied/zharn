@@ -123,20 +123,57 @@ CHECKS_TIMEOUT_S = 1800      # per repo
 GIT_TIMEOUT_S = 600          # bound on any single git subprocess (clone, worktree add/prune, …)
 SETUP_TIMEOUT_S = 600        # bound on a repo's `setup` command in a fresh worktree
 
-# Roles: what a character is cast from. `outline_first` = must get an outline approved before implementing.
-DEFAULT_ROLES = [
-    {"name": "protagonist", "provider": "claude-code", "model": "", "reasoning": "high", "permission": "auto", "outline_first": True,
-     "instructions": "You lead this story: classify the work, ask the author what you must, outline when the work needs it, then build or delegate."},
-    {"name": "claude-fast", "provider": "claude-code", "model": "claude-sonnet-5", "reasoning": "medium", "permission": "auto"},
-    {"name": "claude-deep", "provider": "claude-code", "model": "claude-opus-5", "reasoning": "high", "permission": "auto"},
-    {"name": "reviewer", "provider": "claude-code", "model": "claude-opus-5", "reasoning": "high", "permission": "auto",
-     "instructions": "You review: read and run, change nothing. Your handoff is the review."},
-    {"name": "claude-default", "provider": "claude-code", "model": "", "reasoning": "", "permission": "auto"},
-    {"name": "codex-review", "provider": "codex", "model": "gpt-5.6-sol", "reasoning": "high", "permission": "accept-edits"},
+# ---- casting (lifecycle spec §1) -------------------------------------------------------------
+# What a character is spawned with is three fine-grained picks — a model, an effort, a preset — over a
+# position it did not pick. Nothing bundles them.
+
+# The models the model selector offers. `id` goes to the provider's CLI; "" means the CLI's own default.
+# The provider is a property of the model, not a second choice; a model typed past this list is claude-code.
+MODELS = [
+    {"id": "", "label": "cli default", "provider": "claude-code"},
+    {"id": "claude-opus-5", "label": "Opus 5", "provider": "claude-code"},
+    {"id": "claude-opus-5[1m]", "label": "Opus 5 · 1M", "provider": "claude-code"},
+    {"id": "claude-sonnet-5", "label": "Sonnet 5", "provider": "claude-code"},
+    {"id": "claude-fable-5", "label": "Fable 5", "provider": "claude-code"},
+    {"id": "claude-haiku-4-5-20251001", "label": "Haiku 4.5", "provider": "claude-code"},
+    {"id": "gpt-5.6-sol", "label": "GPT-5.6 Sol", "provider": "codex"},
 ]
-DEFAULT_ROLE = "protagonist"
-# Role for bare contexts started from New Context (toolbar / Welcome / Contexts panel) — never the story-leading role.
-DEFAULT_BARE_ROLE = "claude-default"
+# The efforts the effort selector offers: the EFFORT_FLAGS levels, and "" for the provider's own default.
+EFFORTS = ["", "low", "medium", "high", "xhigh", "max"]
+
+# Presets. A preset controls one thing: which skills a character wakes up with. `skills` names directories
+# under SKILLS_DIR; ["*"] is the whole tree. The meta skill (being-a-character) and the phase skills are
+# delivered by the harness itself (§5.3), so no preset can switch them off.
+DEFAULT_PRESETS = [
+    {"name": "full", "skills": ["*"]},
+    {"name": "builder", "skills": ["delegating", "test-driven-development", "systematic-debugging",
+                                   "verification-before-completion", "requesting-code-review", "receiving-code-review"]},
+    {"name": "reviewer", "skills": ["systematic-debugging", "verification-before-completion"]},
+    {"name": "none", "skills": []},
+]
+DEFAULT_PRESET = "full"
+
+# Positions: what a character is by where it was cast, which nobody picks — Start casts a protagonist, `call`
+# casts a friend, New Context opens a bare one. A position carries the instructions in the character's system
+# prompt, whether it must get an outline approved before implementing (`outline_first`), its permission ceiling,
+# and the model/effort/preset it starts on when none was chosen.
+CAST_POSITIONS = {
+    "protagonist": {
+        "label": "Protagonist", "outline_first": True, "permission": "auto",
+        "model": "", "effort": "high", "preset": "full",
+        "instructions": "You lead this story: classify the work, ask the author what you must, outline when the work needs it, then build or delegate."},
+    "friend": {
+        "label": "Friend", "outline_first": False, "permission": "auto",
+        "model": "", "effort": "high", "preset": "builder",
+        "instructions": "You were called onto this thread for one piece of the work, and the note that called you says which — building, reviewing or reading. Do that piece, then hand off what you did and how you proved it: the lead reads your handoff, not your diff."},
+    "bare": {
+        "label": "Context", "outline_first": False, "permission": "auto",
+        "model": "", "effort": "medium", "preset": "none",
+        "instructions": ""},
+}
+DEFAULT_POSITION = "protagonist"
+# The position New Context opens on (Welcome / Contexts panel) — never the story-leading one.
+DEFAULT_BARE_POSITION = "bare"
 
 # System prompt for a character (lifecycle spec §5.3): stable for the life of a context. StoryStore builds it at
 # every spawn from these parts, the role and the skill files — never stored. Nothing volatile belongs here: the
@@ -153,7 +190,7 @@ CLI (HARNESS_CLI is set; every call prints a reason and exits non-zero when refu
   $HARNESS_CLI story yield --handoff --body "..." [--thread t]                    # hand off an outline, an answer, or finished work; on main while implementing the tree must be committed
   $HARNESS_CLI story proceed [--note "..."]                                      # planning -> implementing (main thread's lead only)
   $HARNESS_CLI story comment --body "..." [--thread t] [--to @Name]              # a note; no --thread + --to opens a thread to Name
-  $HARNESS_CLI story call --role R [--as Name] [--fork] --note "..."             # a friend on its own thread; --fork copies your memory
+  $HARNESS_CLI story call --note "..." [--as Name] [--model M] [--effort E] [--preset P] [--fork]   # a friend on its own thread; --fork copies your memory
   $HARNESS_CLI story wait                                                        # what you await, or that stopping is safe; then END YOUR TURN
   $HARNESS_CLI story resolve --thread t [--note "..."]                           # close a thread you opened that waits on you
   $HARNESS_CLI story recap --body "..." [--thread t]                             # done / in flight / gotchas / next
@@ -162,8 +199,8 @@ CLI (HARNESS_CLI is set; every call prints a reason and exits non-zero when refu
   $HARNESS_CLI env list · repo list                                             # this story's environments; registered repos
   $HARNESS_CLI repo add <path|url> [--name N] [--checks C] [--setup S] [--base B]   # register a repo (URLs are cloned); checks run at your handoffs
 
-{role}"""
+{position}"""
 
-OUTLINE_RULE_REQUIRED = ("Your role requires an outline: while planning, ask what you must, then `yield --handoff` an outline "
+OUTLINE_RULE_REQUIRED = ("Your position requires an outline: while planning, ask what you must, then `yield --handoff` an outline "
                          "and wait for the author to Proceed. Do not edit files while planning.")
 OUTLINE_RULE_OPTIONAL = "You may `proceed` straight to implementing when the work is bounded; outline first when it is not."

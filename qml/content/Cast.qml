@@ -60,7 +60,9 @@ ContentBase {
     function openRecast(m) {
         recastDialog.characterId = m.id
         recastDialog.characterName = m.name
-        recastDialog.currentRole = m.role
+        recastDialog.currentModel = m.model
+        recastDialog.currentEffort = m.effort
+        recastDialog.currentPreset = m.preset
         recastDialog.open()
     }
 
@@ -98,9 +100,9 @@ ContentBase {
                             RowLayout {   // the name line carries the Recast button; the lines below run the full width
                                 Layout.fillWidth: true; spacing: 8
                                 Text { text: m.modelData.name; color: app.theme.text; font.weight: Font.Medium }
-                                Text { readonly property string role: m.modelData.role !== m.modelData.name ? m.modelData.role : ""
+                                Text { readonly property string seat: m.modelData.position && m.modelData.position.toLowerCase() !== m.modelData.name.toLowerCase() ? m.modelData.position : ""
                                        readonly property string fork: m.modelData.forkedFrom ? "forked from " + cast.memberName(m.modelData.forkedFrom) : ""
-                                       text: [role, m.ctx && m.ctx.model ? m.ctx.model : "", fork].filter(function (x) { return x }).join(" · ")
+                                       text: [seat, m.ctx && m.ctx.model ? m.ctx.model : "", m.modelData.effort, fork].filter(function (x) { return x }).join(" · ")
                                        color: app.theme.textMuted; elide: Text.ElideRight; Layout.fillWidth: true; Layout.leftMargin: -2 }
                                 Btn { objectName: "recastButton_" + m.modelData.id; visible: !m.retired
                                       small: true; quiet: true; text: "Recast"; onClicked: cast.openRecast(m.modelData) }

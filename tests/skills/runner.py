@@ -123,9 +123,28 @@ def _dirty(store, key, repo: Path) -> str:
     return "; ".join(out)
 
 
+def positions_for(exp: dict, model: str = "") -> dict:
+    """The CAST_POSITIONS one run uses. `model` overrides the model of every position — friends the character
+    casts included. A scenario that has to reach implementing without an outline sets `"outline_first": false`
+    and gets it cleared; Start casts the protagonist position, which is outline-first by default, so a scenario
+    whose `must` names proceed would otherwise be refused the verb."""
+    from harness import config as cfg
+    out = {}
+    for position, spec in cfg.CAST_POSITIONS.items():
+        spec = dict(spec)
+        if model:
+            spec["model"] = model
+        if "outline_first" in exp:
+            spec["outline_first"] = bool(exp["outline_first"])
+        out[position] = spec
+    return out
+
+
 def run_scenario(name: str, *, omit: str | list[str] | None, workdir: Path, model: str = "") -> dict:
-    """One run. `model` overrides every role's model for this run only (the override lives in the run's workspace)."""
+    """One run. `model` and the scenario's own outline gate are applied for this run only, by rewriting the
+    in-memory CAST_POSITIONS (see `positions_for`); nothing on disk changes."""
     from PySide6.QtTest import QTest
+    from harness import config as cfg
     from harness.__main__ import build
     from harness.environments import register_repo
 
@@ -136,6 +155,7 @@ def run_scenario(name: str, *, omit: str | list[str] | None, workdir: Path, mode
     repo.mkdir(parents=True)
     saved = {k: os.environ.get(k) for k in ("HARNESS_WORKSPACE", "HARNESS_SESSION", "HARNESS_CLAUDE_CMD", "HARNESS_SKILLS_DIR")}
     store = reloader = None
+    saved_positions = cfg.CAST_POSITIONS
     try:
         build_fixture(name, repo)
         os.environ["HARNESS_WORKSPACE"] = str(ws)
@@ -149,12 +169,11 @@ def run_scenario(name: str, *, omit: str | list[str] | None, workdir: Path, mode
         t0 = time.time()
         app, store, reloader = build(force_poll=True)
         assert reloader.load(), store.reloadError
-        if model:
-            for role in store.roles.roles:                                     # every role: friends the character casts too
-                store.roles.save({**role, "model": model})
+        cfg.CAST_POSITIONS = positions_for(exp, model)      # this run only — restored in the finally below
         register_repo(store.stories.workspace, str(repo), name="fixture", checks=exp.get("checks", ""))
         key = store.stories.create(exp["title"], exp["prompt"])
-        chr_id = store.stories.start(key, exp.get("note", ""), exp["role"])
+        chr_id = store.stories.start(key, exp.get("note", ""), exp.get("model", ""), exp.get("effort", ""),
+                                     exp.get("preset", ""))
         replies = list(exp.get("replies", []))
         while time.time() - t0 < RUN_TIMEOUT_S:
             _wait_for_quiet(store, key, QTest)
@@ -175,6 +194,7 @@ def run_scenario(name: str, *, omit: str | list[str] | None, workdir: Path, mode
                 "committed": _committed(store, key, repo),
                 "cost_usd": round(sum(c.costUsd for c in store.contexts.contexts_for(key)), 4)}
     finally:
+        cfg.CAST_POSITIONS = saved_positions
         if store is not None:
             store.contexts.shutdown()
         if reloader is not None:

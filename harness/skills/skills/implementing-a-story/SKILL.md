@@ -26,7 +26,7 @@ Minions read, friends build, you hold the plot. A file you read stays in your co
 1. `$HARNESS_CLI env open <repo>` and `cd` there before touching anything. Checks run at your handoff in that environment.
 2. Split the outline into tasks a friend could take without your history. Independent tasks go out at once; dependent ones in order (`zharn:delegating`).
 3. Each task you build: `zharn:test-driven-development`. Each task a friend built: reply in its thread with what to fix, or `resolve` it.
-4. After each delegated task lands, a reviewer friend (`call --role reviewer`) reads it (`zharn:requesting-code-review`). Reviews are always friends — never you, never a minion.
+4. After each delegated task lands, a reviewer friend (`call --as Reviewer --preset reviewer`) reads it (`zharn:requesting-code-review`). Reviews are always friends — never you, never a minion.
 5. `wait` after casting; end your turn; the handoffs wake you.
 6. Before the handoff: `zharn:verification-before-completion`, then commit in your environment and bring your branch up to date with its target (`$HARNESS_CLI env list` names it as `target`): rebase onto it, or merge it in if the rebase fights you. Run the repo's checks yourself first; a refused handoff is a wasted turn.
 

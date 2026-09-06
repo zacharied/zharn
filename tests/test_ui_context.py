@@ -15,7 +15,7 @@ def ui():
 
 
 def open_context(ui, prompt="hello"):
-    cid = ui.store.contexts.spawn("claude-fast", prompt, story_key=ui.story_key)
+    cid = ui.store.contexts.spawn("friend", prompt, story_key=ui.story_key)
     ui.store.layout.openContent("context", cid, prompt)
     QTest.qWait(150)
     return ui.store.contexts.get(cid)

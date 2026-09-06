@@ -1,5 +1,5 @@
 """Local IPC so agents (child processes) can drive the harness: spawn new contexts, wait on
-them, list roles. One JSON request per connection, newline-terminated."""
+them, list what the casting selectors offer. One JSON request per connection, newline-terminated."""
 from __future__ import annotations
 
 import json
@@ -7,6 +7,8 @@ import os
 
 from PySide6.QtCore import QObject
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
+
+from harness import config as cfg
 
 
 class IpcServer(QObject):
@@ -63,6 +65,11 @@ def make_handler(app_store):
             raise KeyError("character")
         return a["character"]
 
+    def picks(a: dict) -> dict:
+        """The three fine-grained choices every cast site carries (spec §1). An absent key is None — nobody
+        picked, so the position's own stands. "" is a pick: the CLI's own model, the provider's own effort."""
+        return {"model": a.get("model"), "effort": a.get("effort"), "preset": a.get("preset")}
+
     def story_cmd(cmd: str, a: dict):
         stories, contexts = app_store.stories, app_store.contexts
         if cmd == "repo.add":
@@ -88,13 +95,14 @@ def make_handler(app_store):
         ch = a.get("character", "")
         if verb == "create":
             if ch:
-                return stories.cast_create(ch, a["title"], a.get("description", ""), bool(a.get("start")), a.get("role", ""))
+                return stories.cast_create(ch, a["title"], a.get("description", ""), bool(a.get("start")), **picks(a))
             return stories.get(stories.create(a["title"], a.get("description", "")))
         if verb == "start":
-            chr_id = stories.start(a["key"], a.get("note", ""), a.get("role", ""))
+            chr_id = stories.start(a["key"], a.get("note", ""), **picks(a))
             return {**stories.get(a["key"]), "character": chr_id}
         if ch and a.get("key") and verb in ("reply", "resolve", "proceed", "approve", "cancel", "reopen", "back", "recast"):
-            kw = {("thread_id" if k == "thread" else k): v for k, v in a.items() if k in ("thread", "body", "note", "role", "model")}
+            kw = {("thread_id" if k == "thread" else k): v for k, v in a.items()
+                  if k in ("thread", "body", "note", "model", "effort", "preset")}
             if verb == "recast":
                 kw["character"] = a.get("target", "")
             return stories.cast_author(ch, verb, a["key"], **kw)
@@ -103,7 +111,7 @@ def make_handler(app_store):
         if verb == "inbox":
             return stories.cast_inbox(ch)
         if verb == "call":
-            return stories.cast_call(ch, a["role"], a.get("note", ""), a.get("as", ""), bool(a.get("fork")))
+            return stories.cast_call(ch, a.get("note", ""), a.get("as", ""), bool(a.get("fork")), **picks(a))
         if verb == "wait":
             return stories.cast_wait(ch)
         if verb == "yield":
@@ -124,7 +132,7 @@ def make_handler(app_store):
                 return stories.cast_resolve(ch, a.get("thread", ""), a.get("note", ""))
             return stories.resolve(a["key"], a.get("thread", ""), a.get("note", ""))
         if verb == "recast":
-            return {"context": stories.recast(a["key"], a["target"], a.get("role", ""), a.get("model", ""))}
+            return {"context": stories.recast(a["key"], a["target"], **picks(a))}
         author = {"approve": stories.approve, "back": stories.backToPlanning, "cancel": stories.cancel, "reopen": stories.reopen}.get(verb)
         if author is not None:
             author(a["key"], a.get("note", ""))
@@ -132,11 +140,12 @@ def make_handler(app_store):
         raise ValueError(f"unknown command {cmd!r}")
 
     def h(cmd: str, a: dict):
-        contexts, roles, layout = app_store.contexts, app_store.roles, app_store.layout
+        contexts, casting, layout = app_store.contexts, app_store.casting, app_store.layout
         if cmd == "ping":
             return {"pid": os.getpid()}
-        if cmd == "role.list":
-            return roles.roles
+        if cmd == "cast.options":   # what the three selectors offer, and the positions nobody picks (spec §1)
+            return {"models": casting.models, "efforts": casting.efforts,
+                    "presets": casting.presets, "positions": casting.positions}
         if cmd.startswith(("story.", "repo.", "env.")):
             ch = a.get("character", "")
             if not ch or cmd == "env.checks":   # env.checks: a query the CLI makes on every handoff, not a verb (M2)
@@ -163,10 +172,11 @@ def make_handler(app_store):
                 s["transcript"] = [dict(r) for r in c.transcript.rows()]
             return s
         if cmd == "context.new":
+            position = a.get("position") or getattr(cfg, "DEFAULT_BARE_POSITION", "bare")
             if a.get("prompt"):
-                cid = contexts.spawn(a["role"], a["prompt"], title=a.get("title", ""))
+                cid = contexts.spawn(position, a["prompt"], title=a.get("title", ""), **picks(a))
             else:
-                cid = contexts.create(a["role"], title=a.get("title") or "New context")
+                cid = contexts.create(position, title=a.get("title") or "New context", **picks(a))
             if a.get("open"):
                 layout.openContent("context", cid, contexts.get(cid).title)
             return contexts.get(cid).summary()

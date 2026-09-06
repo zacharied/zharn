@@ -51,7 +51,6 @@ def test_start_casts_protagonist_and_shows_phase_and_ball(ui):
     key = ui.store.stories.create("Startable", "d")
     open_story(ui, key)
     assert ui.has("startButton") and not ui.has("proceedButton")
-    ui.choose(ui.find("roleBox"), "protagonist")
     ui.focus_and_type(ui.find("startNote"), "go build it")
     n = ui.store.contexts.model.count()
     ui.click(ui.find("startButton"))
@@ -71,7 +70,7 @@ def test_start_casts_protagonist_and_shows_phase_and_ball(ui):
 
 def test_question_yield_renders_rows_and_reply_posts_the_picks(ui):
     key = ui.store.stories.create("Q", "")
-    ui.store.stories.start(key, "yield-question", "protagonist")     # the fake protagonist asks one question (a, b)
+    ui.store.stories.start(key, "yield-question")     # the fake protagonist asks one question (a, b)
     open_story(ui, key)
     assert wait_until(lambda: any(r["kind"] == "question" for r in ui.store.stories.comments(key)))
     c = next(r for r in ui.store.stories.comments(key) if r["kind"] == "question")
@@ -97,7 +96,7 @@ def test_question_yield_renders_rows_and_reply_posts_the_picks(ui):
 
 def test_reply_composer_posts_a_human_comment(ui):
     key = ui.store.stories.create("R", "")
-    ui.store.stories.start(key, "", "protagonist")
+    ui.store.stories.start(key, "")
     open_story(ui, key)
     n = len(ui.store.stories.comments(key))
     ui.focus_and_type(ui.find("replyInput"), "btw use sqlite")
@@ -109,7 +108,7 @@ def test_reply_composer_posts_a_human_comment(ui):
 
 def test_action_bar_follows_the_cell(ui):
     key = ui.store.stories.create("Bar", "")
-    chr_id = ui.store.stories.start(key, "", "protagonist")
+    chr_id = ui.store.stories.start(key, "")
     ui.store.stories.cast_yield(chr_id, "handoff", "the outline")   # before the character's own turn can finish and auto-yield
     open_story(ui, key)
     QTest.qWait(80)
@@ -137,7 +136,7 @@ def test_action_bar_follows_the_cell(ui):
 
 def test_cast_row_opens_the_protagonist_context(ui):
     key = ui.store.stories.create("Cast", "")
-    chr_id = ui.store.stories.start(key, "", "protagonist")
+    chr_id = ui.store.stories.start(key, "")
     open_story(ui, key)
     ui.click(ui.find(f"castRow_{chr_id}"))
     cid = ui.store.stories.character(chr_id)["live_context"]
@@ -155,7 +154,7 @@ def test_unknown_story_tab_explains_itself(ui):
 def test_tree_groups_count_stories_by_phase(ui):
     before = ui.find("treeGroup_planning").property("count")
     key = ui.store.stories.create("Grouped", "")
-    ui.store.stories.start(key, "", "protagonist")
+    ui.store.stories.start(key, "")
     QTest.qWait(80)
     assert ui.find("treeGroup_planning").property("count") == before + 1
     assert ui.visible(ui.find(f"card_{key}"))
@@ -164,8 +163,8 @@ def test_tree_groups_count_stories_by_phase(ui):
 def test_cast_panel_follows_the_active_story_tab(ui):
     a = ui.store.stories.create("A", "")
     b = ui.store.stories.create("B", "")
-    ca = ui.store.stories.start(a, "", "protagonist")
-    cb = ui.store.stories.start(b, "", "protagonist")
+    ca = ui.store.stories.start(a, "")
+    cb = ui.store.stories.start(b, "")
     open_story(ui, a)
     assert ui.visible(ui.find(f"castRow_{ca}")) and not ui.has(f"castRow_{cb}")
     open_story(ui, b)
@@ -177,7 +176,7 @@ def test_cast_panel_follows_the_active_story_tab(ui):
 
 def test_aside_button_opens_a_private_context_and_reopens_it(ui):
     key = ui.store.stories.create("Aside me", "")
-    chr_id = ui.store.stories.start(key, "yield-question", "protagonist")   # the fake protagonist asks, then idles
+    chr_id = ui.store.stories.start(key, "yield-question")   # the fake protagonist asks, then idles
     ctx = ui.store.contexts.get(ui.store.stories.character(chr_id)["live_context"])
     assert wait_until(lambda: any(r["kind"] == "question" for r in ui.store.stories.comments(key))), \
         [(r["role"], r["kind"], (r.get("text") or "")[:200]) for r in ctx.transcript.rows()]
@@ -192,7 +191,7 @@ def test_aside_button_opens_a_private_context_and_reopens_it(ui):
     aside_id = next(r for r in ui.store.stories.comments(key) if r["id"] == c["id"])["asideId"]
     assert aside_id
     a = ui.store.contexts.get(aside_id)
-    assert a.owner == "human" and a.storyKey == "" and a.title == "aside on #1 · protagonist"
+    assert a.owner == "human" and a.storyKey == "" and a.title == "aside on #1 · Protagonist"
     import json
     docks = json.loads(ui.store.layout.layoutJson)["docks"]
     assert docks["bottom"] == {**docks["bottom"], "active": "contexts", "mode": "docked"}
@@ -210,7 +209,7 @@ def test_aside_button_opens_a_private_context_and_reopens_it(ui):
 
 def test_new_thread_composer_routes_by_prefix(ui):
     key = ui.store.stories.create("Composer", "")
-    chr_id = ui.store.stories.start(key, "", "protagonist")
+    chr_id = ui.store.stories.start(key, "")
     ctx = ui.store.contexts.get(ui.store.stories.character(chr_id)["live_context"])
     assert wait_until(lambda: ctx.status == "idle")
     open_story(ui, key)
@@ -219,17 +218,17 @@ def test_new_thread_composer_routes_by_prefix(ui):
     threads = ui.store.stories.get(key)["threads"]
     assert threads[-1]["lead"] == chr_id and ui.find("newThreadInput").property("text") == ""
     assert ui.has(f"thread_{threads[-1]['id']}")
-    ui.focus_and_type(ui.find("newThreadInput"), "/call claude-fast review the outline")
+    ui.focus_and_type(ui.find("newThreadInput"), "/call Reviewer review the outline")
     ui.click(ui.find("newThreadButton"))
     cast = ui.store.stories.cast(key)
-    assert len(cast) == 2 and cast[-1]["role"] == "claude-fast"
+    assert len(cast) == 2 and cast[-1]["name"] == "Reviewer" and cast[-1]["position"] == "friend"
     assert ui.store.stories.get(key)["threads"][-1]["lead"] == cast[-1]["id"]
     assert ui.has(f"castRow_{cast[-1]['id']}")
 
 
 def test_typing_in_a_character_context_is_the_comment_channel(ui):
     key = ui.store.stories.create("Speak", "")
-    chr_id = ui.store.stories.start(key, "", "protagonist")
+    chr_id = ui.store.stories.start(key, "")
     ctx = ui.store.contexts.get(ui.store.stories.character(chr_id)["live_context"])
     assert wait_until(lambda: ctx.status == "idle")
     ui.store.layout.openContent("context", ctx.id, "ctx")
@@ -242,9 +241,47 @@ def test_typing_in_a_character_context_is_the_comment_channel(ui):
     assert ui.find("promptInput").property("text") == ""
 
 
+def test_start_row_picks_reach_the_new_protagonist(ui):
+    key = ui.store.stories.create("Picky", "d")
+    open_story(ui, key)
+    ui.choose(ui.find("startModel"), "Sonnet 5")      # the label is shown; the id is what is sent
+    ui.choose(ui.find("startEffort"), "low")
+    ui.choose(ui.find("startPreset"), "builder")
+    ui.click(ui.find("startButton"))
+    ch = ui.store.stories.character(ui.store.stories.get(key)["protagonist"])
+    assert (ch["model"], ch["effort"], ch["preset"]) == ("claude-sonnet-5", "low", "builder")
+    assert ch["position"] == "protagonist"            # nobody picked it: the Start row implies it
+    cast = ui.store.contexts.get(ch["live_context"]).meta["cast"]
+    assert (cast["model"], cast["effort"], cast["preset"]) == ("claude-sonnet-5", "low", "builder")
+
+
+def test_start_row_is_seeded_with_the_positions_own_picks(ui):
+    """The row reads as what pressing Start will do. A blank that quietly means something else is a lie:
+    the protagonist position is cli default / high / full, so that is what the three combos show."""
+    key = ui.store.stories.create("Default me", "d")
+    open_story(ui, key)
+    assert ui.find("startModel").property("editText") == "cli default"
+    assert ui.find("startEffort").property("currentText") == "high"
+    assert ui.find("startPreset").property("currentText") == "full"
+    ui.click(ui.find("startButton"))
+    ch = ui.store.stories.character(ui.store.stories.get(key)["protagonist"])
+    assert (ch["model"], ch["effort"], ch["preset"]) == ("", "high", "full")
+
+
+def test_the_start_row_can_pick_the_providers_own_effort(ui):
+    """The empty entry in config.EFFORTS is a choice, and choosing it has to reach the character."""
+    key = ui.store.stories.create("Bare effort", "d")
+    open_story(ui, key)
+    ui.choose(ui.find("startEffort"), "provider default")
+    ui.click(ui.find("startButton"))
+    ch = ui.store.stories.character(ui.store.stories.get(key)["protagonist"])
+    assert ch["effort"] == ""                              # not the position's "high"
+    assert ui.store.contexts.get(ch["live_context"]).meta["cast"]["effort"] == ""
+
+
 def test_reopen_menu_offers_recast_and_reopens_on_a_fresh_context(ui):
     key = ui.store.stories.create("Reopenable", "")
-    chr_id = ui.store.stories.start(key, "", "protagonist")
+    chr_id = ui.store.stories.start(key, "")
     ctx = ui.store.contexts.get(ui.store.stories.character(chr_id)["live_context"])
     assert wait_until(lambda: ctx.status == "idle")       # quiet check: outline handoff
     ui.store.stories.proceed(key)
@@ -255,10 +292,11 @@ def test_reopen_menu_offers_recast_and_reopens_on_a_fresh_context(ui):
     assert ui.visible(ui.find("reopenButton")) and ui.find("reopenButton").property("text") == "Reopen"
     ui.click(ui.find("reopenMenuButton"))
     ui.click(ui.find("reopenMenuItem_1"))                 # Recast and reopen…
-    ui.choose(ui.find("recastRole"), "claude-fast")
+    ui.choose(ui.find("recastModel"), "Sonnet 5")
     ui.click(ui.find("recastConfirm"))
     ch = ui.store.stories.character(chr_id)
-    assert ch["role"] == "claude-fast" and ch["live_context"] != old_ctx
+    assert ch["model"] == "claude-sonnet-5" and ch["live_context"] != old_ctx
+    assert ui.store.contexts.get(ch["live_context"]).meta["cast"]["model"] == "claude-sonnet-5"
     assert ui.store.stories.get(key)["phase"] == "implementing"
 
 
@@ -275,7 +313,7 @@ def test_story_page_shows_environments_and_folds_passing_checks(ui):
     from harness.environments import register_repo
     register_repo(ui.store.stories.workspace, str(fresh_repo("ui-story-repo")), name="api", checks="echo ok")
     key = ui.store.stories.create("Envs", "")
-    chr_id = ui.store.stories.start(key, "", "protagonist")
+    chr_id = ui.store.stories.start(key, "")
     ctx = ui.store.contexts.get(ui.store.stories.character(chr_id)["live_context"])
     assert wait_until(lambda: ctx.status == "idle")          # quiet check: outline handoff waits on you
     open_story(ui, key)
@@ -339,7 +377,7 @@ def test_a_half_typed_description_survives_an_unrelated_context_change(ui):
 def settled_story(ui, title):
     """A started story whose protagonist has finished its turn — so the only thing that moves next is the test."""
     key = ui.store.stories.create(title, "")
-    chr_id = ui.store.stories.start(key, "", "protagonist")
+    chr_id = ui.store.stories.start(key, "")
     ctx = ui.store.contexts.get(ui.store.stories.character(chr_id)["live_context"])
     assert wait_until(lambda: ctx.status == "idle"), ctx.status
     open_story(ui, key)
@@ -380,7 +418,7 @@ def test_a_half_typed_reply_survives_the_protagonist_calling_a_friend(ui):
     key, chr_id = settled_story(ui, "Reply call")
     n = len(ui.store.stories.get(key)["threads"])
     ui.focus_and_type(ui.find("replyInput"), "one more thing")
-    ui.store.stories.cast_call(chr_id, "claude-fast", "review the outline")
+    ui.store.stories.cast_call(chr_id, "review the outline")
     QTest.qWait(120)
     assert len(ui.store.stories.get(key)["threads"]) == n + 1      # the change really landed
     assert ui.find("replyInput").property("text") == "one more thing"
@@ -392,7 +430,7 @@ def test_an_unfolded_check_stays_unfolded_when_a_comment_arrives(ui):
     from harness.environments import register_repo
     register_repo(ui.store.stories.workspace, str(fresh_repo("ui-story-fold")), name="fold", checks="echo ok")
     key = ui.store.stories.create("Fold", "")
-    chr_id = ui.store.stories.start(key, "", "protagonist")
+    chr_id = ui.store.stories.start(key, "")
     ctx = ui.store.contexts.get(ui.store.stories.character(chr_id)["live_context"])
     assert wait_until(lambda: ctx.status == "idle")
     open_story(ui, key)
@@ -419,7 +457,7 @@ LOREM = ("The quick brown fox jumps over the lazy dog while the harness watches,
 
 def selectable_story(ui, comments=14):
     key = ui.store.stories.create("Selectable", LOREM)
-    ui.store.stories.start(key, "", "protagonist")
+    ui.store.stories.start(key, "")
     for i in range(comments):
         ui.store.stories.comment(key, f"{i}. {LOREM}")
     open_story(ui, key)

@@ -1,13 +1,21 @@
 {
   "title": "Capitalize the greeting",
-  "role": "claude-default",
+  "preset": "full",
+  "outline_first": false,
   "skill": "implementing-a-story",
   "note": "",
   "checks": "",
   "replies": [],
   "must": [
-    {"verb": "proceed"},
-    {"verb": "yield", "args": {"kind": "handoff"}}
+    {
+      "verb": "proceed"
+    },
+    {
+      "verb": "yield",
+      "args": {
+        "kind": "handoff"
+      }
+    }
   ],
   "must_not": [],
   "max": {},
