@@ -135,7 +135,7 @@ DEFAULT_ROLES = [
     {"name": "codex-review", "provider": "codex", "model": "gpt-5.6-sol", "reasoning": "high", "permission": "accept-edits"},
 ]
 DEFAULT_ROLE = "protagonist"
-# Role for bare contexts started from New Context (Welcome / Contexts panel) — never the story-leading role.
+# Role for bare contexts started from New Context (toolbar / Welcome / Contexts panel) — never the story-leading role.
 DEFAULT_BARE_ROLE = "claude-default"
 
 # System prompt for a character (lifecycle spec §5.3): stable for the life of a context. StoryStore builds it at

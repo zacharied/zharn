@@ -148,10 +148,11 @@ def test_toolbar_new_context_button_opens_a_bare_context(ui):
 
 
 def edges(ui, name):
-    """(left, right, vertical centre) of a toolbar item, in window coordinates."""
+    """(left, right, top) of a toolbar item, in window coordinates. Asserts it is on screen —
+    geometry alone reports position for an invisible item too."""
     ref = ui.find(name)
-    c, w = ref.center(), ref.width()
-    return c.x() - w / 2, c.x() + w / 2, c.y()
+    assert ui.visible(ref), f"{name} is not visible"
+    return ref.x(), ref.x() + ref.width(), ref.y()
 
 
 def test_toolbar_actions_cluster_at_the_left_beside_the_workspace_widget(ui):
@@ -162,6 +163,24 @@ def test_toolbar_actions_cluster_at_the_left_beside_the_workspace_widget(ui):
     assert st_y == ws_y and cx_y == ws_y                   # one row
     assert st_l - ws_r < 40 and cx_l - st_r < 40           # a cluster, not split by the stretcher
     assert cx_r < ui.win.width() / 2                       # at the top left, not the right end
+
+
+def chip(ui, name):
+    """The rendered fill of a toolbar chip, as a QColor."""
+    from PySide6.QtGui import QColor
+    return QColor(ui.find(name).property("color"))
+
+
+def test_the_run_widget_stays_the_brighter_chip_of_the_pair(ui):
+    """New story is the cluster's focal point and New context its quiet twin, so the run widget
+    has to read brighter in both states. Both hovering to app.theme.hover would flatten them."""
+    ui.hover(ui.find("workspaceWidget"))                                  # pointer off both
+    assert chip(ui, "newStoryButton").value() > chip(ui, "toolbarNewContextButton").value()
+    ui.hover(ui.find("toolbarNewContextButton"))
+    ctx_hovered = chip(ui, "toolbarNewContextButton")
+    ui.hover(ui.find("newStoryButton"))
+    assert chip(ui, "newStoryButton").value() > ctx_hovered.value()
+    ui.hover(ui.find("workspaceWidget"))
 
 
 def test_welcome_reset_layout_restores_the_default(ui):

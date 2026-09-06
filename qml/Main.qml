@@ -73,10 +73,13 @@ ApplicationWindow {
                 TapHandler { onTapped: app.layout.openContent("workspace", "workspace", win.workspaceName) }
                 ToolTip.visible: wsHover.hovered; ToolTip.text: app.workspaceDir; ToolTip.delay: 600
             }
-            Rectangle {  // the run widget slot: New story
+            Rectangle {  // the New UI run widget, moved off the right end: New story
                 objectName: "newStoryButton"
+                // its green play icon carries the emphasis; the chip is deliberately a shade off the panel.
+                // Hover has to clear the quiet twin's app.theme.hover, or hovering that one outranks this at rest.
+                readonly property color chip: "#2e3238"
                 height: 28; radius: app.theme.radius; width: nsRow.implicitWidth + 18
-                color: nsHover.hovered ? app.theme.hover : "#2e3238"
+                color: nsHover.hovered ? Qt.lighter(chip, 1.35) : chip
                 Row {
                     id: nsRow; anchors.centerIn: parent; spacing: 6
                     Icon { name: "play"; size: 14; color: app.theme.settled; anchors.verticalCenter: parent.verticalCenter }

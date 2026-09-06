@@ -112,25 +112,25 @@ No sidebar. The window is:
   or out to float. Empty MCCs collapse.
 * Content types register in `harness/content.py` (`kind` → QML component + Python controller),
   so adding a new panel/document type is one Python dict entry + one QML file — fork-as-config.
-* **Look: JetBrains New UI (dark), by convention.** Main toolbar, left-aligned (workspace widget, New story, New context);
-  40px icon strips — the left strip carries the left dock's panels at the top and the bottom
-  dock's at the bottom, the right strip the right dock's; 36px tool-window headers and editor
-  tabs; a 26px status bar. Default layout: left Stories · Files · Documents · Git, right Cast (follows the
-  active story tab), bottom Contexts · Terminal; the workspace page (repos, Relocate/Unregister) is an
-  editor tab opened from the toolbar's workspace widget. Tokens live in `config_def.THEME` (chrome,
-  semantic: needsYou/live/settled/danger, one soft color per phase, type, metrics); components in
-  `qml/ui/` (Icon, IconButton, Btn, Chip, StatusDot, Ball, Meter, ToolWindowHeader, TextBox,
-  Field, Combo, ContextView). The Documents tool window maps every markdown document in the
-  registered repos as a tree of sections — the row is the heading, the selection follows the
-  active document tab's reading position, and typing filters by heading; defined in
-  **[`docs/specs/documents-panel.md`](specs/documents-panel.md)**, which wins over this section
-  and over the code, together with the read-only document tab it drives. Icons
-  are monochrome SVGs in `qml/icons/` recolored on request by
-  `harness/icons.py` (`image://icon/<name>/<rrggbb>`); Inter + JetBrains Mono ship in `qml/fonts/`.
-  The story page is typeset as a script (speakers in small mono caps, system comments as stage
-  directions, yields as labeled rules). Design mockups: `docs/design/mockups/` (run `build.py`).
-  Rule of thumb for color: phases get a soft key each; only *turns* (amber = needs you) and
-  *liveness* (blue = a character mid-turn) get saturated color.
+* **Look: JetBrains New UI (dark), by convention.** Main toolbar, left-aligned (workspace widget,
+  New story, New context); 40px icon strips — the left strip carries the left dock's panels at the
+  top and the bottom dock's at the bottom, the right strip the right dock's; 36px tool-window
+  headers and editor tabs; a 26px status bar. Default layout: left Stories · Files · Documents ·
+  Git, right Cast (follows the active story tab), bottom Contexts · Terminal; the workspace page
+  (repos, Relocate/Unregister) is an editor tab opened from the toolbar's workspace widget. Tokens
+  live in `config_def.THEME` (chrome, semantic: needsYou/live/settled/danger, one soft color per
+  phase, type, metrics); components in `qml/ui/` (Icon, IconButton, Btn, Chip, StatusDot, Ball,
+  Meter, ToolWindowHeader, TextBox, Field, Combo, ContextView). The Documents tool window maps
+  every markdown document in the registered repos as a tree of sections — the row is the heading,
+  the selection follows the active document tab's reading position, and typing filters by heading;
+  defined in **[`docs/specs/documents-panel.md`](specs/documents-panel.md)**, which wins over this
+  section and over the code, together with the read-only document tab it drives. Icons are
+  monochrome SVGs in `qml/icons/` recolored on request by `harness/icons.py`
+  (`image://icon/<name>/<rrggbb>`); Inter + JetBrains Mono ship in `qml/fonts/`. The story page is
+  typeset as a script (speakers in small mono caps, system comments as stage directions, yields as
+  labeled rules). Design mockups: `docs/design/mockups/` (run `build.py`). Rule of thumb for color:
+  phases get a soft key each; only *turns* (amber = needs you) and *liveness* (blue = a character
+  mid-turn) get saturated color.
 
 **Implementation decision: homegrown, over a Python-owned layout tree.** Research result:
 KDDockWidgets 2.4 has a QtQuick frontend but *no auto-hide/strip support* (#634: "not supported for

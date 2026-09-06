@@ -76,6 +76,12 @@ class Ref:
         i = self._info()
         return QPoint(int(i["x"] + i["w"] / 2), int(i["y"] + i["h"] / 2))
 
+    def x(self):
+        return self._info()["x"]
+
+    def y(self):
+        return self._info()["y"]
+
     def width(self):
         return self._info()["w"]
 
