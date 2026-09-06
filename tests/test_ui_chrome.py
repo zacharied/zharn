@@ -175,7 +175,9 @@ def test_the_run_widget_stays_the_brighter_chip_of_the_pair(ui):
     """New story is the cluster's focal point and New context its quiet twin, so the run widget
     has to read brighter in both states. Both hovering to app.theme.hover would flatten them."""
     ui.hover(ui.find("workspaceWidget"))                                  # pointer off both
-    assert chip(ui, "newStoryButton").value() > chip(ui, "toolbarNewContextButton").value()
+    # against the toolbar, not the twin: the twin at rest is literally "transparent", so QColor
+    # reads it as value 0 and the comparison would hold for a chip flattened into the panel.
+    assert chip(ui, "newStoryButton").value() > chip(ui, "toolbar").value()
     ui.hover(ui.find("toolbarNewContextButton"))
     ctx_hovered = chip(ui, "toolbarNewContextButton")
     ui.hover(ui.find("newStoryButton"))
