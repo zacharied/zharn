@@ -21,7 +21,36 @@ def test_scenarios_are_the_three_of_the_spec():
         exp = runner.load(name)
         skill = exp["skill"]
         assert isinstance(skill, (str, list)) and skill
-        assert exp["role"] and exp["prompt"] and (exp["must"] or exp["must_not"])
+        assert exp["preset"] and exp["prompt"] and (exp["must"] or exp["must_not"])
+
+
+def test_a_scenario_that_names_proceed_says_it_is_not_outline_first():
+    """Start casts the protagonist position, which is outline_first, and the harness then refuses proceed
+    mechanically. A scenario that requires proceed would never get it; one that forbids proceed would be
+    asserting something the harness already guarantees, and would stop testing the skill. Either way the
+    scenario has to open the gate itself."""
+    for name in runner.scenarios():
+        exp = runner.load(name)
+        named = exp.get("must", []) + exp.get("must_not", [])
+        if any(p["verb"] == "proceed" for p in named):
+            assert exp.get("outline_first") is False, name
+
+
+def test_positions_for_leaves_config_alone_by_default():
+    from harness import config as cfg
+    assert runner.positions_for({}) == cfg.CAST_POSITIONS
+    assert runner.positions_for({}) is not cfg.CAST_POSITIONS
+
+
+def test_positions_for_overrides_the_model_of_every_position():
+    out = runner.positions_for({}, "claude-from-the-future")
+    assert out and all(spec["model"] == "claude-from-the-future" for spec in out.values())
+
+
+def test_positions_for_can_clear_the_outline_gate_for_a_run():
+    out = runner.positions_for({"outline_first": False}, "")
+    assert out["protagonist"]["outline_first"] is False
+    assert out["protagonist"]["instructions"]      # nothing else about the position is disturbed
 
 
 def test_violations_checks_must_must_not_max_and_flags():

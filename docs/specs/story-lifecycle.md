@@ -18,7 +18,8 @@ Story.parent_story  = <story_key> | null
 
 Thread    { id, story_key, author: "human"|<character_id>, lead: <character_id>,
             turn ∈ cast | author | resolved }
-Character { id, story_key, role, name, live_context: <context_id>,
+Character { id, story_key, position, name, live_context: <context_id>,
+            model, effort, preset,                          # the three picks it was cast with (§5.1)
             forked_from: <character_id> | null,             # forked friends
             attention: <thread_id> | null,                  # thread of the last delivery
             inbox: [<comment_id>],                          # may hold sub-story comments
@@ -46,8 +47,15 @@ Derived per character, never stored:
           | idle     (stopped, awaits = ∅ — and then owes = ∅: the quiet check, §2.3)
 ```
 
-`name` is the role name, suffixed `-2`, `-3` on collision; a fork is cast from its source's
-role, so it collides by design ("Protagonist-2"). A **minion** is a native subagent (Claude's
+`position` is where a character was cast, and nobody picks it: Start casts a `protagonist`, `call`
+a `friend`, New Context a `bare` one (`config.CAST_POSITIONS`). The position carries what the cast
+site does not offer — the instructions in the system prompt (§5.3), the outline-first rule (§2.2),
+the permission ceiling — and the model, effort and preset it starts on when none were chosen.
+`model`, `effort` and `preset` are those three picks, stored so a recast reuses them; a preset
+governs skills and nothing else (§5.1), and the provider is a property of the model rather than a
+fourth pick. `name` is the `--as` name when one was given, else the position's label
+("Protagonist", "Friend"), suffixed `-2`, `-3` on collision — a fork takes its source's position,
+so it collides by design ("Protagonist-2"). A **minion** is a native subagent (Claude's
 `Agent` tool); harness-spawned minion contexts are out of scope (§8). A **fork** clones a context
 (Claude: `--resume <session> --fork-session`). A **bare context** has `owner = "human"`, no
 story, and an explore/read permission ceiling by default.
@@ -63,7 +71,7 @@ outputs; rejections raise with the reason the CLI prints. Every phase-changing c
 
 | Action | Precondition | Effect |
 |---|---|---|
-| Start `[note] [role]` | phase ∈ {backlog, todo} | Open the main thread; the store casts the protagonist fresh from `role` (default `config.DEFAULT_ROLE`) with the brief (§3.1) and the Start comment names the role — the reducer sees only the protagonist's id; `note` is the root comment. → `(planning, cast)`. |
+| Start `[note] [model] [effort] [preset]` | phase ∈ {backlog, todo} | Open the main thread; the store casts the protagonist fresh into the `protagonist` position with those picks (each unset one from the position) and the brief (§3.1) — the reducer sees only the protagonist's id; `note` is the root comment. → `(planning, cast)`. |
 | Reply | some thread of the story has turn = author | Any author comment in such a thread **is** the reply to its one pending yield: append, deliver to the yield's author, turn → cast. On the main thread this moves the ball → `(same phase, cast)`. |
 | Resolve `[note] --thread t` | `t`'s turn = author; not the main thread. (A thread still waiting on its cast cannot be resolved — a request is not retractable, only its answer is resolvable.) | `system` comment carrying the note; the pending yield is closed; the lead is neither resumed nor notified, and if it was attending `t` its attention clears; turn → resolved. No transition. |
 | Proceed `[note]` | `(planning, author)` | System comment "outline approved" on main; resume protagonist. → `(implementing, cast)`. |
@@ -71,9 +79,9 @@ outputs; rejections raise with the reason the CLI prints. Every phase-changing c
 | Back to planning `[note]` | `(implementing, author)` | System comment; resume protagonist with note. → `(planning, cast)`. |
 | Cancel `[note]` | non-terminal | Stop every character's live context now (retired); cancel open sub-stories; every open thread resolves, main included. → `(canceled)`. |
 | Reopen `note` | terminal | Resume the protagonist with `note` on main (the UI may offer a recast instead). → `(implementing, cast)`. |
-| Open a thread `body` | started, non-terminal | Root comment. No mention → addressed to the protagonist; `@Name` → to Name; `/call <role> [note]` → cast a fresh friend to lead it; `/fork @Name [note]` → cast a friend forked from Name's live context to lead it. Lead = addressee; author = opener; delivered per §3.2. No transition. |
+| Open a thread `body` | started, non-terminal | Root comment. No mention → addressed to the protagonist; `@Name` → to Name; `/call <Name> [note]` → cast a fresh friend, named `Name`, to lead it; `/fork @Name [note]` → cast a friend forked from Name's live context to lead it. Lead = addressee; author = opener; delivered per §3.2. No transition. |
 | Reply in a thread (turn = cast) | non-terminal | Delivered per §3.2 (attended → now; else inbox). No transition. |
-| Recast `character [role] [model]` | — | At the character's next turn boundary (the author may Stop it to force one), replace `live_context` per the ladder (§3.4); system comment on main. Threads, inbox, pending yields, name survive. No transition. |
+| Recast `character [model] [effort] [preset]` | — | At the character's next turn boundary (the author may Stop it to force one), replace `live_context` per the ladder (§3.4); system comment on main. Threads, inbox, pending yields, name survive. No transition. |
 | New Context `[note]` | — | Bare context; not a story action. Promote (§6) casts it as a new story's protagonist. |
 
 ### 2.2 Cast actions — `zharn story …` inside a character
@@ -83,12 +91,12 @@ outputs; rejections raise with the reason the CLI prints. Every phase-changing c
 | `yield --question [--thread t]` — a JSON document on stdin: `{body?, questions: [{text, options?, default?}]}` | `t`'s lead (default `t` = attended thread) | thread has no pending yield; at least one question, each with non-empty `text`, `options` a list of strings (absent or empty: free text), `default` a string. Invalid JSON is refused by the CLI; a wrong shape by the store | `question` comment, `structured.questions` normalized (`options` always a list, `default` only when given); thread turn → author |
 | `yield --handoff --body … [--despite-checks] [--thread t]` | `t`'s lead | as above; main thread in `implementing`: no open sub-stories, every environment of the story has a clean tree and a branch up to date with its target (no flag past either), then each repo's `checks` run in its environment, attaching `[{repo, cmd, exit, output}]` ([workspace spec](workspace-model.md) §4.6) | `handoff` comment; thread turn → author |
 | `resolve --thread t [--note …]` | `t`'s author | as §2.1 Resolve: turn = author, not the main thread | As §2.1 Resolve: system comment, yield closed, lead neither resumed nor notified, turn → resolved |
-| `proceed [--note …]` | protagonist (main's lead) | `(planning, cast)`; if the role has `outline_first`, an outline handoff must have been Proceed-ed since the most recent entry into planning | System comment on main → `(implementing, cast)`. **stdout is the `implementing-a-story` skill**; `phase_seen` := implementing. |
+| `proceed [--note …]` | protagonist (main's lead) | `(planning, cast)`; if the position has `outline_first`, an outline handoff must have been Proceed-ed since the most recent entry into planning | System comment on main → `(implementing, cast)`. **stdout is the `implementing-a-story` skill**; `phase_seen` := implementing. |
 | `recap --body … [--thread t]` | any | — | `recap` comment in `t` (default: attended thread, else main); recorded as the character's latest recap. No transition. |
 | `comment --body … [--thread t] [--reply-to id] [--to @Name…] [--attach …]` | any | default `t` = attended thread | `text` comment, delivered per §3.2. No transition. |
-| `call --role R [--as Name] [--fork] --note …` | any | — | Cast a friend: new thread authored by the caller, led by the friend, `note` as root. `--fork`: the friend's context is a clone of the caller's live context (`Character.forked_from` = caller). Prints id/name. A friend that should read another thread is told so in the note and comments there as a guest. |
+| `call [--as Name] [--model M] [--effort E] [--preset P] [--fork] --note …` | any | — | Cast a friend into the `friend` position, named `Name` (default: the position's label, §1): new thread authored by the caller, led by the friend, `note` as root. `--fork`: the friend's context is a clone of the caller's live context (`Character.forked_from` = caller). Prints id/name. A friend that should read another thread is told so in the note and comments there as a guest. |
 | `wait` | any | not (`awaits = ∅` and `owes ≠ ∅`) | A guard, not a block: prints what the caller awaits (threads by lead, sub-stories) and "end your turn"; with nothing awaited and nothing owed it says so and that a reply will wake it. Rejected only in the one state where stopping would go quiet: "you await nothing and owe #t — yield instead". The harness wakes the character with whatever arrives next (§2.3). |
-| `create --title … [--description …] [--start --role R]` | any | — | Sub-story with `author = <this character>`, `parent_story = <this story>`. Its yields reach the character like any comment (§3.2); `wait` covers it. |
+| `create --title … [--description …] [--start [--model M] [--effort E] [--preset P]]` | any | — | Sub-story with `author = <this character>`, `parent_story = <this story>`. Its yields reach the character like any comment (§3.2); `wait` covers it. |
 | `reply <key> --thread t --body …` · `resolve <key> --thread t [--note …]` · `proceed <key>` · `approve <key>` · `cancel <key>` · `recast <key> …` | author of `<key>` | — | Author actions of §2.1. Rejected otherwise. |
 | `inbox` · `show [<key>]` · `list` · `cast [<key>]` | any | — | Read-only. |
 
@@ -167,12 +175,12 @@ with `options` is the only way to ask.
 Story key + title + description; the threads in order — resolved ones folded to root + yields +
 closing note —
 rendered as markdown with author names and kinds; each character's latest recap; sub-stories
-with `(phase, ball)`; cast with roles; attachments; then the call-in note (or Start note), then
+with `(phase, ball)`; cast with positions; attachments; then the call-in note (or Start note), then
 the phase skill (§5.3). A recast context's brief carries its situation before the skill: "you are
 a recast of <name>; your predecessor's recap is above; you were attending #t; n items wait in
 your inbox; you await …". A forked friend gets no brief — its context already holds everything,
 the phase skill included — only the call note and "you are a fork of <name>: you cannot change
-its plan; if the author's point must reach it, `@<name>` it." The contract and the role's
+its plan; if the author's point must reach it, `@<name>` it." The contract and the position's
 instructions are in the system prompt (§5.3), not the brief.
 
 ### 3.2 Routing and attention
@@ -193,19 +201,20 @@ is plain conversation.
 
 ### 3.4 Recast ladder
 
-New context = a fresh system prompt (§5.3, which carries the role's instructions) + brief (§3.1,
+New context = a fresh system prompt (§5.3, which carries the position's instructions) + brief (§3.1,
 which includes recaps and ends with the phase skill). The recap
 source, best first: **(1)** the character's latest `recap` comment if newer than
 `config.RECAP_STALE_TURNS`; **(2)** else resume the outgoing context for one final turn that may
 only `recap`; **(3)** else nothing — the brief alone (the old "unresumable" path, now the worst
-rung). Recast applies to any character and may change role/model; it takes effect at a turn
+rung). Recast applies to any character and may change its model, effort or preset — never its position,
+which is where it was cast and does not move; it takes effect at a turn
 boundary (a waiting character is at one already); old context becomes `predecessor`. The new
 context's first message is the brief with its situation line (§3.1); then the ordinary delivery
 loop continues — nothing bespoke.
 A recast clears `context_warned` and `context_maxed`: the crossings belong to the context that is gone.
-Its system comment reads `recast <name> as <role> (context; rung 1: fresh recap)` when the max line caused
-it and `recast <name> as <role> (rung 1: fresh recap)` when the author did; a manual recast already
-pending when the max line hits keeps its role and model.
+Its system comment reads `recast <name> as <model> (context; rung 1: fresh recap)` when the max line caused
+it and `recast <name> as <model> (rung 1: fresh recap)` when the author did; a manual recast already
+pending when the max line hits keeps the picks it was queued with.
 
 ### 3.5 Asides
 
@@ -222,7 +231,7 @@ uses `--resume <source session> --fork-session` (verified 2026-08-31 — the for
 session id from `init`, and the source transcript is untouched); later turns resume the fork's
 own id.
 
-An aside has the bare-context permission ceiling (explore/read) regardless of the source's role,
+An aside has the bare-context permission ceiling (explore/read) regardless of the source's position,
 and no `HARNESS_CHARACTER_ID`, so every `zharn story` verb is rejected mechanically. Its system
 prompt says what it is: an aside — a private copy of <Name> as of its last turn, discussing its
 quoted comment in #t; nobody on the story hears it; anything that should change the story
@@ -273,9 +282,20 @@ harness/skills/                       # config.SKILLS_DIR: one Claude Code plugi
     receiving-code-review/ requesting-code-review/    # vendored from superpowers, MIT, LICENSES/superpowers
 ```
 
+A **preset** says which of those skills a character wakes up with, and decides nothing else about it.
+`config.DEFAULT_PRESETS` ships `full` (`skills: ["*"]` — the whole tree), `builder`, `reviewer` and
+`none`; the author's own are saved to `.zharn/local/presets.json` and override a shipped one of the
+same name. A preset naming `["*"]` is handed the tree itself; any other is handed a filtered copy at
+`.zharn/local/skills/<preset>/` — the `.claude-plugin` manifest plus the named skill directories,
+a name that matches nothing skipped — rebuilt whenever the preset or any file under a skill it names
+changes, and reused otherwise. `--plugin-dir` points at whichever tree the preset resolved to.
+
 Claude lists every skill as `zharn:<name>`; a character re-reads its phase skill that way when
-unsure. Every spawn gets the plugin — bare contexts and asides too; the phase skills are inert
-without a story.
+unsure. Every spawn gets a plugin — bare contexts and asides too; the phase skills are inert
+without a story. `being-a-character` and the phase skills reach every character whatever its preset
+says: the harness reads them out of the source tree and delivers them itself (§5.3), so no preset can
+switch them off, and a preset that leaves them out of the plugin only means the character cannot
+re-read them with the Skill tool.
 
 A vendored file differs from upstream only in prefix and vocabulary: `superpowers:` → `zharn:`;
 "your human partner" → the thread's author (who may be a character); subagent → minion; "dispatch
@@ -310,16 +330,16 @@ reviews each delegated task; handoff body = what changed / how verified / where 
 checks ride along mechanically, §2.2).
 `delegating`: the §6 table of AGENT-MODEL.md, plus: reviews are always friends; independent tasks
 go out at once, dependent ones in order; `wait` after casting.
-`requesting-code-review`: the reviewer is a friend — `call --role <reviewer>` with the reviewer
-prompt as the note; the review comes back as comments on that thread.
+`requesting-code-review`: the reviewer is a friend — `call --as Reviewer --preset reviewer` with the
+reviewer prompt as the note; the review comes back as comments on that thread.
 
 ### 5.3 Delivery
 
 **System prompt.** Stable for the life of a context and never stored: built at every spawn — first
-spawn, resume after a crash, Stop, restart or recycle — from config, the role and the skill files
+spawn, resume after a crash, Stop, restart or recycle — from config, the position and the skill files
 at that moment (a hook on the context store, like placement). Its parts: identity (name, character
 id, story key, title); `being-a-character`; the CLI contract (`$HARNESS_CLI`, the verb table); the
-role's instructions and its outline rule. Nothing volatile is in it, so every respawn of a context
+position's instructions and its outline rule. Nothing volatile is in it, so every respawn of a context
 sends the same bytes and the cache prefix over the resumed conversation survives. Bare contexts and
 asides have their own stored prompts (§3.5).
 
@@ -353,7 +373,7 @@ Friends get the phase skill like the protagonist: the story's phase binds everyo
 ### 5.4 Testing
 
 Cheap layer, `tests/fake_claude.py` (it echoes its argv and its `--append-system-prompt` in the
-init event): the system prompt carries identity, `being-a-character`, the contract and the role's
+init event): the system prompt carries identity, `being-a-character`, the contract and the position's
 instructions, and none of phase, attention, owes, awaits, environment; two spawns of one context
 across a Proceed get identical prompts; every delivery starts with the situation line; the first
 message of a fresh context ends with the phase skill and a fork's does not; Proceed, Back to
@@ -364,9 +384,9 @@ cast in implementing gets `implementing-a-story`.
 Paid layer, `tests/skills/<scenario>/` = `prompt.md` + fixture repo builder + `expected.json`
 (verbs that must and must not occur). The runner spawns a character with and without the skill
 under real `claude -p`, only under `HARNESS_PAID_TESTS=1`, on the CLI's default model unless
-`HARNESS_PAID_MODEL` names one (it overrides every role, friends included, for that run); assertions
+`HARNESS_PAID_MODEL` names one (it overrides every model pick, friends included, for that run); assertions
 read `verbs_log`, not transcripts; the last run's baseline and skilled logs are committed beside the
-scenario as evidence, each recording the model that ran. Scenarios: outline-before-proceed (an `outline_first` role: one question yield, one
+scenario as evidence, each recording the model that ran. Scenarios: outline-before-proceed (an `outline_first` position: one question yield, one
 outline handoff, no edits), handoff-not-silence (implementing: a committed handoff with evidence, not a
 harness yield), batch-questions (planning with three unknowns: one yield whose document carries options).
 New/edited skills: baseline failure first.
@@ -378,14 +398,19 @@ New/edited skills: baseline failure first.
   (§2.4, includes waiting side threads; sorted first, counted in header) / waiting-on-character
   muted / live activity, cast avatars with attention state, open sub-story count.
 * **Story tab** (`qml/content/Story.qml`): header (key, title, editable description while
-  unstarted, role picker + Start with note | phase chip + main action bar); threads with
+  unstarted, the three cast selectors + Start with note | phase chip + main action bar); threads with
   replies, option buttons, handoff evidence, resolved threads folded to root + yields + closing
   note; an aside button on any character comment (opens or reopens its aside; disabled while
   the source is working); a composer per thread and
-  one for new threads, `@` autocomplete over the cast, `/call <role> [note]` and
+  one for new threads, `@` autocomplete over the cast, `/call <Name> [note]` and
   `/fork @Name [note]`; side panel: cast (status: working on #n / waiting / idle / retired ·
-  forked from · inbox depth · the context's vitals · Recast button → role/model dialog), sub-stories
-  (phase+ball → open).
+  forked from · inbox depth · the context's vitals · Recast button → a dialog carrying the same three
+  selectors, seeded with the picks the character holds), sub-stories (phase+ball → open).
+* **The three cast selectors** (Start row, Recast dialog, New Context): **model** — an editable combo
+  over `config.MODELS`, labels shown and ids sent, anything unlisted typed straight in; **effort** —
+  `config.EFFORTS`, where "" reads as the provider's own default; **preset** — the preset names
+  (§5.1). Each pick left empty falls back to the position's, and the position itself is never offered:
+  Start casts a protagonist, `call` a friend, New Context a bare context.
 * **Context vitals** (`qml/ui/Meter.qml`, on every cast row and the Contexts pane header): the
   reading (§1) laid on the harness's runway — the bar ends at `CONTEXT_MAX`, a tick marks
   `CONTEXT_WARN`, both scaled to the window (`contexts.context_lines`); the window itself is not the
@@ -396,7 +421,8 @@ New/edited skills: baseline failure first.
   before turns and cost; a predecessor row reads `recast at <reading>`.
 * **Contexts** (`qml/content/Contexts.qml` + `ContextView.qml`): list of all contexts —
   characters' with recast lineage, bare and asides (titled "aside on #t · <Name>", under their
-  story), minions under dispatcher — and **New Context**. Views
+  story), minions under dispatcher — and **New Context**, which carries the three selectors and
+  casts into `config.DEFAULT_BARE_POSITION`. Views
   per §3.3. Bare contexts carry **Promote to story**: dialog (title, description) → story in
   `planning` with this context cast as protagonist; brief injected on promote.
 * **Notifications**: needs-you transitions on human-authored stories and threads raise
@@ -435,7 +461,8 @@ New/edited skills: baseline failure first.
 ## 8. Out of scope
 
 Pull requests; workspaces, repos and environments themselves
-([their own spec](workspace-model.md)); roles beyond `outline_first` and `instructions`; multi-machine
+([their own spec](workspace-model.md)); positions beyond the three of `config.CAST_POSITIONS`, and a
+preset over anything but skills; multi-machine
 execution; harness-spawned minions (`minion`, `minion --fork` — Claude's native `Agent` tool
 serves for now); a mechanical cap on guest mention loops; escalating an aside into a thread (a
 thread led by a forked friend is the manual path).

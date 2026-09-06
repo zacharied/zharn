@@ -27,6 +27,7 @@ STORY_ROLES = ["key", "title", "description", "priority", "phase", "ball", "need
                "castCount", "workingCount", "createdAt", "repos", "environments"]
 WORKING = ("starting", "working")
 VERBS_LOG_MAX = 200
+FRIEND_POSITION = "friend"   # what `call` and the composer's /call cast into; nobody picks it (spec §1)
 
 
 def new_id(prefix: str) -> str:
@@ -62,7 +63,7 @@ def needs_you_flavor(story: lc.Story, comments: list[dict]) -> str:
 def render_brief(story: lc.Story, comments: list[dict], characters: dict[str, dict], note: str, *,
                  substories: list[dict] = (), situation: str = "", skill: str = "") -> str:
     """Lifecycle spec §3.1: the story record as markdown, the situation (recasts), the note, then the phase skill.
-    The role's instructions and the contract are in the system prompt (§5.3), not here."""
+    The position's instructions and the contract are in the system prompt (§5.3), not here."""
     out = [f"# {story.key}: {story.title}", "", story.description or "(no description)", "",
            f"Phase: {story.phase}" + (f" · ball: {story.ball}" if story.ball else ""), ""]
     if story.parent_story:
@@ -86,7 +87,7 @@ def render_brief(story: lc.Story, comments: list[dict], characters: dict[str, di
         out += ["## Recaps (latest per character)", ""] + [f"**{author_name(a, characters)}**: {c['body']}" for a, c in latest.items()] + [""]
     cast = [ch for ch in characters.values() if ch["story_key"] == story.key]
     if cast:
-        out += ["## Cast", ""] + [f"- {ch['name']} — {ch['role']}" + (" (protagonist)" if ch["id"] == story.protagonist else "") for ch in cast] + [""]
+        out += ["## Cast", ""] + [f"- {ch['name']} — {ch['position']}" + (" (protagonist)" if ch["id"] == story.protagonist else "") for ch in cast] + [""]
     if substories:
         out += ["## Sub-stories", ""] + [f"- {x['key']}: {x['title']} ({x['phase']}" + (f", ball {x['ball']}" if x['ball'] else "") + ")"
                                         for x in substories] + [""]
@@ -103,11 +104,11 @@ class StoryStore(QObject):
     storiesChanged = Signal()
     notifier = None
 
-    def __init__(self, workspace, contexts, roles, parent=None):
+    def __init__(self, workspace, contexts, casting, parent=None):
         super().__init__(parent)
         self.workspace = workspace
         self._contexts = contexts
-        self._roles = roles
+        self._casting = casting
         self._stories: dict[str, lc.Story] = {}
         self._created: dict[str, float] = {}
         self._comments: dict[str, list[dict]] = {}
@@ -270,7 +271,7 @@ class StoryStore(QObject):
                                  "your successor is built from the story record and that recap.")
         if tokens >= limit and not ch.get("context_maxed"):
             ch["context_maxed"] = True
-            ch.setdefault("recast_pending", {"role": "", "model": "", "cause": "context"})   # a manual one keeps its role
+            ch.setdefault("recast_pending", {"model": "", "effort": "", "preset": "", "cause": "context"})   # a manual one keeps its picks
             self._nudge(ch, ctx, f"context at the limit: finish the step in hand and post a `recap` in {where} now. "
                                  "You are recast when this turn ends.")
         self._save_characters()
@@ -492,7 +493,8 @@ class StoryStore(QObject):
             return  # retired
         if ch.get("recast_pending") is not None:  # a recast waited for this boundary
             pending = ch.pop("recast_pending")
-            self._recast_now(ch, pending.get("role", ""), pending.get("model", ""), pending.get("cause", ""))
+            self._recast_now(ch, pending.get("model", ""), pending.get("effort", ""), pending.get("preset", ""),
+                             pending.get("cause", ""))
             return
         if not self.awaits(ch):
             status = getattr(ctx, "status", "idle")
@@ -542,22 +544,25 @@ class StoryStore(QObject):
         self._save_story(key)
         self._refresh()
 
+    @Slot(str, result=str)
+    @Slot(str, str, result=str)
     @Slot(str, str, str, result=str)
+    @Slot(str, str, str, str, result=str)
+    @Slot(str, str, str, str, str, result=str)
     @intent
-    def start(self, key, note="", role=""):
-        return self._start(key, note, role)
+    def start(self, key, note="", model="", effort="", preset=""):
+        return self._start(key, note, model, effort, preset)
 
-    def _start(self, key, note="", role=""):
+    def _start(self, key, note="", model="", effort="", preset=""):
         key = self._key(key)
-        role_name = role or getattr(cfg, "DEFAULT_ROLE", "protagonist")
-        role_cfg = self._roles.get(role_name)
-        if not role_cfg:
-            raise ValueError(f"unknown role {role_name!r}")
+        position = getattr(cfg, "DEFAULT_POSITION", "protagonist")
+        cast = self._casting.resolve(position, model, effort, preset)
         chr_id, thread_id = new_id("chr_"), new_id("thr_")
         prev_story, prev_comments = self._stories[key], list(self._comments.get(key, []))
-        self._apply(key, lc.Start(thread_id=thread_id, protagonist=chr_id, note=note), extra={"role": role_cfg["name"]})
+        self._apply(key, lc.Start(thread_id=thread_id, protagonist=chr_id, note=note),
+                    extra={"position": position, "model": cast["model"], "effort": cast["effort"], "preset": cast["preset"]})
         try:
-            self._cast(key, role_cfg, chr_id=chr_id, thread_id=thread_id, author="human", note=note)
+            self._cast(key, cast, chr_id=chr_id, thread_id=thread_id, author="human", note=note)
         except Exception:
             # Don't leave the story wedged in planning with a protagonist that has no context.
             self._stories[key], self._comments[key] = prev_story, prev_comments
@@ -567,20 +572,22 @@ class StoryStore(QObject):
         self._refresh()
         return chr_id
 
-    def _cast(self, key: str, role_cfg: dict, *, thread_id: str, author: str, note: str, name: str = "",
+    def _cast(self, key: str, cast: dict, *, thread_id: str, author: str, note: str, name: str = "",
               fork_from: str | None = None, chr_id: str | None = None, environment: str | None = None) -> dict:
         """Cast a character on `key` to lead `thread_id` (spec §2.1 Open a thread, §2.2 call): a record, a live
-        context (fresh from the role, or forked from `fork_from`'s live context), and its first message."""
-        provider = role_cfg.get("provider", "claude-code")
+        context (fresh from the cast, or forked from `fork_from`'s live context), and its first message.
+        `cast` is what CastStore.resolve made of a position and the three picks."""
+        provider = cast.get("provider", "claude-code")
         if provider != "claude-code":
-            raise ValueError(f"role {role_cfg['name']!r} uses provider {provider!r}, which is not implemented yet")
+            raise ValueError(f"model {cast['model']!r} runs on provider {provider!r}, which is not implemented yet")
         taken = {ch["name"] for ch in self._characters.values() if ch["story_key"] == key}
-        base = name or role_cfg["name"]
+        base = name or cast["label"]                 # no role to name it after: the position's label (spec §1)
         name, n = base, 2
         while name in taken:
             name, n = f"{base}-{n}", n + 1
         chr_id = chr_id or new_id("chr_")
-        ch = {"id": chr_id, "story_key": key, "role": role_cfg["name"], "name": name, "live_context": None,
+        ch = {"id": chr_id, "story_key": key, "position": cast["position"], "model": cast["model"],
+              "effort": cast["effort"], "preset": cast["preset"], "name": name, "live_context": None,
               "forked_from": fork_from, "attention": thread_id, "inbox": [], "recaps": [], "verbs_log": [],
               "environment": environment}
         self._characters[chr_id] = ch
@@ -589,7 +596,8 @@ class StoryStore(QObject):
         title = f"{key} · {name}"
         try:
             if fork_from is None:
-                cid = self._contexts.create(role_cfg["name"], story_key=key, owner=chr_id, title=title, env=env)
+                cid = self._contexts.create(cast["position"], model=cast["model"], effort=cast["effort"],
+                                            preset=cast["preset"], story_key=key, owner=chr_id, title=title, env=env)
                 first = render_brief(s, self._comments[key], self._characters, note, substories=self._substories(key),
                                      skill=self._phase_skill_due(ch))
             else:
@@ -598,7 +606,8 @@ class StoryStore(QObject):
                 src_ctx = self._contexts.get(src["live_context"]) if src.get("live_context") else None
                 if src_ctx is None or src_ctx.status in WORKING or not getattr(src_ctx, "sessionId", ""):
                     raise lc.Rejected(f"{src['name']} is working or has never run; fork it when it stops")
-                cid = self._contexts.fork(src["live_context"], role_name=role_cfg["name"], owner=chr_id, story_key=key,
+                cid = self._contexts.fork(src["live_context"], position=cast["position"], model=cast["model"],
+                                          effort=cast["effort"], preset=cast["preset"], owner=chr_id, story_key=key,
                                           title=title, env=env)
                 first = getattr(cfg, "FORK_NOTE", "").format(name=name, source=src["name"]) + note
         except Exception:
@@ -610,20 +619,28 @@ class StoryStore(QObject):
         return ch
 
     def system_prompt(self, ctx) -> str | None:
-        """Spec §5.3: the stable prompt of the character that owns `ctx`, built now from config, the role and the
+        """Spec §5.3: the stable prompt of the character that owns `ctx`, built now from config, its cast and the
         skill files; None for contexts no character owns (bare contexts and asides keep their stored prompts)."""
         ch = self._characters.get(ctx.meta.get("owner") or "")
         if ch is None or ch["story_key"] not in self._stories:
             return None
-        return self._character_prompt(self._stories[ch["story_key"]], ch, self._roles.get(ch["role"]) or {})
+        return self._character_prompt(self._stories[ch["story_key"]], ch, self._cast_of(ch))
 
-    def _character_prompt(self, s: lc.Story, ch: dict, role_cfg: dict) -> str:
-        rule = getattr(cfg, "OUTLINE_RULE_REQUIRED", "") if role_cfg.get("outline_first") else getattr(cfg, "OUTLINE_RULE_OPTIONAL", "")
-        instructions = (role_cfg.get("instructions") or "").strip()
-        role = f"Role: {role_cfg.get('name', ch['role'])}." + (f" {instructions}" if instructions else "") + f"\n{rule}"
+    def _cast_of(self, ch: dict) -> dict:
+        """The cast a character was cast with, resolved fresh from its position and its three picks."""
+        try:   # rebuild, not resolve: a pick that no longer stands falls back to the position's own, and
+               # never costs the character the instructions or the outline rule the position carries (§1).
+            return self._casting.rebuild(ch.get("position", ""), ch.get("model", ""), ch.get("effort", ""), ch.get("preset", ""))
+        except (ValueError, KeyError):
+            return {}
+
+    def _character_prompt(self, s: lc.Story, ch: dict, cast: dict) -> str:
+        rule = getattr(cfg, "OUTLINE_RULE_REQUIRED", "") if cast.get("outline_first") else getattr(cfg, "OUTLINE_RULE_OPTIONAL", "")
+        instructions = (cast.get("instructions") or "").strip()
+        position = f"Position: {cast.get('label') or ch.get('position', '')}." + (f" {instructions}" if instructions else "") + f"\n{rule}"
         return getattr(cfg, "CHARACTER_SYSTEM_PROMPT", "").format(
             name=ch["name"], character_id=ch["id"], story_key=s.key, title=s.title,
-            meta_skill=skills.skill_body("being-a-character"), role=role)
+            meta_skill=skills.skill_body("being-a-character"), position=position)
 
     def _author_action(self, key, action, *, resume: bool):
         key = self._key(key)
@@ -727,17 +744,18 @@ class StoryStore(QObject):
     @Slot(str, str)
     @Slot(str, str, str)
     @Slot(str, str, str, str)
+    @Slot(str, str, str, str, str)
     @intent
-    def reopen(self, key, note="", role="", model=""):
-        """Reopen resumes the protagonist (§2.1). With a role/model it recasts instead: the story
+    def reopen(self, key, note="", model="", effort="", preset=""):
+        """Reopen resumes the protagonist (§2.1). With a model/effort/preset it recasts instead: the story
         reopens, the protagonist gets a fresh memory, and the note is delivered to that."""
-        if not role and not model:
+        if not model and not effort and not preset:
             self._author_action(key, lc.Reopen(by=self._on_behalf(key), note=note), resume=True)
             return
         key = self._key(key)
         action = lc.Reopen(by=self._on_behalf(key), note=note)
         comment = self._apply(key, action)
-        self._recast_now(self._characters[self._stories[key].protagonist], role, model)
+        self._recast_now(self._characters[self._stories[key].protagonist], model, effort, preset)
         self._route(key, comment)   # _author_action(resume=True), with the recast in between
         owner = self._characters.get(self._stories[key].author)
         if owner is not None and comment["author"] == owner["id"] and action.by == owner["id"]:
@@ -756,8 +774,8 @@ class StoryStore(QObject):
     @Slot(str, str, result=str)
     @intent
     def openThread(self, key, body):
-        """Spec §2.1 Open a thread: plain → protagonist; "@Name …" → Name; "/call <role> [note]" → a fresh friend;
-        "/fork @Name [note]" → a friend forked from Name. Returns the thread id."""
+        """Spec §2.1 Open a thread: plain → protagonist; "@Name …" → Name; "/call <Name> [note]" → a fresh friend
+        of that name; "/fork @Name [note]" → a friend forked from Name. Returns the thread id."""
         key = self._key(key)
         s = self._stories[key]
         body = (body or "").strip()
@@ -766,21 +784,22 @@ class StoryStore(QObject):
         m_fork = re.match(r"/fork\s+@([\w-]+)\s*(.*)", body, re.S)
         m_name = re.match(r"@([\w-]+)\b", body)
         if m_call or m_fork:
+            friend_name = ""
             if m_call:
-                role_cfg = self._roles.get(m_call.group(1))
-                if not role_cfg:
-                    raise ValueError(f"unknown role {m_call.group(1)!r}")
-                note, fork_from, environment = m_call.group(2).strip() or f"called in as {role_cfg['name']}", None, None
+                friend_name = m_call.group(1)
+                cast = self._casting.resolve(FRIEND_POSITION)
+                note, fork_from, environment = m_call.group(2).strip() or f"called in as {friend_name}", None, None
             else:
-                source = self._by_name(key, m_fork.group(1))
-                role_cfg = self._roles.get(source["role"]) or {"name": source["role"]}
+                source = self._by_name(key, m_fork.group(1))    # a fork is cast exactly as its source was
+                cast = self._casting.resolve(source["position"], source.get("model", ""), source.get("effort", ""),
+                                             source.get("preset", ""))
                 note, fork_from, environment = m_fork.group(2).strip() or "a side question", source["id"], source.get("environment")
             chr_id = new_id("chr_")
             prev_story, prev_comments = self._stories[key], list(self._comments.get(key, []))
             self._apply(key, lc.OpenThread(thread_id=thread_id, author="human", lead=chr_id, body=note))
             try:
-                self._cast(key, role_cfg, chr_id=chr_id, thread_id=thread_id, author="human", note=note, fork_from=fork_from,
-                          environment=environment)
+                self._cast(key, cast, chr_id=chr_id, thread_id=thread_id, author="human", note=note, name=friend_name,
+                           fork_from=fork_from, environment=environment)
             except Exception:
                 self._stories[key], self._comments[key] = prev_story, prev_comments
                 self._save_story(key)
@@ -794,9 +813,12 @@ class StoryStore(QObject):
         return thread_id
 
     # ---------------------------------------------------------------- recast (spec §2.1, §3.4)
+    @Slot(str, str, result=str)
+    @Slot(str, str, str, result=str)
     @Slot(str, str, str, str, result=str)
+    @Slot(str, str, str, str, str, result=str)
     @intent
-    def recast(self, key, character_id, role="", model=""):
+    def recast(self, key, character_id, model="", effort="", preset=""):
         """Replace a character's live context — same character, fresh memory — at its next turn boundary.
         Returns the new context id, or "" when deferred until the current turn ends."""
         key = self._key(key)
@@ -805,35 +827,31 @@ class StoryStore(QObject):
             raise lc.Rejected(f"{ch['name']} is not on {key}")
         ctx = self._contexts.get(ch["live_context"]) if ch.get("live_context") else None
         if ctx is not None and ctx.status in WORKING:
-            ch["recast_pending"] = {"role": role, "model": model}
+            ch["recast_pending"] = {"model": model, "effort": effort, "preset": preset}
             self._save_characters()
             return ""
-        return self._recast_now(ch, role, model)
+        return self._recast_now(ch, model, effort, preset)
 
-    def _recast_now(self, ch: dict, role: str = "", model: str = "", cause: str = "") -> str:
+    def _recast_now(self, ch: dict, model: str = "", effort: str = "", preset: str = "", cause: str = "") -> str:
         key = ch["story_key"]
         s = self._stories[key]
-        role_cfg = dict(self._roles.get(role or ch["role"]) or {})
-        if not role_cfg:
-            raise ValueError(f"unknown role {role!r}")
-        if model:
-            role_cfg["model"] = model
+        cast = self._casting.resolve(ch["position"], model or ch.get("model", ""), effort or ch.get("effort", ""),
+                                     preset or ch.get("preset", ""))
         old_id = ch.get("live_context")
         old = self._contexts.get(old_id) if old_id else None
         recap = self._comment_by_id(ch["recaps"][-1]) if ch.get("recaps") else None
         fresh = (recap is not None and old is not None
                  and getattr(old, "turns", 0) - ch.get("recap_turns", 0) <= getattr(cfg, "RECAP_STALE_TURNS", 20))
         rung = "rung 1: fresh recap" if fresh else "rung 3: no fresh recap"
-        ch["role"] = role_cfg["name"]
+        ch["model"], ch["effort"], ch["preset"] = cast["model"], cast["effort"], cast["preset"]
         ch["phase_seen"] = None                     # a fresh context: the brief ends with the current phase skill
         skill = self._phase_skill_due(ch)
         situation = (f"you are a recast of {ch['name']}; your predecessor's recap is above. "
                      f"You were attending #{lc.thread_label(s, ch.get('attention') or s.main_thread)}; {len(ch.get('inbox', []))} items wait in your inbox; "
                      f"you await {self._awaits_line(ch)} and owe {self._owes_line(ch)}.")
-        cid = self._contexts.create(role_cfg["name"], story_key=key, owner=ch["id"], title=f"{key} · {ch['name']}",
+        cid = self._contexts.create(cast["position"], model=cast["model"], effort=cast["effort"], preset=cast["preset"],
+                                    story_key=key, owner=ch["id"], title=f"{key} · {ch['name']}",
                                     env={"HARNESS_CHARACTER_ID": ch["id"]}, predecessor=old_id)
-        if model:
-            self._contexts.get(cid).meta.setdefault("roleConfig", {})["model"] = model
         ch["live_context"] = cid
         ch.pop("recast_pending", None)
         ch.pop("context_warned", None)              # the crossings belong to the context that is gone (§3.4)
@@ -842,7 +860,8 @@ class StoryStore(QObject):
         if old is not None:
             old.stop()
         self._apply(key, lc.Note(thread_id=s.main_thread,
-                                 body=f"recast {ch['name']} as {role_cfg['name']} ({'context; ' if cause == 'context' else ''}{rung})"))
+                                 body=f"recast {ch['name']} as {cast['label']} on {cast['model'] or 'the cli default'} "
+                                      f"({'context; ' if cause == 'context' else ''}{rung})"))
         self._contexts.get(cid).send(render_brief(s, self._comments[key], self._characters, "",
                                                   substories=self._substories(key), situation=situation, skill=skill))
         self._refresh()
@@ -887,7 +906,7 @@ class StoryStore(QObject):
         n = next((i + 1 for i, t in enumerate(s.threads) if t.id == comment["thread_id"]), 0)
         quoted = "\n> ".join(comment["body"].splitlines()) or "(empty)"
         prompt = getattr(cfg, "ASIDE_SYSTEM_PROMPT", "").format(name=ch["name"], story_key=key, thread_id=n, body=quoted)
-        cid = self._contexts.fork(source, role_name=getattr(cfg, "DEFAULT_BARE_ROLE", "claude-default"), owner="human",
+        cid = self._contexts.fork(source, position=getattr(cfg, "DEFAULT_BARE_POSITION", "bare"), owner="human",
                                   title=f"aside on #{n} · {ch['name']}", system_prompt=prompt,
                                   about={"story_key": key, "comment_id": comment_id})
         self._refresh()
@@ -939,7 +958,7 @@ class StoryStore(QObject):
         self._route(key, c)
         return c
 
-    def cast_create(self, character_id, title, description="", start=False, role="") -> str:
+    def cast_create(self, character_id, title, description="", start=False, model="", effort="", preset="") -> str:
         """Spec §2.2 create: a sub-story authored by the character, under its story."""
         parent, ch = self._char(character_id)
         key = self.workspace.next_key()
@@ -950,7 +969,7 @@ class StoryStore(QObject):
         self.workspace.story_dir(key)
         self._save_story(key)
         if start:
-            self._start(key, "", role)
+            self._start(key, "", model, effort, preset)
         self._refresh()
         return key
 
@@ -969,7 +988,8 @@ class StoryStore(QObject):
             self._clear_attention(key, kw["thread_id"])
             return c
         if verb == "recast":
-            return {"context": self.recast(key, kw["character"], kw.get("role", ""), kw.get("model", ""))}
+            return {"context": self.recast(key, kw["character"], kw.get("model", ""), kw.get("effort", ""),
+                                           kw.get("preset", ""))}
         if verb == "approve":
             c = self._approve(key, by, note)
             self._refresh()
@@ -987,21 +1007,20 @@ class StoryStore(QObject):
         self._refresh()
         return c
 
-    def cast_call(self, character_id, role, note, as_name="", fork=False) -> dict:
-        """Spec §2.2 call: a friend on its own thread, authored by the caller; --fork copies the caller's memory."""
+    def cast_call(self, character_id, note, as_name="", fork=False, model="", effort="", preset="") -> dict:
+        """Spec §2.2 call: a friend on its own thread, authored by the caller; --fork copies the caller's memory.
+        Nobody picks the position — a call casts a friend; --as names it, and it is the position's label otherwise."""
         key, ch = self._char(character_id)
         if self._stories[key].phase in lc.TERMINAL:
             raise lc.Rejected(f"{key} is terminal")
-        role_cfg = self._roles.get(role)
-        if not role_cfg:
-            raise ValueError(f"unknown role {role!r}")
+        cast = self._casting.resolve(FRIEND_POSITION, model, effort, preset)
         if not note:
             raise lc.Rejected("call needs a --note: the friend's call-in note is the root of its thread")
         chr_id, thread_id = new_id("chr_"), new_id("thr_")
         prev_story, prev_comments = self._stories[key], list(self._comments.get(key, []))
         self._apply(key, lc.OpenThread(thread_id=thread_id, author=character_id, lead=chr_id, body=note))
         try:
-            friend = self._cast(key, role_cfg, chr_id=chr_id, thread_id=thread_id, author=character_id, note=note,
+            friend = self._cast(key, cast, chr_id=chr_id, thread_id=thread_id, author=character_id, note=note,
                                 name=as_name, fork_from=character_id if fork else None, environment=ch.get("environment"))
         except Exception:
             self._stories[key], self._comments[key] = prev_story, prev_comments
@@ -1088,14 +1107,13 @@ class StoryStore(QObject):
 
     def cast_proceed(self, character_id, note="") -> dict:
         key, ch = self._char(character_id)
-        role_cfg = self._roles.get(ch["role"]) or {}
-        if role_cfg.get("outline_first"):  # an outline approved since the most recent entry into planning (§2.2)
+        if self._cast_of(ch).get("outline_first"):  # an outline approved since the most recent entry into planning (§2.2)
             comments = self._comments.get(key, [])
             last_planning = max((i for i, c in enumerate(comments)
                                  if (c.get("structured", {}).get("transition") or {}).get("to", [None])[0] == "planning"), default=-1)
             approved = {"from": ["planning", "author"], "to": ["implementing", "cast"]}
             if not any(c.get("structured", {}).get("transition") == approved for c in comments[last_planning + 1:]):
-                raise lc.Rejected("your role requires an approved outline first: `yield --handoff` the outline and wait for Proceed")
+                raise lc.Rejected("your position requires an approved outline first: `yield --handoff` the outline and wait for Proceed")
         c = self._apply(key, lc.Proceed(by=character_id, note=note))
         ch["phase_seen"] = "implementing"           # the skill goes out on stdout (§2.2); the next delivery must not repeat it
         self._save_characters()

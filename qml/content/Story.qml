@@ -6,7 +6,7 @@ import "../ui"
 import "../ui/Theme.js" as T
 
 // A story page (the pull-request view, typeset as a script). tabKey = story key.
-// Unstarted: editable title/description, role picker, Start. Started: phase + whose turn,
+// Unstarted: editable title/description, the three casting picks, Start. Started: phase + whose turn,
 // the actions you have right now, then the threads — speakers as small mono caps, system
 // events as stage directions, yields as labeled rules, choices as buttons, checks as a console.
 ContentBase {
@@ -45,7 +45,8 @@ ContentBase {
             return "for " + (q ? q.name : c.structured.auto_for)
         }
         var ch = character(c.author)
-        return ch && ch.role !== ch.name ? ch.role : ""
+        if (!ch || !ch.position) return ""
+        return ch.position.toLowerCase() !== ch.name.toLowerCase() ? ch.position : ""
     }
     function when(ts) {
         if (!ts) return ""
@@ -111,7 +112,9 @@ ContentBase {
         if (!p) return
         reopenRecast.characterId = p.id
         reopenRecast.characterName = p.name
-        reopenRecast.currentRole = p.role
+        reopenRecast.currentModel = p.model
+        reopenRecast.currentEffort = p.effort
+        reopenRecast.currentPreset = p.preset
         reopenRecast.open()
     }
 
@@ -223,14 +226,19 @@ ContentBase {
                 Component.onCompleted: text = stored
                 onActiveFocusChanged: if (!activeFocus && text !== view.story.description) app.stories.update(tabKey, view.story.title, text)
             }
-            // ---- Start (unstarted only)
+            // ---- Start (unstarted only): the three picks on their own row, so the note and the button
+            // keep a full width of their own however narrow the page gets. Nobody picks the position —
+            // pressing Start is what says protagonist (spec §1).
+            CastPicks {
+                id: startPicks; prefix: "start"
+                visible: !view.started && view.story.phase !== "canceled"
+                Layout.topMargin: 12; Layout.fillWidth: true; Layout.maximumWidth: 440
+            }
             RowLayout {
-                visible: !view.started && view.story.phase !== "canceled"; spacing: 8; Layout.topMargin: 12
-                Combo { id: roleBox; objectName: "roleBox"; model: app.roles.names(); Layout.preferredWidth: 180
-                        Component.onCompleted: currentIndex = Math.max(0, app.roles.names().indexOf("protagonist")) }
+                visible: !view.started && view.story.phase !== "canceled"; spacing: 8; Layout.topMargin: 8
                 Field { id: startNote; objectName: "startNote"; Layout.fillWidth: true; placeholderText: "Opening note for the protagonist (optional)" }
                 Btn { objectName: "startButton"; text: "Start"; primary: true; icon_: "play"
-                      onClicked: { if (app.stories.start(tabKey, startNote.text, roleBox.currentText)) startNote.text = "" } }
+                      onClicked: { if (app.stories.start(tabKey, startNote.text, startPicks.modelId, startPicks.effort, startPicks.preset)) startNote.text = "" } }
             }
 
             // ---- action bar (started): what you can do right now
@@ -495,14 +503,14 @@ ContentBase {
                 }
             }
 
-            // ---- a composer for opening threads: plain → protagonist; @Name; /call <role>; /fork @Name
+            // ---- a composer for opening threads: plain → protagonist; @Name; /call <Name>; /fork @Name
             RowLayout {
                 visible: view.started && !view.terminal; Layout.fillWidth: true; Layout.topMargin: 26; spacing: 8
                 TextBox {
                     id: newThread; objectName: "newThreadInput"
                     Layout.fillWidth: true; Layout.preferredHeight: 64
                     label: "New thread"
-                    placeholderText: "Write to " + view.protagonistName() + ", @Name, /call <role>, or /fork @Name for a copy of their memory  (Ctrl+Enter)"
+                    placeholderText: "Write to " + view.protagonistName() + ", @Name, /call <Name>, or /fork @Name for a copy of their memory  (Ctrl+Enter)"
                     onSubmitted: post()
                     function post() {
                         if (!text.trim().length) return

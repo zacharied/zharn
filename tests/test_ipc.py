@@ -49,14 +49,14 @@ class FakeContexts:
     def get(self, cid):
         return self._by_id.get(cid)
 
-    def create(self, role, title=""):
-        self.calls.append(("create", role, title))
+    def create(self, position, title="", **kw):
+        self.calls.append(("create", position, title, kw))
         cid = f"new{next(self._ids)}"
         self._by_id[cid] = FakeContext(cid, title=title, status="idle")
         return cid
 
-    def spawn(self, role, prompt, **kw):
-        self.calls.append(("spawn", role, prompt, kw))
+    def spawn(self, position, prompt, **kw):
+        self.calls.append(("spawn", position, prompt, kw))
         cid = f"new{next(self._ids)}"
         title = kw.get("title") or prompt
         self._by_id[cid] = FakeContext(cid, title=title, status="working", storyKey=kw.get("story_key", ""))
@@ -71,9 +71,12 @@ class FakeContexts:
         self._by_id[cid].status = "stopped"
 
 
-class FakeRoles:
-    def __init__(self, *names):
-        self.roles = [{"name": n, "model": "m"} for n in names]
+class FakeCasting:
+    models = [{"id": "", "label": "cli default", "provider": "claude-code"},
+              {"id": "claude-opus-5", "label": "Opus 5", "provider": "claude-code"}]
+    efforts = ["", "low", "high"]
+    presets = [{"name": "full", "skills": ["*"]}, {"name": "builder", "skills": ["delegating"]}]
+    positions = ["protagonist", "friend", "bare"]
 
 
 class FakeLayout:
@@ -95,8 +98,8 @@ class FakeStories:
     def cast(self, key): return [{"id": "chr1", "name": "protagonist", "live_context": "t1"}] if key in self.rows else []
     def create(self, title, description=""):
         self.calls.append(("create", title, description)); self.rows["ABC-2"] = {"key": "ABC-2", "title": title, "phase": "todo", "ball": ""}; return "ABC-2"
-    def start(self, key, note="", role=""):
-        self.calls.append(("start", key, note, role)); self.rows[key].update(phase="planning", ball="cast"); return "chr1"
+    def start(self, key, note="", model="", effort="", preset=""):
+        self.calls.append(("start", key, note, model, effort, preset)); self.rows[key].update(phase="planning", ball="cast"); return "chr1"
     def comment(self, key, body, thread_id=""): self.calls.append(("comment", key, body, thread_id)); return {"id": "c9", "kind": "text"}
     def proceed(self, key, note=""): self.calls.append(("proceed", key, note))
     def approve(self, key, note=""): self.calls.append(("approve", key, note))
@@ -112,13 +115,14 @@ class FakeStories:
     def cast_proceed(self, character_id, note=""): self.calls.append(("cast_proceed", character_id, note)); return {"id": "c6", "kind": "system"}
     def cast_recap(self, character_id, body, thread_id=""): self.calls.append(("cast_recap", character_id, body, thread_id)); return {"id": "c7", "kind": "recap"}
     def cast_comment(self, character_id, body, thread_id="", to=()): self.calls.append(("cast_comment", character_id, body, thread_id, list(to))); return {"id": "c8", "kind": "text"}
-    def cast_call(self, character_id, role, note, as_name="", fork=False):
-        self.calls.append(("cast_call", character_id, role, note, as_name, fork)); return {"thread": "thr_x", "character": "chr2", "name": as_name or role}
+    def cast_call(self, character_id, note, as_name="", fork=False, model="", effort="", preset=""):
+        self.calls.append(("cast_call", character_id, note, as_name, fork, model, effort, preset))
+        return {"thread": "thr_x", "character": "chr2", "name": as_name or "Friend"}
     def cast_wait(self, character_id): self.calls.append(("cast_wait", character_id)); return {"awaits": [], "message": "end your turn"}
     def cast_inbox(self, character_id): return []
     def character(self, character_id): return {"id": character_id, "story_key": "ABC-1"}
-    def cast_create(self, character_id, title, description="", start=False, role=""):
-        self.calls.append(("cast_create", character_id, title, description, start, role)); return "SUB-1"
+    def cast_create(self, character_id, title, description="", start=False, model="", effort="", preset=""):
+        self.calls.append(("cast_create", character_id, title, description, start, model, effort, preset)); return "SUB-1"
     def cast_author(self, character_id, verb, key, **kw): self.calls.append(("cast_author", character_id, verb, key, kw)); return {"id": "c12"}
     def resolve(self, key, thread_id, note=""): self.calls.append(("resolve", key, thread_id, note)); return {"id": "c10", "kind": "system"}
     def cast_resolve(self, character_id, thread_id, note=""): self.calls.append(("cast_resolve", character_id, thread_id, note)); return {"id": "c11", "kind": "system"}
@@ -133,7 +137,7 @@ class FakeAppStore:
                               {"role": "assistant", "kind": "text", "text": "hello"}]),
             FakeContext("t2", title="second", status="working", storyKey="ABC-2", owner="human"),
         )
-        self.roles = FakeRoles("claude-fast", "claude-deep")
+        self.casting = FakeCasting()
         self.layout = FakeLayout()
         self.stories = FakeStories()
 
@@ -154,8 +158,9 @@ def test_ping_returns_own_pid(h):
     assert h("ping", {}) == {"pid": os.getpid()}
 
 
-def test_role_list_returns_roles(h, store):
-    assert h("role.list", {}) == store.roles.roles
+def test_cast_options_returns_the_models_efforts_presets_and_positions(h, store):
+    c = store.casting
+    assert h("cast.options", {}) == {"models": c.models, "efforts": c.efforts, "presets": c.presets, "positions": c.positions}
 
 
 def test_context_list_without_filter_returns_all_summaries(h):
@@ -188,29 +193,30 @@ def test_context_show_unknown_id_raises_keyerror(h):
 
 
 def test_context_new_with_prompt_goes_through_contexts_spawn_with_title(h, store):
-    s = h("context.new", {"role": "claude-deep", "prompt": "p", "title": "titled"})
-    assert store.contexts.calls == [("spawn", "claude-deep", "p", {"title": "titled"})]
+    s = h("context.new", {"prompt": "p", "title": "titled", "model": "claude-opus-5", "effort": "high", "preset": "builder"})
+    assert store.contexts.calls == [("spawn", "bare", "p", {"title": "titled", "model": "claude-opus-5",
+                                                            "effort": "high", "preset": "builder"})]
     assert s["title"] == "titled"
 
 
 def test_context_new_without_prompt_goes_through_contexts_create(h, store):
-    s = h("context.new", {"role": "claude-fast", "title": "bare one"})
-    assert store.contexts.calls == [("create", "claude-fast", "bare one")]
+    s = h("context.new", {"title": "bare one"})
+    assert store.contexts.calls == [("create", "bare", "bare one", {"model": "", "effort": "", "preset": ""})]
     assert s["title"] == "bare one"
 
 
 def test_context_new_without_prompt_or_title_defaults_title_to_new_context(h, store):
-    h("context.new", {"role": "claude-fast"})
-    assert store.contexts.calls == [("create", "claude-fast", "New context")]
+    h("context.new", {})
+    assert store.contexts.calls == [("create", "bare", "New context", {"model": "", "effort": "", "preset": ""})]
 
 
 def test_context_new_open_opens_context_tab_in_layout(h, store):
-    s = h("context.new", {"role": "claude-fast", "prompt": "p", "title": "tab", "open": True})
+    s = h("context.new", {"prompt": "p", "title": "tab", "open": True})
     assert store.layout.opened == [("context", s["id"], "tab")]
 
 
 def test_context_new_without_open_does_not_touch_layout(h, store):
-    h("context.new", {"role": "claude-fast", "prompt": "p"})
+    h("context.new", {"prompt": "p"})
     assert store.layout.opened == []
 
 
@@ -252,8 +258,9 @@ def test_story_list_and_show_attach_comments_cast_and_contexts(h, store):
 
 def test_story_create_and_start(h, store):
     assert h("story.create", {"title": "new", "description": "d"})["key"] == "ABC-2"
-    r = h("story.start", {"key": "ABC-1", "note": "go", "role": "protagonist"})
-    assert store.stories.calls[-1] == ("start", "ABC-1", "go", "protagonist") and r["character"] == "chr1" and r["phase"] == "planning"
+    r = h("story.start", {"key": "ABC-1", "note": "go", "model": "claude-opus-5", "effort": "max", "preset": "builder"})
+    assert store.stories.calls[-1] == ("start", "ABC-1", "go", "claude-opus-5", "max", "builder")
+    assert r["character"] == "chr1" and r["phase"] == "planning"
 
 
 def test_story_author_verbs_forward(h, store):
@@ -421,7 +428,8 @@ def test_new_server_replaces_stale_server_of_same_name():
 
 
 def test_story_call_wait_inbox_cast_forward_and_log(h, store):
-    assert h("story.call", {"character": "chr1", "role": "claude-fast", "note": "build", "as": "Impl", "fork": True}) == {"thread": "thr_x", "character": "chr2", "name": "Impl"}
+    assert h("story.call", {"character": "chr1", "note": "build", "as": "Impl", "fork": True,
+                            "model": "claude-opus-5"}) == {"thread": "thr_x", "character": "chr2", "name": "Impl"}
     assert h("story.wait", {"character": "chr1"}) == {"awaits": [], "message": "end your turn"}
     assert h("story.inbox", {"character": "chr1"}) == []
     assert h("story.cast", {"key": "ABC-1"})[0]["name"] == "protagonist"
@@ -433,7 +441,7 @@ def test_story_call_wait_inbox_cast_forward_and_log(h, store):
 
 
 def test_story_create_and_author_verbs_from_a_character(h, store):
-    assert h("story.create", {"character": "chr1", "title": "t", "start": True, "role": "claude-fast"}) == "SUB-1"
+    assert h("story.create", {"character": "chr1", "title": "t", "start": True, "preset": "builder"}) == "SUB-1"
     assert h("story.approve", {"character": "chr1", "key": "SUB-1", "note": "ok"}) == {"id": "c12"}
     assert h("story.reply", {"character": "chr1", "key": "SUB-1", "thread": "t", "body": "b"}) == {"id": "c12"}
     assert store.stories.calls[-2:] == [("cast_author", "chr1", "approve", "SUB-1", {"note": "ok"}),
@@ -469,7 +477,7 @@ class FakeEnvStories:
 
 class FakeEnvApp:
     def __init__(self, stories):
-        self.stories, self.contexts, self.roles, self.layout = stories, FakeContexts(), None, None
+        self.stories, self.contexts, self.casting, self.layout = stories, FakeContexts(), None, None
 
 
 def test_repo_and_env_commands_route_and_log():

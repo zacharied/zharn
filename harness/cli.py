@@ -143,7 +143,9 @@ def main(argv=None):
 
     ctx = sub.add_parser("context").add_subparsers(dest="verb", required=True)
     nw = ctx.add_parser("new", help="Create a new context")
-    nw.add_argument("--role", required=True)
+    nw.add_argument("--model", default="", help="a model id; empty = the position's own (see `zharn cast options`)")
+    nw.add_argument("--effort", default="", help="low|medium|high|xhigh|max; empty = the position's own")
+    nw.add_argument("--preset", default="", help="which skills it wakes up with; empty = the position's own")
     nw.add_argument("--prompt", default="")
     nw.add_argument("--title", default="")
     nw.add_argument("--open", action="store_true", help="Open the context as a tab in the UI")
@@ -154,15 +156,19 @@ def main(argv=None):
     sd = ctx.add_parser("send"); sd.add_argument("id"); sd.add_argument("--message", required=True)
     ctx.add_parser("stop").add_argument("id")
 
-    rl = sub.add_parser("role").add_subparsers(dest="verb", required=True)
-    rl.add_parser("list")
+    cst = sub.add_parser("cast", help="What the model / effort / preset selectors offer").add_subparsers(dest="verb", required=True)
+    cst.add_parser("options")
 
     stp = sub.add_parser("story").add_subparsers(dest="verb", required=True)
     stp.add_parser("list")
     stp.add_parser("show").add_argument("key", nargs="?", default=os.environ.get("HARNESS_STORY_KEY", ""))
     c = stp.add_parser("create"); c.add_argument("--title", required=True); c.add_argument("--description", default="")
-    c.add_argument("--start", action="store_true", help="Start it now (characters: a sub-story you author)"); c.add_argument("--role", default="")
-    s = stp.add_parser("start"); s.add_argument("key"); s.add_argument("--note", default=""); s.add_argument("--role", default="")
+    c.add_argument("--start", action="store_true", help="Start it now (characters: a sub-story you author)")
+    s = stp.add_parser("start"); s.add_argument("key"); s.add_argument("--note", default="")
+    for x in (c, s):
+        x.add_argument("--model", default="", help="a model id; empty = the position's own (see `zharn cast options`)")
+        x.add_argument("--effort", default="", help="low|medium|high|xhigh|max; empty = the position's own")
+        x.add_argument("--preset", default="", help="which skills it wakes up with; empty = the position's own")
     y = stp.add_parser("yield", help='--question reads a JSON document from stdin: {"body": "...", "questions": [{"text", "options"?, "default"?}]}; '
                                      '--handoff takes --body')
     y.add_argument("--question", action="store_true"); y.add_argument("--handoff", action="store_true")
@@ -172,9 +178,13 @@ def main(argv=None):
     rc = stp.add_parser("recap"); rc.add_argument("--body", required=True); rc.add_argument("--thread", default="")
     cm = stp.add_parser("comment"); cm.add_argument("--body", required=True); cm.add_argument("--thread", default=""); cm.add_argument("--story", default=os.environ.get("HARNESS_STORY_KEY", ""))
     cm.add_argument("--to", action="append", default=[], help="@Name — deliver to Name too; with no --thread, open a thread to Name")
-    cl = stp.add_parser("call", help="Cast a friend on its own thread"); cl.add_argument("--role", required=True)
-    cl.add_argument("--as", dest="as_name", default=""); cl.add_argument("--fork", action="store_true", help="the friend starts with a copy of your memory")
+    cl = stp.add_parser("call", help="Cast a friend on its own thread")
+    cl.add_argument("--as", dest="as_name", default="", help="the friend's name (default: Friend)")
+    cl.add_argument("--fork", action="store_true", help="the friend starts with a copy of your memory")
     cl.add_argument("--note", required=True)
+    cl.add_argument("--model", default="", help="a model id; empty = the position's own (see `zharn cast options`)")
+    cl.add_argument("--effort", default="", help="low|medium|high|xhigh|max; empty = the position's own")
+    cl.add_argument("--preset", default="", help="which skills it wakes up with; empty = the position's own")
     stp.add_parser("wait", help="List what you await; then end your turn")
     stp.add_parser("inbox", help="Comments waiting for you")
     stp.add_parser("cast", help="The cast of a story").add_argument("key", nargs="?", default="")
@@ -185,7 +195,10 @@ def main(argv=None):
         x = stp.add_parser(v); x.add_argument("key"); x.add_argument("--note", default="")
 
     rcst = stp.add_parser("recast", help="Replace a character's context: same character, fresh memory")
-    rcst.add_argument("key"); rcst.add_argument("target", help="character id"); rcst.add_argument("--role", default=""); rcst.add_argument("--model", default="")
+    rcst.add_argument("key"); rcst.add_argument("target", help="character id")
+    rcst.add_argument("--model", default="", help="a model id; empty = the position's own (see `zharn cast options`)")
+    rcst.add_argument("--effort", default="", help="low|medium|high|xhigh|max; empty = the position's own")
+    rcst.add_argument("--preset", default="", help="which skills it wakes up with; empty = the position's own")
 
     rp2 = sub.add_parser("repo").add_subparsers(dest="verb", required=True)
     ra = rp2.add_parser("add", help="Register a git repo (a URL is cloned into the workspace)")
@@ -215,8 +228,8 @@ def main(argv=None):
 
     if a.noun == "ping":
         out(request("ping", {}), a.json)
-    elif a.noun == "role":
-        out(request("role.list", {}), a.json)
+    elif a.noun == "cast":
+        out(request("cast.options", {}), a.json)
     elif a.noun == "repo":
         if a.verb == "add":
             spec = a.spec if ("://" in a.spec or a.spec.startswith("git@")) else os.path.abspath(a.spec)
@@ -232,7 +245,8 @@ def main(argv=None):
             out(request("env.list", {"character": character()}), a.json)
     elif a.noun == "context":
         if a.verb == "new":
-            s = request("context.new", {"role": a.role, "prompt": a.prompt, "title": a.title, "open": a.open})
+            s = request("context.new", {"model": a.model, "effort": a.effort, "preset": a.preset,
+                                        "prompt": a.prompt, "title": a.title, "open": a.open})
             if a.wait:
                 s = wait(s["id"], 1200)
                 out(s if a.json else (s.get("lastText") or s["status"]), a.json)
@@ -252,9 +266,11 @@ def main(argv=None):
         elif a.verb == "create":
             args = {"title": a.title, "description": a.description}
             if ch:
-                args.update(character=ch, start=a.start, role=a.role)
+                args.update(character=ch, start=a.start, model=a.model, effort=a.effort, preset=a.preset)
             out(request("story.create", args), a.json)
-        elif a.verb == "start": out(request("story.start", {"key": a.key, "note": a.note, "role": a.role}), a.json)
+        elif a.verb == "start":
+            out(request("story.start", {"key": a.key, "note": a.note, "model": a.model,
+                                        "effort": a.effort, "preset": a.preset}), a.json)
         elif a.verb == "yield":
             if a.question == a.handoff:
                 sys.exit("yield needs exactly one of --question / --handoff")
@@ -302,7 +318,9 @@ def main(argv=None):
             out(request("story.yield", {"character": character(), "kind": "handoff", "body": a.body, "questions": [],
                                         "thread": a.thread, "checks": checks}), a.json)
         elif a.verb == "recap": out(request("story.recap", {"character": character(), "body": a.body, "thread": a.thread}), a.json)
-        elif a.verb == "call": out(request("story.call", {"character": character(), "role": a.role, "note": a.note, "as": a.as_name, "fork": a.fork}), a.json)
+        elif a.verb == "call":
+            out(request("story.call", {"character": character(), "note": a.note, "as": a.as_name, "fork": a.fork,
+                                       "model": a.model, "effort": a.effort, "preset": a.preset}), a.json)
         elif a.verb == "wait": out(request("story.wait", {"character": character()}), a.json)
         elif a.verb == "inbox": out(request("story.inbox", {"character": character()}), a.json)
         elif a.verb == "cast": out(request("story.cast", {"key": a.key, **({"character": ch} if ch else {})}), a.json)
@@ -326,7 +344,8 @@ def main(argv=None):
             args = {"character": ch, "thread": a.thread, "note": a.note} if ch and not a.key else {"key": a.key, "thread": a.thread, "note": a.note, **({"character": ch} if ch else {})}
             out(request("story.resolve", args), a.json)
         elif a.verb == "recast":
-            out(request("story.recast", {"key": a.key, "target": a.target, "role": a.role, "model": a.model, **({"character": ch} if ch else {})}), a.json)
+            out(request("story.recast", {"key": a.key, "target": a.target, "model": a.model, "effort": a.effort,
+                                         "preset": a.preset, **({"character": ch} if ch else {})}), a.json)
         else: out(request(f"story.{a.verb}", {"key": a.key, "note": a.note, **({"character": ch} if ch else {})}), a.json)
 
 

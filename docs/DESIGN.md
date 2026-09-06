@@ -45,7 +45,7 @@ Known limits, and the rule that neutralizes each:
 │ QGuiApplication · watcher (poll or inotify) · Reloader · Session      │
 │                                                                       │
 │ ┌─ Store layer (reload-tolerant) ─────────────────────────────────┐   │
-│ │ Workspace · Repos · Environments · Stories · Contexts · Roles   │   │
+│ │ Workspace · Repos · Environments · Stories · Contexts · Casting │   │
 │ │ QObject singletons, long-lived, exposed to QML by *instance*    │   │
 │ └─────────────────────────────────────────────────────────────────┘   │
 │ ┌─ Logic layer (hot-swapped by importlib.reload) ─────────────────┐   │
@@ -104,7 +104,7 @@ No sidebar. The window is:
 ```
 
 * **Dock (left/right/bottom)** hosts only **dockable panels**: board, contexts (the old
-  bb sidebar becomes just another panel), git status, filesystem, terminal, agent log, roles.
+  bb sidebar becomes just another panel), git status, filesystem, terminal, agent log, presets.
   States: docked-visible, collapsed-to-strip, slide-over (overlay `Item`, not a window), floating
   (`Window`).
 * **MCC** is a tab group that can show *any* content: a panel, a document, a thread, a task, a
@@ -171,7 +171,10 @@ Defined in **[`docs/AGENT-MODEL.md`](AGENT-MODEL.md)** (design) and
 * The **protagonist** is cast at Start onto the story's **main thread** and is the only character
   that can yield there — the ball *is* the main thread's turn. It calls in **friends** (peers on
   their own threads), sends out **minions** (invisible helpers; forkable contexts), or creates
-  **sub-stories** (which it then authors). Characters are cast from **roles**.
+  **sub-stories** (which it then authors). A character is cast from three fine-grained picks — a
+  **model**, an **effort**, and a **preset** that names the skills it wakes up with — into a
+  **position** (protagonist, friend, bare context) that the cast site implies and nobody picks; the
+  position carries the instructions, the outline rule and the permission ceiling.
 * State is `(phase ∈ backlog|todo|planning|implementing|done|canceled, ball = main thread's turn)`.
   **Nobody sets status** — Start/Reply/Proceed/Approve (author) and `yield`/`proceed` (cast) are
   the only actions; each writes a comment, and the threads are the audit log.
@@ -180,13 +183,13 @@ Defined in **[`docs/AGENT-MODEL.md`](AGENT-MODEL.md)** (design) and
   new threads and `@Name` pings queue in its inbox until it comes up for air (a "btw").
 * Context lifecycle: when a context runs low the harness demands a **recap** comment; **recast**
   (manual or automatic) rebuilds the character on a fresh context from the story record + recap —
-  the story record *is* the compaction. Recast also swaps role/model mid-story.
+  the story record *is* the compaction. Recast also swaps model, effort and preset mid-story.
 * The harness enforces mechanically what it can (no status verb, main handoff blocked while
   sub-stories are open, checks attached to handoffs, per-thread auto-yield on silence, inbox
   bookkeeping, the recap/recast ladder) and injects phase skills (vendored from superpowers into
   `harness/skills/`) for the rest.
 
-Kept from bb: roles, attachments, mentions (`@ABC-12`), a **New Context** button (bb's
+Kept from bb: attachments, mentions (`@ABC-12`), a **New Context** button (bb's
 "new thread": a bare chat for questions, promotable into a story). Not kept: per-project prefixes
 and the auto-created "Inbox" project — stories are rooted at a workspace (§3c).
 

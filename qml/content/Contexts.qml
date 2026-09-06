@@ -21,9 +21,21 @@ ContentBase {
         return n ? "· " + n + " live" : ""
     }
     property Component headerActions: Component {
-        Btn { objectName: "newContextButton"; small: true; icon_: "plus"; text: "New context"
-              onClicked: { var id = app.contexts.newBare(""); if (id) { panel.selected = id; app.layout.openContent("context", id, "New context") } } }
+        // one click opens a bare context on the position's own picks; the caret opens the dialog that offers them
+        SplitBtn {
+            mainName: "newContextButton"; menuName: "newContextMenu"
+            small: true; primary: false; icon_: "plus"; text: "New context"
+            items: [{ label: "New context with…", hint: "pick a model, an effort, a preset" }]
+            onTriggered: panel.openBare(app.contexts.newBare(""))
+            onItemTriggered: newContextDialog.open()
+        }
     }
+    function openBare(id) {
+        if (!id) return
+        selected = id
+        app.layout.openContent("context", id, "New context")
+    }
+    NewContextDialog { id: newContextDialog; onCreated: (id) => panel.openBare(id) }
 
     // tree: [{story, title, contexts:[{ctx, lineage:[...]}]}, ...] + bare
     readonly property var groups: {
@@ -108,7 +120,7 @@ ContentBase {
                                         StatusDot { visible: !cr.lineageRow && !cr.asideRow; status: cr.ctx.status; size: 8 }
                                         Icon { visible: cr.asideRow; name: "aside"; size: 13; color: app.theme.textMuted }
                                         Text { objectName: "contextName_" + cr.ctx.id; text: cr.display; color: cr.lineageRow ? app.theme.textMuted : app.theme.text; font.italic: cr.lineageRow; elide: Text.ElideRight; Layout.fillWidth: true }
-                                        Text { visible: !cr.lineageRow && !!cr.ctx.roleName && cr.ctx.roleName !== cr.display; text: cr.ctx.roleName; color: app.theme.textMuted; font.pixelSize: app.theme.fontSizeSmall }
+                                        Text { visible: !cr.lineageRow && !!cr.ctx.position && cr.ctx.position.toLowerCase() !== cr.display.toLowerCase(); text: cr.ctx.position; color: app.theme.textMuted; font.pixelSize: app.theme.fontSizeSmall }
                                         Text { objectName: "contextVitals_" + cr.ctx.id
                                                text: cr.lineageRow ? "read-only" : cr.asideRow ? "yours"
                                                    : [T.tokens(cr.ctx.contextTokens), cr.ctx.turns + "t", "$" + Number(cr.ctx.costUsd).toFixed(2)].filter(function (x) { return x }).join(" · ")
@@ -139,7 +151,7 @@ ContentBase {
                     spacing: 8
                     StatusDot { visible: !!panel.selectedContext; status: panel.selectedContext ? panel.selectedContext.status : "none"; size: 9 }
                     Text { objectName: "paneContextTitle"; text: panel.selectedContext ? panel.selectedContext.title : "Select a context"; color: panel.selectedContext ? app.theme.text : app.theme.textDim; font.weight: Font.DemiBold; elide: Text.ElideRight }
-                    Text { visible: !!panel.selectedContext; text: panel.selectedContext ? [panel.selectedContext.roleName, panel.selectedContext.model, panel.selectedContext.status].filter(function (x) { return x }).join(" · ") : ""; color: app.theme.textMuted; font.pixelSize: app.theme.fontSizeSmall; elide: Text.ElideRight; Layout.fillWidth: true }
+                    Text { visible: !!panel.selectedContext; text: panel.selectedContext ? [panel.selectedContext.position, panel.selectedContext.model, panel.selectedContext.status].filter(function (x) { return x }).join(" · ") : ""; color: app.theme.textMuted; font.pixelSize: app.theme.fontSizeSmall; elide: Text.ElideRight; Layout.fillWidth: true }
                     Item { Layout.fillWidth: !panel.selectedContext }
                     Meter { visible: !!panel.selectedContext && panel.selectedContext.contextTokens > 0; Layout.preferredWidth: 72; Layout.preferredHeight: 4
                             value: panel.selectedContext ? panel.selectedContext.contextTokens : 0; max: panel.selectedContext ? panel.selectedContext.contextMax : 1

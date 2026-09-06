@@ -27,7 +27,7 @@ def open_story(ui, key):
 
 def test_cast_row_shows_the_derived_status(ui):
     key = ui.store.stories.create("Statuses", "")
-    chr_id = ui.store.stories.start(key, "", "protagonist")
+    chr_id = ui.store.stories.start(key, "")
     settled(ui, chr_id)   # the quiet check has yielded the owed main thread for it
     open_story(ui, key)
     assert ui.find(f"castStatus_{chr_id}").property("text") == "waits on you · outline ready"
@@ -37,24 +37,43 @@ def test_cast_row_shows_the_derived_status(ui):
     assert wait_until(lambda: ui.find(f"castStatus_{chr_id}").property("text").startswith("waits on you"))
 
 
-def test_recast_dialog_recasts_onto_the_chosen_role(ui):
+def test_recast_dialog_recasts_onto_the_chosen_picks(ui):
     key = ui.store.stories.create("Recastable", "")
-    chr_id = ui.store.stories.start(key, "", "protagonist")
+    chr_id = ui.store.stories.start(key, "")
     settled(ui, chr_id)
     old_ctx = ui.store.stories.character(chr_id)["live_context"]
     open_story(ui, key)
     ui.click(ui.find(f"recastButton_{chr_id}"))
     assert ui.visible(ui.find("recastConfirm"))
-    ui.choose(ui.find("recastRole"), "claude-fast")
+    # seeded from the character it is recasting: the position is never offered, the picks are
+    assert ui.find("recastEffort").property("currentText") == "high"
+    ui.choose(ui.find("recastModel"), "Sonnet 5")
+    ui.choose(ui.find("recastEffort"), "low")
+    ui.choose(ui.find("recastPreset"), "builder")
     ui.click(ui.find("recastConfirm"))
     ch = ui.store.stories.character(chr_id)
-    assert ch["role"] == "claude-fast" and ch["live_context"] != old_ctx
+    assert (ch["model"], ch["effort"], ch["preset"]) == ("claude-sonnet-5", "low", "builder")
+    assert ch["position"] == "protagonist" and ch["live_context"] != old_ctx
+    # and the picks reached the context it was recast onto
+    cast = ui.store.contexts.get(ch["live_context"]).meta["cast"]
+    assert (cast["model"], cast["effort"], cast["preset"]) == ("claude-sonnet-5", "low", "builder")
     assert not ui.has("recastConfirm") or not ui.visible(ui.find_all("recastConfirm")[0])
+
+
+def test_recast_dialog_takes_a_model_the_config_has_not_heard_of(ui):
+    key = ui.store.stories.create("Typed model", "")
+    chr_id = ui.store.stories.start(key, "")
+    settled(ui, chr_id)
+    open_story(ui, key)
+    ui.click(ui.find(f"recastButton_{chr_id}"))
+    ui.find("recastModel").setProperty("editText", "claude-opus-9")
+    ui.click(ui.find("recastConfirm"))
+    assert ui.store.stories.character(chr_id)["model"] == "claude-opus-9"
 
 
 def test_retired_cast_shows_retired_and_loses_the_recast_button(ui):
     key = ui.store.stories.create("Retire me", "")
-    chr_id = ui.store.stories.start(key, "", "protagonist")
+    chr_id = ui.store.stories.start(key, "")
     settled(ui, chr_id)                # quiet check: outline handoff waits on you
     ui.store.stories.proceed(key)
     settled(ui, chr_id)                # quiet check again: ready for review
@@ -67,9 +86,9 @@ def test_retired_cast_shows_retired_and_loses_the_recast_button(ui):
 
 def test_substories_list_under_the_cast_and_open_on_click(ui):
     key = ui.store.stories.create("Parent", "")
-    chr_id = ui.store.stories.start(key, "", "protagonist")
+    chr_id = ui.store.stories.start(key, "")
     settled(ui, chr_id)
-    sub = ui.store.stories.cast_create(chr_id, "the small part", start=True, role="claude-fast")
+    sub = ui.store.stories.cast_create(chr_id, "the small part", start=True)
     open_story(ui, key)
     ui.click(ui.find(f"substoryRow_{sub}"))
     assert ui.has(f"tab_story_{sub}")
@@ -84,7 +103,7 @@ def test_cast_row_names_the_characters_environment(ui):
     shutil.rmtree(d, ignore_errors=True)
     register_repo(ui.store.stories.workspace, str(make_repo(d)), name="api")
     key = ui.store.stories.create("Where", "")
-    chr_id = ui.store.stories.start(key, "", "protagonist")
+    chr_id = ui.store.stories.start(key, "")
     settled(ui, chr_id)
     open_story(ui, key)
     assert "in api" not in ui.find(f"castMeta_{chr_id}").property("text")
@@ -95,7 +114,7 @@ def test_cast_row_names_the_characters_environment(ui):
 
 def test_cast_row_context_carries_its_reading(ui):
     key = ui.store.stories.create("Reading", "")
-    chr_id = ui.store.stories.start(key, "tokens=2500", "protagonist")   # the note rides the brief; the fake reads it
+    chr_id = ui.store.stories.start(key, "tokens=2500")   # the note rides the brief; the fake reads it
     ctx = settled(ui, chr_id)
     assert ctx.contextTokens == 2510 and ctx.contextWindow == 1000000
     row = next(r for r in ui.store.contexts.summaries() if r["id"] == ctx.id)
@@ -111,7 +130,7 @@ def test_cast_row_context_carries_its_reading(ui):
 
 def test_cast_row_goes_amber_while_a_recap_is_due(ui):
     key = ui.store.stories.create("Recap due", "")
-    chr_id = ui.store.stories.start(key, "tokens=350000", "protagonist")   # the brief's first reading is past the warn line
+    chr_id = ui.store.stories.start(key, "tokens=350000")   # the brief's first reading is past the warn line
     ctx = settled(ui, chr_id)
     open_story(ui, key)
     assert ui.store.stories.cast(key)[0]["recapDue"] is True
@@ -132,7 +151,7 @@ def test_cast_row_goes_amber_while_a_recap_is_due(ui):
 
 def test_a_recast_predecessor_row_names_the_reading_it_was_recast_at(ui):
     key = ui.store.stories.create("Lineage", "")
-    chr_id = ui.store.stories.start(key, "tokens=120000", "protagonist")
+    chr_id = ui.store.stories.start(key, "tokens=120000")
     old = settled(ui, chr_id).id
     ui.store.stories.recast(key, chr_id)
     settled(ui, chr_id)

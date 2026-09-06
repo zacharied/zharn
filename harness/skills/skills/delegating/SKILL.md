@@ -10,8 +10,8 @@ Three tools, one question each.
 | Use a… | when… | how |
 |---|---|---|
 | **minion** | you need a result and nobody needs to see the process | the native Agent tool; its output is your contract with it |
-| **friend** | others should see the contribution as a participant: a review, a second opinion, a parallel build | `$HARNESS_CLI story call --role R [--as Name] [--fork] --note "…"`, then `wait` |
-| **sub-story** | the work should be described and validated on its own | `$HARNESS_CLI story create --title … --description … --start --role R`; you are its author |
+| **friend** | others should see the contribution as a participant: a review, a second opinion, a parallel build | `$HARNESS_CLI story call --as Name [--model M] [--effort E] [--preset P] [--fork] --note "…"`, then `wait` |
+| **sub-story** | the work should be described and validated on its own | `$HARNESS_CLI story create --title … --description … --start [--model M] [--effort E] [--preset P]`; you are its author |
 
 ## Rules
 
@@ -19,6 +19,7 @@ Three tools, one question each.
 - Independent tasks go out at once, one friend each. Dependent tasks go out in order, each after the previous handoff.
 - Every call note is complete on its own: the task, the files, the tests that prove it, the branch to build on. The friend has the story record but not your head.
 - `--fork` when the friend needs your reasoning so far (a second opinion); fresh when it needs a clean view (a review, a build).
+- The three picks are optional and default to the position's: name `--model` and `--effort` when the piece wants a different mind, `--preset` when it should wake with a smaller set of skills (`$HARNESS_CLI cast options` lists all three).
 - `wait` after casting, then end your turn. Do not poll; the handoffs wake you.
 - Nest sub-stories one level. Deeper is almost always a sign the outline was wrong.
 

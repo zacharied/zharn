@@ -48,9 +48,12 @@ through. Everything else is yours too — fork it.
 > env vars and CLI verbs change without migration until further notice.
 
 Work is a **story** ([docs/AGENT-MODEL.md](docs/AGENT-MODEL.md)); you are its author, agents are its
-cast. Write a story on the board, press **Start**: the harness casts a **protagonist** from a role
-(`harness/config_def.py: DEFAULT_ROLES`) on a fresh **context** (one `claude -p --output-format
-stream-json` process) and hands it the brief. The story's state is `(phase, ball)`: phase moves only
+cast. Write a story on the board, press **Start**: you pick a **model**, an **effort** and a **preset**
+(which skills it wakes up with — `harness/config_def.py: MODELS`, `EFFORTS`, `DEFAULT_PRESETS`), and the
+harness casts a **protagonist** on a fresh **context** (one `claude -p --output-format stream-json`
+process) and hands it the brief. Whatever you leave empty comes from the **position** the cast site
+implies — protagonist, friend, or a story-less bare context (`CAST_POSITIONS`), which also carries the
+instructions, the outline rule and the permission ceiling. The story's state is `(phase, ball)`: phase moves only
 through the actions on the story page (Proceed, Approve, Back to planning, Cancel, Reopen) and the
 protagonist's `yield`/`proceed`; nobody sets a status. When the ball is yours the board says why.
 
@@ -61,14 +64,18 @@ Inside a character `HARNESS_CLI`, `HARNESS_CONTEXT_ID`, `HARNESS_STORY_KEY`, `HA
     {"body": "One decision.", "questions": [{"text": "pg or sqlite?", "options": ["pg", "sqlite"], "default": "sqlite"}]}
     EOF
     $HARNESS_CLI story yield --handoff --body "what changed / how verified / where to look"
+    $HARNESS_CLI story call --as Reviewer [--model M] [--effort E] [--preset P] --note …  # a friend
     $HARNESS_CLI story proceed | recap --body … | comment --body … | show
+    $HARNESS_CLI cast options                                                       # models, efforts, presets
 
 Every character's system prompt is stable for the life of its context: identity, the iron laws of
-`harness/skills/skills/being-a-character/SKILL.md`, the CLI contract, its role. Everything that moves — phase, the
+`harness/skills/skills/being-a-character/SKILL.md`, the CLI contract, its position's instructions. Everything that moves — phase, the
 attended thread, what it owes and awaits, where it stands — arrives as a `[situation]` line on top of every message,
 and the skill for the current phase rides the message whenever the phase changes. `harness/skills/` is a Claude Code
 plugin (`--plugin-dir` at every spawn; `HARNESS_SKILLS_DIR` overrides it): four zharn skills and five discipline
-skills vendored from superpowers (`harness/skills/VENDORED.md`). Edit a skill and the next spawn has it. The full
+skills vendored from superpowers (`harness/skills/VENDORED.md`). A preset that names a subset gets a filtered
+copy of the plugin under `.zharn/local/skills/`; `being-a-character` and the phase skills are delivered by the
+harness itself, so no preset can switch them off. Edit a skill and the next spawn has it. The full
 mechanics are in the [lifecycle spec](docs/specs/story-lifecycle.md); harness-spawned minions are still Claude's native
 `Agent` tool.
 
@@ -90,7 +97,7 @@ QT_QPA_PLATFORM=offscreen python -m pytest      # ~600 tests, ~30 s, no display 
 
 Three layers, all offscreen:
 
-* `tests/test_<module>.py` — unit tests per Python module (workspace, lifecycle, stories, contexts, roles, stream interpreter, models, IPC, CLI, watcher, layout, notifier, process wrapper).
+* `tests/test_<module>.py` — unit tests per Python module (workspace, lifecycle, stories, contexts, casting, skills, stream interpreter, models, IPC, CLI, watcher, layout, notifier, process wrapper).
 * `tests/test_ui_*.py` — **drive the real QML** through `tests/ui.py`: find a control by `objectName`,
   click it, type into it, assert the store changed. Every interactive control in `qml/` has a stable
   `objectName` (`startButton`, `card_ZHAR-3`, `stripButton_board`, `optionButton_<comment>_<i>` …) — keep
@@ -98,7 +105,7 @@ Three layers, all offscreen:
 * `tests/test_app.py`, `tests/test_agents.py` — end-to-end: hot reload, fake-agent conversations, IPC.
 * `tests/skills/` — the paid layer: three scenarios against real `claude -p`, each run with and without the skill under
   test; assertions read `verbs_log`. Skipped unless `HARNESS_PAID_TESTS=1`; `HARNESS_PAID_MODEL` picks the model for
-  every role in the run. Each run writes `baseline.json` and `skilled.json` beside its scenario.
+  every character in the run. Each run writes `baseline.json` and `skilled.json` beside its scenario.
 
 Anything a QML button calls is an `@intent` (`harness/notify.py`): if it raises, the message shows in
 the status bar (`app.notify.lastError`) instead of silently doing nothing.
