@@ -12,6 +12,13 @@ from harness.__main__ import build, ROOT
 OUT = ROOT / "tests" / "_out"
 
 
+def rewrite(path: Path, text: str):
+    """Put a file back as it came: UTF-8, LF endings. These tests round-trip real repo files through the hot
+    reloader, and Path.write_text uses the platform newline — on Windows that rewrites qml/ and
+    harness/ from LF to CRLF and leaves the tree dirty after every run."""
+    path.write_text(text, encoding="utf-8", newline="\n")
+
+
 def wait_until(cond, timeout_ms=4000, step=30):
     t0 = time.time()
     while time.time() - t0 < timeout_ms / 1000:
@@ -109,12 +116,12 @@ def test_screenshot(harness):
 def test_qml_hot_reload_new_generation(harness):
     app, store, reloader = harness
     f = ROOT / "qml" / "content" / "Welcome.qml"
-    src = f.read_text()
+    src = f.read_text(encoding="utf-8")
     store.layout.openContent("context", "ctx_1", "Context 1")
     QTest.qWait(50)
     gen = store.generation
     try:
-        f.write_text(src.replace("Welcome to zharn", "Welcome to zharn (reloaded)"))
+        rewrite(f, src.replace("Welcome to zharn", "Welcome to zharn (reloaded)"))
         assert wait_until(lambda: store.generation == gen + 1), f"no new generation; err={store.reloadError}"
         assert store.reloadError == ""
         win = root(reloader)
@@ -124,19 +131,19 @@ def test_qml_hot_reload_new_generation(harness):
         # a broken *content* file still swaps the generation (root loads) but surfaces the error
         store.layout.openContent("welcome", "welcome", "Welcome")  # make its Loader active
         QTest.qWait(50)
-        f.write_text(src + "\nthis is not qml {")
+        rewrite(f, src + "\nthis is not qml {")
         assert wait_until(lambda: store.reloadError != "" and store.generation == gen + 2)
         assert "Welcome.qml" in store.reloadError
         # a broken *root* keeps the previous generation
         main_qml = ROOT / "qml" / "Main.qml"
-        main_src = main_qml.read_text()
-        main_qml.write_text(main_src + "\nbroken {")
+        main_src = main_qml.read_text(encoding="utf-8")
+        rewrite(main_qml, main_src + "\nbroken {")
         assert wait_until(lambda: "Main.qml" in store.reloadError)
         assert store.generation == gen + 2
-        main_qml.write_text(main_src)
+        rewrite(main_qml, main_src)
         assert wait_until(lambda: store.generation == gen + 3)
     finally:
-        f.write_text(src)
+        rewrite(f, src)
         wait_until(lambda: store.reloadError == "" and store.generation == gen + 4)
     assert store.reloadError == ""
 
@@ -144,16 +151,16 @@ def test_qml_hot_reload_new_generation(harness):
 def test_python_hot_reload_swaps_code_in_place(harness):
     app, store, reloader = harness
     f = ROOT / "harness" / "content.py"
-    src = f.read_text()
+    src = f.read_text(encoding="utf-8")
     gen = store.generation
     try:
         assert store.content.titleFor("welcome") == "Welcome"
-        f.write_text(src.replace('"title": "Welcome",', '"title": "Welcome!",'))
+        rewrite(f, src.replace('"title": "Welcome",', '"title": "Welcome!",'))
         assert wait_until(lambda: store.content.titleFor("welcome") == "Welcome!"), store.reloadError
         assert not store.restartRequired
         assert wait_until(lambda: store.generation == gen + 1)  # python change → re-render
     finally:
-        f.write_text(src)
+        rewrite(f, src)
         wait_until(lambda: store.content.titleFor("welcome") == "Welcome")
 
 

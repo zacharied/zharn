@@ -47,16 +47,10 @@ Item {
             ScrollBar.vertical: ScrollBar {}
             property bool stickToEnd: true
             onContentHeightChanged: if (stickToEnd) positionViewAtEnd()
-            WheelHandler {
-                acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-                onWheel: (e) => {
-                    var dy = e.pixelDelta.y !== 0 ? e.pixelDelta.y : e.angleDelta.y / 120 * 60
-                    list.contentY = Math.max(list.originY, Math.min(list.originY + Math.max(0, list.contentHeight - list.height), list.contentY - dy))
-                    list.stickToEnd = list.atYEnd
-                }
-            }
+            WheelScroll { flick: list; onScrolled: list.stickToEnd = list.atYEnd }
             delegate: Item {
                 id: row
+                objectName: "transcriptRow_" + index
                 required property int index
                 required property string role
                 required property string kind
@@ -101,7 +95,7 @@ Item {
                             visible: !row.isTool
                             anchors { left: parent.left; right: parent.right; top: parent.top; margins: row.isUser ? 6 : 0; leftMargin: row.isUser ? 8 : 0 }
                             objectName: "transcriptBody_" + row.index
-                            text: row.text
+                            text: row.isTool ? "" : row.text   // never a second, un-elided copy of tool output
                             textFormat: (row.kind === "text" && !row.isUser) ? TextEdit.MarkdownText : TextEdit.PlainText
                             color: row.isThinking || row.kind === "note" ? app.theme.textMuted : app.theme.text
                             font.pixelSize: app.theme.fontSize - 0.5
@@ -109,6 +103,7 @@ Item {
                         }
                         Text {
                             id: toolBody
+                            objectName: "transcriptTool_" + row.index
                             visible: row.isTool
                             anchors { left: parent.left; right: parent.right; top: parent.top; margins: 6; leftMargin: 8 }
                             text: row.kind === "tool_use" ? row.input : row.text  // `text` alone would be Text.text

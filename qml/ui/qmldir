@@ -9,6 +9,7 @@ Meter 1.0 Meter.qml
 ToolWindowHeader 1.0 ToolWindowHeader.qml
 TextBox 1.0 TextBox.qml
 Prose 1.0 Prose.qml
+WheelScroll 1.0 WheelScroll.qml
 Field 1.0 Field.qml
 Combo 1.0 Combo.qml
 Divider 1.0 Divider.qml

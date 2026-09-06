@@ -115,3 +115,56 @@ def test_dragging_the_transcript_does_not_scroll_it(ui):
     assert lst.property("contentY") == before, "the transcript panned on a mouse drag"
     ui.wheel(lst, notches=1)
     assert lst.property("contentY") < before, "the wheel no longer scrolls the transcript"
+
+
+def fill_transcript(ui, c, n=25):
+    for i in range(n):
+        ui.store.contexts.send(c.id, f"filler {i} " + "words " * 12)
+        assert wait_until(lambda: c.status == "idle")
+    QTest.qWait(200)
+
+
+def test_transcript_follows_the_tail_again_after_the_reader_scrolls_back(ui):
+    """The wheel has to be able to reach the true bottom. If its clamp stops even a pixel short,
+    atYEnd never goes true, stickToEnd latches false, and the view stops following new output
+    for the rest of the session."""
+    c = open_context(ui)
+    assert wait_until(lambda: c.status == "idle")
+    fill_transcript(ui, c)
+    lst = ui.find("transcript")
+    assert lst.property("contentHeight") > lst.property("height"), "transcript is not scrollable"
+
+    ui.wheel(lst, notches=1)                       # read back through some history
+    assert not lst.property("atYEnd")
+    for _ in range(60):                            # ... then wheel back down to the bottom
+        if lst.property("atYEnd"):
+            break
+        ui.wheel(lst, notches=-1)
+    assert lst.property("atYEnd"), "the wheel cannot reach the bottom of the transcript"
+
+    ui.store.contexts.send(c.id, "arrived after the reader came back")
+    assert wait_until(lambda: c.status == "idle")
+    assert wait_until(lambda: ui.find("transcript").property("count") == c.transcript.count())
+    QTest.qWait(200)
+    # not atYEnd: positionViewAtEnd() ignores bottomMargin, so following the tail lands ten
+    # pixels short of it. What matters is that the end of the content is on screen.
+    origin, content, view = (lst.property(x) for x in ("originY", "contentHeight", "height"))
+    assert lst.property("contentY") + view >= origin + content - 1,         "a new message did not scroll into view"
+
+
+def test_tool_rows_fold_and_keep_no_hidden_copy_of_their_output(ui):
+    """Tool blocks stay a Text so they can elide; the Prose beside them must not quietly hold a
+    second, un-elided copy of what can be very large output."""
+    c = open_context(ui, "please run a tool")
+    assert wait_until(lambda: c.status == "idle")
+    assert wait_until(lambda: ui.find("transcript").property("count") == c.transcript.count())
+    i = next(i for i, r in enumerate(c.transcript.rows()) if r["kind"] == "tool_result")
+    assert c.transcript.rows()[i]["text"], "the fake produced no tool output to fold"
+
+    tool = ui.find(f"transcriptTool_{i}")
+    assert tool.property("maximumLineCount") == 4, "tool output no longer folds"
+    assert ui.find(f"transcriptBody_{i}").property("text") == "", \
+        "the hidden Prose still carries the whole tool output"
+
+    ui.click(ui.find(f"transcriptRow_{i}"))
+    assert tool.property("maximumLineCount") > 4, "tapping a tool row no longer expands it"

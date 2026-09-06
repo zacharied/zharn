@@ -137,13 +137,7 @@ ContentBase {
         anchors.fill: parent; contentHeight: page.implicitHeight + 48; clip: true
         interactive: false
         ScrollBar.vertical: ScrollBar {}
-        WheelHandler {
-            acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-            onWheel: (e) => scroller.scrollBy(e.pixelDelta.y !== 0 ? e.pixelDelta.y : e.angleDelta.y / 120 * 60)
-        }
-        function scrollBy(dy) {
-            contentY = Math.max(0, Math.min(Math.max(0, contentHeight - height), contentY - dy))
-        }
+        WheelScroll { flick: scroller }
         ColumnLayout {
             id: page
             anchors { left: parent.left; right: parent.right; top: parent.top; margins: 20; leftMargin: 28; rightMargin: 28 }
