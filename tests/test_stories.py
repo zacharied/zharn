@@ -1699,3 +1699,32 @@ def test_a_deleted_preset_falls_back_to_the_positions_own_skills(store):
     chr_id = store.start(key, "", "", "", "builder")
     store._characters[chr_id]["preset"] = "deleted-since"
     assert store._cast_of(store._characters[chr_id])["preset"] == "full"
+
+# ---------------------------------------------------------------- records written before positions existed
+
+def old_record(store, chr_id):
+    """A character as ZHAR-5's predecessor wrote it: a `role` name, and none of the three picks."""
+    ch = store._characters[chr_id]
+    for gone in ("position", "model", "effort", "preset"):
+        ch.pop(gone, None)
+    ch["role"] = "claude-deep"
+    return ch
+
+
+def test_a_brief_renders_for_a_cast_recorded_before_positions(store):
+    key, chr_id = started(store)
+    old_record(store, chr_id)
+    text = render_brief(store.story(key), store.comments(key), store._characters, "")
+    assert "## Cast" in text and store._characters[chr_id]["name"] in text
+
+
+def test_recasting_a_character_recorded_before_positions_falls_back_by_where_it_stands(store, contexts):
+    key, chr_id = started(store)
+    friend = store.cast_call(chr_id, "a second pair of eyes", "Second")
+    old_record(store, chr_id)
+    old_record(store, friend["character"])
+    for c in (chr_id, friend["character"]):
+        contexts.get(store._characters[c]["live_context"]).status = "idle"    # turns ended
+        store.recast(key, c, "claude-sonnet-5")
+    assert store._characters[chr_id]["position"] == cfg.DEFAULT_POSITION         # it leads the story
+    assert store._characters[friend["character"]]["position"] == "friend"        # it does not

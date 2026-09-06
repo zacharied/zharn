@@ -84,7 +84,7 @@ def render_brief(story: lc.Story, comments: list[dict], characters: dict[str, di
         out += ["## Recaps (latest per character)", ""] + [f"**{author_name(a, characters)}**: {c['body']}" for a, c in latest.items()] + [""]
     cast = [ch for ch in characters.values() if ch["story_key"] == story.key]
     if cast:
-        out += ["## Cast", ""] + [f"- {ch['name']} — {ch['position']}" + (" (protagonist)" if ch["id"] == story.protagonist else "") for ch in cast] + [""]
+        out += ["## Cast", ""] + [f"- {ch['name']} — {ch.get('position', '')}" + (" (protagonist)" if ch["id"] == story.protagonist else "") for ch in cast] + [""]
     if substories:
         out += ["## Sub-stories", ""] + [f"- {x['key']}: {x['title']} ({x['phase']}" + (f", ball {x['ball']}" if x['ball'] else "") + ")"
                                         for x in substories] + [""]
@@ -623,11 +623,20 @@ class StoryStore(QObject):
             return None
         return self._character_prompt(self._stories[ch["story_key"]], ch, self._cast_of(ch))
 
+    def _position_of(self, ch: dict) -> str:
+        """A character's position. Records written before ZHAR-5 have none, and the old role name is not
+        one (DESIGN.md §0: no aliases): the story itself says whether it leads, and that is what decides."""
+        if ch.get("position"):
+            return ch["position"]
+        s = self._stories.get(ch.get("story_key", ""))
+        lead = s is not None and s.protagonist == ch["id"]
+        return getattr(cfg, "DEFAULT_POSITION", "protagonist") if lead else FRIEND_POSITION
+
     def _cast_of(self, ch: dict) -> dict:
         """The cast a character was cast with, resolved fresh from its position and its three picks."""
         try:   # rebuild, not resolve: a pick that no longer stands falls back to the position's own, and
                # never costs the character the instructions or the outline rule the position carries (§1).
-            return self._casting.rebuild(ch.get("position", ""), ch.get("model"), ch.get("effort"), ch.get("preset"))
+            return self._casting.rebuild(self._position_of(ch), ch.get("model"), ch.get("effort"), ch.get("preset"))
         except (ValueError, KeyError):
             return {}
 
@@ -789,8 +798,8 @@ class StoryStore(QObject):
                 note, fork_from, environment = m_call.group(2).strip() or f"called in as {friend_name}", None, None
             else:
                 source = self._by_name(key, m_fork.group(1))    # a fork is cast exactly as its source was
-                cast = self._casting.resolve(source["position"], source.get("model", ""), source.get("effort", ""),
-                                             source.get("preset", ""))
+                cast = self._casting.resolve(self._position_of(source), source.get("model"),
+                                             source.get("effort"), source.get("preset"))
                 note, fork_from, environment = m_fork.group(2).strip() or "a side question", source["id"], source.get("environment")
             chr_id = new_id("chr_")
             prev_story, prev_comments = self._stories[key], list(self._comments.get(key, []))
@@ -836,7 +845,7 @@ class StoryStore(QObject):
         own right — the cli default model, the provider's own effort — and must reach the cast intact."""
         key = ch["story_key"]
         s = self._stories[key]
-        cast = self._casting.resolve(ch["position"],
+        cast = self._casting.resolve(self._position_of(ch),
                                      ch.get("model") if model is None else model,
                                      ch.get("effort") if effort is None else effort,
                                      ch.get("preset") if preset is None else preset)
@@ -846,6 +855,7 @@ class StoryStore(QObject):
         fresh = (recap is not None and old is not None
                  and getattr(old, "turns", 0) - ch.get("recap_turns", 0) <= getattr(cfg, "RECAP_STALE_TURNS", 20))
         rung = "rung 1: fresh recap" if fresh else "rung 3: no fresh recap"
+        ch["position"] = cast["position"]   # a record written before positions gets one here
         ch["model"], ch["effort"], ch["preset"] = cast["model"], cast["effort"], cast["preset"]
         ch["phase_seen"] = None                     # a fresh context: the brief ends with the current phase skill
         skill = self._phase_skill_due(ch)
