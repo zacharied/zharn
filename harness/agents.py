@@ -118,6 +118,10 @@ class ClaudeCodeProcess(QObject):
         penv = QProcessEnvironment.systemEnvironment()
         for k in ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"):  # allow nesting inside another claude
             penv.remove(k)
+        # Same reason, for nesting inside another *character*: a spawner's HARNESS_* are its own
+        # identity, not the child's. _env() is the only source of what the child gets.
+        for k in [k for k in penv.keys() if k.upper().startswith("HARNESS_")]:
+            penv.remove(k)
         for k, v in env.items():
             penv.insert(k, str(v))
         self.proc.setProcessEnvironment(penv)

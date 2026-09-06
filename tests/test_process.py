@@ -49,3 +49,16 @@ def test_program_on_path_is_resolved_to_absolute(tmp_path, monkeypatch):
     p = ClaudeCodeProcess(cwd=os.getcwd(), env={})
     assert os.path.normcase(p.program) == os.path.normcase(str(exe))   # Windows resolves via PATHEXT, which is upper-case
     assert p.args[0] == "--flag"
+
+
+def test_child_harness_vars_come_only_from_env_not_inheritance(monkeypatch):
+    # Spawning inside a character must not hand the child the *spawner's* identity: _env() is the
+    # only source of a child's HARNESS_*, the way CLAUDECODE is dropped so claude can nest.
+    monkeypatch.setenv("HARNESS_CHARACTER_ID", "chr_outer")
+    monkeypatch.setenv("HARNESS_REPO", "outer-repo")
+    p = ClaudeCodeProcess(cwd=os.getcwd(), env={"HARNESS_CONTEXT_ID": "ctx_inner"})
+    penv = p.proc.processEnvironment()
+    assert penv.value("HARNESS_CONTEXT_ID") == "ctx_inner", "what _env() passes must reach the child"
+    assert not penv.contains("HARNESS_CHARACTER_ID"), "the spawner's character leaked into the child"
+    assert not penv.contains("HARNESS_REPO"), "the spawner's repo leaked into the child"
+    assert penv.contains("PATH"), "only HARNESS_* is dropped, not the whole environment"
