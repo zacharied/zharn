@@ -85,6 +85,10 @@ def violations(expected: dict, result: dict) -> list[str]:
         out.append("the tree was edited: " + result["dirty"])
     if expected.get("committed") and not result["committed"]:
         out.append("the work was not committed: " + (result["dirty"] or "no environment"))
+    if expected.get("uncommitted") and result["committed"]:
+        out.append("the work was committed, and the note said not to")
+    if expected.get("subject") and not result.get("subject_found", True):
+        out.append(f"no {expected['subject']} was ever cast, so nothing was asserted")
     return out
 
 
@@ -182,8 +186,17 @@ def run_scenario(name: str, *, omit: str | list[str] | None, workdir: Path, mode
                 break
             store.stories.comment(key, replies.pop(0))
         comments = store.stories.comments(key)
-        ch = store.stories.character(chr_id)
+        # Whose verbs the scenario is about. Default the protagonist; `"subject": "friend"` asserts on the
+        # friend the protagonist called instead, which is the only way to reach a non-protagonist position —
+        # the harness casts a friend from a `call`, never from Start (spec §2.2).
+        subject, found = store.stories.character(chr_id), True
+        if exp.get("subject") and exp["subject"] != "protagonist":
+            match = [c for c in store.stories.cast(key) if c["position"] == exp["subject"]]
+            found = bool(match)
+            subject = match[0] if match else subject
+        ch = subject
         return {"scenario": name, "skill_omitted": names, "seconds": round(time.time() - t0),
+                "subject": ch["name"], "subject_position": ch["position"], "subject_found": found,
                 "model": sorted({c.model for c in store.contexts.contexts_for(key) if c.model}),
                 "phase": store.stories.get(key)["phase"], "ball": store.stories.get(key)["ball"],
                 "verbs_log": [{k: e.get(k) for k in ("verb", "args", "ok", "error")} for e in ch["verbs_log"]],

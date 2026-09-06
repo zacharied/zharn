@@ -15,8 +15,9 @@ def v(verb, ok=True, **args):
     return {"verb": verb, "args": args, "ok": ok, "error": ""}
 
 
-def test_scenarios_are_the_three_of_the_spec():
-    assert runner.scenarios() == ["batch-questions", "handoff-not-silence", "outline-before-proceed"]
+def test_scenarios_are_the_four_of_the_spec():
+    assert runner.scenarios() == ["batch-questions", "friend-stays-in-lane", "handoff-not-silence",
+                                  "outline-before-proceed"]
     for name in runner.scenarios():
         exp = runner.load(name)
         skill = exp["skill"]
@@ -64,6 +65,35 @@ def test_violations_checks_must_must_not_max_and_flags():
     assert any("forbidden" in x for x in out) and any("yield ×2 > 1" in x for x in out)
     assert any("harness yielded" in x for x in out) and any("without options" in x for x in out) and any("edited" in x for x in out)
     assert any("not committed" in x for x in out)
+
+
+def test_violations_flags_work_the_lead_committed_when_its_note_said_not_to():
+    """A friend shares the lead's tree; the lead is who declares the work done (spec §5.2)."""
+    exp = {"uncommitted": True}
+    ok = {"verbs_log": [], "auto_yields": 0, "dirty": " M docs/one.md", "committed": False}
+    assert runner.violations(exp, ok) == []
+    bad = runner.violations(exp, {**ok, "committed": True})
+    assert bad == ["the work was committed, and the note said not to"]
+
+
+def test_violations_says_so_when_the_subject_was_never_cast():
+    """A friend scenario that asserts on the protagonist's log by accident would pass for the wrong reason."""
+    exp = {"subject": "friend", "must": [{"verb": "yield", "args": {"kind": "handoff"}}]}
+    result = {"verbs_log": [v("yield", kind="handoff")], "auto_yields": 0, "dirty": "", "committed": False}
+    assert runner.violations(exp, {**result, "subject_found": True}) == []
+    assert runner.violations(exp, {**result, "subject_found": False}) == [
+        "no friend was ever cast, so nothing was asserted"]
+
+
+def test_a_friend_scenario_forbids_a_refused_yield():
+    """The ZHAR-5 symptom: a friend told the lead's playbook tries `yield --handoff` on #main and is refused,
+    because only a thread's lead yields in it (spec §2.4). The refusal lands in verbs_log."""
+    exp = runner.load("friend-stays-in-lane")
+    assert exp["subject"] == "friend" and exp["skill"] == "being-a-friend"
+    assert {"verb": "yield", "ok": False} in exp["must_not"]
+    refused = {"verbs_log": [v("yield", ok=False, kind="handoff")], "auto_yields": 0, "dirty": "", "committed": False,
+               "subject_found": True}
+    assert any("forbidden" in x for x in runner.violations(exp, refused))
 
 
 def test_violations_must_defaults_to_accepted_calls():

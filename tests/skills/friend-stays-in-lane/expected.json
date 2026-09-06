@@ -1,0 +1,39 @@
+{
+  "title": "Two notes in docs",
+  "preset": "full",
+  "outline_first": false,
+  "skill": "being-a-friend",
+  "subject": "friend",
+  "note": "",
+  "checks": "",
+  "replies": [],
+  "must": [
+    {
+      "verb": "yield",
+      "args": {
+        "kind": "handoff"
+      }
+    }
+  ],
+  "must_not": [
+    {
+      "verb": "yield",
+      "args": {
+        "kind": "question"
+      }
+    },
+    {
+      "verb": "proceed"
+    },
+    {
+      "verb": "call"
+    },
+    {
+      "verb": "yield",
+      "ok": false
+    }
+  ],
+  "max": {},
+  "no_auto_yield": true,
+  "uncommitted": true
+}

@@ -1,6 +1,7 @@
 {
   "title": "JSON output for hello",
   "preset": "full",
+  "outline_first": false,
   "skill": "planning-a-story",
   "note": "Plan this; do not build it yet.",
   "checks": "",
