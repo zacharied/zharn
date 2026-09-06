@@ -57,7 +57,7 @@ def test_plugin_manifest_names_the_plugin_zharn():
 # ---------------------------------------------------------------- the plugin tree (spec §5.1)
 
 PLUGIN = ROOT / "harness" / "skills"
-ZHARN = {"being-a-character", "planning-a-story", "implementing-a-story", "delegating"}
+ZHARN = {"being-a-character", "being-a-friend", "planning-a-story", "implementing-a-story", "delegating"}
 VENDORED = {"test-driven-development", "systematic-debugging", "verification-before-completion",
             "receiving-code-review", "requesting-code-review"}
 FORBIDDEN = ("superpowers:", "human partner", "partner", "subagent", "Subagent", "Task tool", "TodoWrite")
@@ -112,7 +112,7 @@ def test_systematic_debugging_leaves_the_authors_test_artifacts_upstream():
                      "defense-in-depth.md", "root-cause-tracing.md", "find-polluter.sh"}
 
 
-@pytest.mark.parametrize("name", ["being-a-character", "planning-a-story", "implementing-a-story"])
+@pytest.mark.parametrize("name", ["being-a-character", "being-a-friend", "planning-a-story", "implementing-a-story"])
 def test_injected_skills_avoid_the_fake_claudes_trigger_words(name):
     """tests/fake_claude.py fails a turn on "fail" and sleeps on "slow"; these bodies ride every brief and delivery."""
     body = skills.skill_body(name).lower()
